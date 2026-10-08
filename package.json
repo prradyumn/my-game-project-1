@@ -1,0 +1,26 @@
+{
+  "name": "my-game-project-1",
+  "private": true,
+  "devDependencies": {
+    "@genex-ai/cli-demo": "^1.35.0",
+    "playwright-core": "^1.64.0",
+    "vite": "^8.3.3"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "n8ao": "^2.0.1",
+    "postprocessing": "^6.39.5",
+    "three": "^0.186.1"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check:world": "node tools/check-world.mjs",
+    "bake:mocap": "node tools/bake-mocap.mjs",
+    "texture": "node tools/gemini-image.mjs",
+    "bake:people": "node tools/bake-people.mjs",
+    "video:intro": "node tools/intro-video.mjs"
+  }
+}

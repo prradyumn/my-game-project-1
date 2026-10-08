@@ -1,0 +1,7 @@
+# genex local metadata + secrets — never publish
+.genex/
+.env
+.env.*
+!.env.example
+node_modules/
+dist/

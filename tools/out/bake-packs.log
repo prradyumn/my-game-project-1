@@ -1,0 +1,102 @@
+working…
+sources loaded in 1.0 s
+  Male_Adult_15: fbx loaded
+  Male_Adult_15: materials (m204_skin)
+  Male_Adult_15: weld 21876 verts, attrs position,skinIndex,skinWeight,normal,uv, morph 
+  Male_Adult_15: welded to 4517
+  Male_Adult_15: regrouped
+  Male_Adult_15: oriented
+  Male_Adult_15: bounds -0.00..1.82
+m: body ready
+  pranam 0.0 s
+  surya 0.2 s
+  meditate 0.0 s
+  floorSit 0.0 s
+  danceA 0.0 s
+  danceB 0.1 s
+  drum 0.0 s
+  stir 0.0 s
+  buy 0.0 s
+  sweep 0.0 s
+  toss 0.0 s
+motions-m: 1.18 MB, 11 clips (pranam, surya, meditate, floorSit, danceA, danceB, drum, stir, buy, sweep, toss)
+  Female_Adult_06: fbx loaded
+  Female_Adult_06: materials (f202_skin, f202_opacity)
+  Female_Adult_06: weld 20976 verts, attrs position,skinIndex,skinWeight,normal,uv, morph 
+  Female_Adult_06: welded to 4372
+  Female_Adult_06: regrouped
+  Female_Adult_06: oriented
+  Female_Adult_06: bounds -0.00..1.73
+f: body ready
+  pranam 0.0 s
+  surya 0.1 s
+  meditate 0.0 s
+  floorSit 0.0 s
+  danceA 0.0 s
+  danceB 0.1 s
+  drum 0.0 s
+  stir 0.0 s
+  buy 0.0 s
+  sweep 0.0 s
+  toss 0.0 s
+motions-f: 1.18 MB, 11 clips (pranam, surya, meditate, floorSit, danceA, danceB, drum, stir, buy, sweep, toss)
+  Male_Child_01: fbx loaded
+  Male_Child_01: materials (cm001_skin)
+  Male_Child_01: weld 19980 verts, attrs position,skinIndex,skinWeight,normal,uv, morph 
+  Male_Child_01: welded to 3936
+  Male_Child_01: regrouped
+  Male_Child_01: oriented
+  Male_Child_01: bounds 0.00..1.43
+c: body ready
+  pranam 0.0 s
+  hopscotch 0.0 s
+  play 0.0 s
+  floorSit 0.0 s
+motions-c: 0.33 MB, 4 clips (pranam, hopscotch, play, floorSit)
+motions-m: 1.18 MB raw -> 0.54 MB
+motions-f: 1.18 MB raw -> 0.54 MB
+motions-c: 0.33 MB raw -> 0.19 MB
+working…
+sources loaded in 1.0 s
+  Male_Child_01: fbx loaded
+  Male_Child_01: materials (cm001_skin)
+  Male_Child_01: weld 19980 verts, attrs position,skinIndex,skinWeight,normal,uv, morph 
+  Male_Child_01: welded to 3936
+  Male_Child_01: regrouped
+  Male_Child_01: oriented
+  Male_Child_01: bounds 0.00..1.43
+Male_Child_01: 1.56 MB, 11 clips, height 1.43 m, walk 1.131 m/s
+Male_Child_01: 1.56 MB raw -> 0.77 MB
+working…
+sources loaded in 0.9 s
+  Male_Child_02: fbx loaded
+  Male_Child_02: materials (cm012_skin)
+  Male_Child_02: weld 21930 verts, attrs position,skinIndex,skinWeight,normal,uv, morph 
+  Male_Child_02: welded to 4463
+  Male_Child_02: regrouped
+  Male_Child_02: oriented
+  Male_Child_02: bounds -0.00..1.42
+Male_Child_02: 1.59 MB, 11 clips, height 1.43 m, walk 1.131 m/s
+Male_Child_02: 1.59 MB raw -> 0.78 MB
+working…
+sources loaded in 0.9 s
+  Female_Child_01: fbx loaded
+  Female_Child_01: materials (cf001_skin)
+  Female_Child_01: weld 21306 verts, attrs position,skinIndex,skinWeight,normal,uv, morph 
+  Female_Child_01: welded to 4224
+  Female_Child_01: regrouped
+  Female_Child_01: oriented
+  Female_Child_01: bounds -0.00..1.43
+Female_Child_01: 1.61 MB, 11 clips, height 1.43 m, walk 1.294 m/s
+Female_Child_01: 1.61 MB raw -> 0.79 MB
+working…
+sources loaded in 1.0 s
+  Female_Child_02: fbx loaded
+  Female_Child_02: materials (cf011_skin)
+  Female_Child_02: weld 20610 verts, attrs position,skinIndex,skinWeight,normal,uv, morph 
+  Female_Child_02: welded to 4210
+  Female_Child_02: regrouped
+  Female_Child_02: oriented
+  Female_Child_02: bounds -0.00..1.44
+Female_Child_02: 1.58 MB, 11 clips, height 1.44 m, walk 1.294 m/s
+Female_Child_02: 1.58 MB raw -> 0.76 MB

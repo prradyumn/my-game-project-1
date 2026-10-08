@@ -1,0 +1,2 @@
+@./PROJECT_RULES.md
+@./docs/ARCHITECTURE.md

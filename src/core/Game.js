@@ -1,0 +1,981 @@
+import * as THREE from 'three';
+import { DEFAULT_SETTINGS, FAR_BANK_V, PLAYER, SACRED_FLAMES } from '../config.js';
+import { ASSET_MANIFEST, Assets } from './Assets.js';
+import { AudioManager } from './AudioManager.js';
+import { Input } from './Input.js';
+import { Physics } from './Physics.js';
+import { RenderSystem } from './Renderer.js';
+import { CameraRig } from '../gameplay/CameraRig.js';
+import { CharacterAnimator } from '../gameplay/CharacterAnimator.js';
+import { MooredBoats, PlayerBoat, prepareBoatGeometry, proceduralBoatGeometry } from '../gameplay/Boats.js';
+import { Player } from '../gameplay/Player.js';
+import { PradyActions } from '../gameplay/Actions.js';
+import { ClothSway } from '../gameplay/ClothSway.js';
+import { Missions } from '../gameplay/Missions.js';
+import { Combat, synthBladeHit, synthBladeWhoosh, synthDraw, synthSheathe, synthThump, synthWhoosh } from '../gameplay/Combat.js';
+import { Quest } from '../gameplay/Quest.js';
+import { UI } from '../ui/UI.js';
+import { makeSurfaceSet, proceduralSurface } from '../utils/textures.js';
+import { lerp } from '../utils/math.js';
+import { PHOTO_FILTERS, applyGrade } from './Grading.js';
+import { playIntro } from '../ui/IntroVideo.js';
+import { FOG } from '../world/Atmosphere.js';
+import { WORLD_UNIFORMS, makeWaterAware } from '../world/materials.js';
+import { RippleSystem, SmokeSystem, SplashSystem } from '../world/Particles.js';
+import { FireSystem } from '../world/Fire.js';
+import { NightScene } from '../world/Night.js';
+import { Birds, FloatingDiyas, GroundPigeons } from '../world/Life.js';
+import { Crowd } from '../world/Crowd.js';
+import { SkySystem } from '../world/SkySystem.js';
+import { Mist } from '../world/Mist.js';
+import { Wake } from '../world/Wake.js';
+import { FloatingFlowers } from '../world/FloatingFlowers.js';
+import { Fireworks, synthBoom, synthCrackle, synthWhistle } from '../world/Fireworks.js';
+import { SkyLanterns } from '../world/SkyLanterns.js';
+import { Underwater } from '../world/Underwater.js';
+import { Weather, synthRain, synthThunder } from '../world/Weather.js';
+import { Water } from '../world/Water.js';
+import { buildWorld } from '../world/World.js';
+import { bankCoords, ghatById, ghatToWorld, groundHeight, segmentForX } from '../world/WorldLayout.js';
+
+const SAVE_KEY = 'prady-save-v1';
+const SETTINGS_KEY = 'prady-settings-v1';
+const DEBUG = new URLSearchParams(location.search).has('debug');
+const NO_CROWD = new URLSearchParams(location.search).has('nocrowd');
+const FIXED_DT = 1 / 60;
+
+function loadJSON(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null');
+  } catch {
+    return null;
+  }
+}
+function saveJSON(key, v) {
+  try {
+    localStorage.setItem(key, JSON.stringify(v));
+  } catch {
+    /* private mode */
+  }
+}
+
+const ZERO_VEL = new THREE.Vector3();
+
+export class Game {
+  constructor(canvas, uiRoot) {
+    this.canvas = canvas;
+    this.settings = { ...DEFAULT_SETTINGS, ...(loadJSON(SETTINGS_KEY) || {}) };
+    this.ui = new UI(uiRoot, { keyArt: ASSET_MANIFEST.keyArt });
+    this.state = 'loading';
+    this.lastTime = performance.now();
+    this.fpsAcc = { t: 0, n: 0, fps: 0 };
+    this.photo = false;
+    this.pradyWet = { value: 0 }; // wet skin: fresh out of the river, or in the rain
+  }
+
+  async init() {
+    const ui = this.ui;
+    const assets = new Assets();
+    assets.onProgress = (p) => ui.setLoading(p * 0.75, 'Gathering the city…');
+
+    // Kick off every download in parallel.
+    const M = ASSET_MANIFEST;
+    this.assets = assets;
+    const pChar = assets.gltfAsync(M.character.model);
+    const pClips = Object.fromEntries(Object.entries(M.character.clips).map(([k, url]) => [k, assets.gltfAsync(url)]));
+    const pMocap = assets.track(fetch(M.character.mocap).then((r) => (r.ok ? r.json() : null)));
+    const pBoat = assets.gltfAsync(M.boat);
+    const pBoatLod = assets.gltfAsync(M.boatLod);
+    const pTex = Object.fromEntries(Object.entries(M.textures).map(([k, url]) => [k, assets.image(url)]));
+    this.audio = new AudioManager();
+    const pAudio = Object.entries(M.audio).map(([k, url]) => assets.audioBuffer(url).then((ab) => this.audio.setRaw(k, ab)));
+    const physics = await Physics.create();
+    this.physics = physics;
+
+    // Renderer, scene, camera
+    this.rs = new RenderSystem(this.canvas, this.settings);
+    const renderer = this.rs.renderer;
+    const scene = new THREE.Scene();
+    // world matrices are updated once per frame in the loop, not again by every scene render
+    // (the mirror and the main view): 3k objects, most of them crowd bones, ~2 ms a pass
+    scene.matrixWorldAutoUpdate = false;
+    this.scene = scene;
+    const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 3000);
+    this.camera = camera;
+    camera.layers.enable(1); // sky-only extras (stars) that the water mirror skips
+    camera.layers.enable(2); // things on or near the water the mirror skips (people, foam, petals)
+    scene.add(camera);
+
+    // Surfaces (photo -> seamless PBR set, or a procedural stand-in)
+    const textures = {};
+    for (const [k, p] of Object.entries(pTex)) {
+      const img = await p;
+      ui.setLoading(0.78, 'Weathering the sandstone…');
+      const strength = { sand: 4, carving: 6, wood: 3.5, straw: 3.5 }[k] ?? 3;
+      textures[k] = img ? makeSurfaceSet(img, { normalStrength: strength, roughness: k === 'plaster' ? [0.8, 0.98] : [0.7, 0.95] }) : proceduralSurface(k);
+      for (const t of Object.values(textures[k])) t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    }
+
+    ui.setLoading(0.8, 'Raising the ghats…');
+    await new Promise((r) => setTimeout(r, 30));
+    this.sky = new SkySystem(renderer, scene, this.rs.quality);
+    this.sky.timeSpeed = this.settings.timeSpeed;
+    this.world = buildWorld(scene, textures, physics);
+    this.water = new Water(renderer, scene, this.rs.quality);
+
+    ui.setLoading(0.88, 'Lighting the lamps…');
+    this.fire = new FireSystem(3200, 40);
+    this.smoke = new SmokeSystem(24, 30);
+    this.splash = new SplashSystem(700);
+    this.ripples = new RippleSystem(72);
+    scene.add(this.fire.points, this.smoke.points, this.splash.points, this.ripples.mesh);
+    this.mist = new Mist();
+    scene.add(this.mist.group);
+    this.weather = new Weather({ scene, camera, audio: this.audio, splash: this.splash, ripples: this.ripples, water: this.water, quality: this.settings.quality });
+    this.weather.setMode(this.settings.weather || 'auto');
+    this.audio.synth('rain', synthRain);
+    this.audio.synth('thunder', synthThunder);
+    this.birds = new Birds(160);
+    scene.add(this.birds.mesh);
+    this.diyas = new FloatingDiyas(this.water, this.fire, 120);
+    scene.add(this.diyas.group);
+    this.pigeons = new GroundPigeons(this.world.layout.pigeonSpots, { audio: this.audio });
+    scene.add(this.pigeons.mesh);
+    // Manikarnika: two of the pyres smoulder day and night
+    this.heatSources = [];
+    this.world.layout.pyres.forEach((p, i) => {
+      if (i % 2) return;
+      this.fire.add(new THREE.Vector3(p.x, p.y + 1.2, p.z), 2.4, true);
+      this.heatSources.push({ x: p.x, y: p.y + 1.3, z: p.z, h: 3.2, amt: 1 });
+    });
+    this.wake = new Wake(this.water, this.rs.qualityName === 'low' ? 200 : 360);
+    this.flowers = new FloatingFlowers(this.water, this.rs.qualityName);
+    scene.add(this.wake.mesh, this.flowers.mesh);
+    this.underwater = new Underwater({ water: this.water, quality: this.rs.qualityName });
+    scene.add(this.underwater.group);
+    // Dev Deepawali: sky lanterns and fireworks (a wedding's fireworks on ordinary nights)
+    this.lanterns = new SkyLanterns(this.rs.qualityName === 'low' ? 70 : 140);
+    this.fireworks = new Fireworks({ audio: this.audio });
+    scene.add(this.lanterns.mesh, this.fireworks.points);
+    this.audio.synth('fw-whistle', synthWhistle);
+    this.audio.synth('fw-boom', synthBoom);
+    this.audio.synth('fw-crackle', synthCrackle);
+
+    // Prady
+    const gltf = await pChar;
+    const clips = {};
+    const mocap = await pMocap;
+    this.rootMotion = mocap?.rootMotion || {};
+    if (mocap?.clips) {
+      for (const [role, name] of Object.entries(M.character.mocapClips)) {
+        const j = mocap.clips.find((c) => c.name === name);
+        if (j) clips[role] = THREE.AnimationClip.parse(j);
+      }
+      clips.mocap = true;
+    }
+    for (const [k, p] of Object.entries(pClips)) {
+      const g = await p;
+      if (!clips[k] && g?.animations?.length) {
+        clips[k] = g.animations[0];
+        clips[k].name = k;
+      }
+    }
+    this.buildCharacter(gltf, clips);
+
+    // Boats
+    const boatG = await pBoat;
+    const boatGeo = (boatG && prepareBoatGeometry(boatG.scene)) || proceduralBoatGeometry();
+    makeWaterAware(boatGeo.material, { wetness: false, puddles: false });
+    const lodG = await pBoatLod;
+    const lodGeo = (lodG && prepareBoatGeometry(lodG.scene)) || boatGeo;
+    if (lodGeo !== boatGeo) makeWaterAware(lodGeo.material, { wetness: false, puddles: false });
+    this.moored = new MooredBoats(lodGeo, this.world.layout.boats.moored);
+    // solid hulls: a swimmer goes round them (or climbs aboard), never through
+    for (const b of this.world.layout.boats.moored) physics.addBox(b.x, -0.06, b.z, 1.7, 0.78, 7.0, b.yaw);
+    scene.add(this.moored.mesh);
+    this.boat = new PlayerBoat(boatGeo, this.world.layout.boats.player);
+    scene.add(this.boat.object);
+
+    // Kashi after dark: ghat diyas, festival lights, boat lanterns, Milky Way
+    this.night = new NightScene({ scene, layout: this.world.layout, fire: this.fire, lampPosts: this.world.props.lampPosts, moored: this.moored, boat: this.boat });
+    console.info(`[night] ${this.night.stats.diyas} diyas, ${this.night.stats.bulbs} festival bulbs`);
+
+    // Player + camera
+    const start = this.world.layout.playerStart;
+    this.input = new Input(this.canvas);
+    this.camRig = new CameraRig(camera, physics);
+    this.camRig.yaw = start.yaw;
+    this.fx = this.makeFx();
+    this.player = new Player({ physics, water: this.water, model: this.character, animator: this.animator, start, fx: this.fx });
+    this.camRig.excludeCollider = this.player.collider;
+    this.actions = new PradyActions(this.player, {
+      scene,
+      physics,
+      water: this.water,
+      fx: this.fx,
+      animator: this.animator,
+      diyas: this.diyas,
+      ripples: this.ripples,
+      splash: this.splash,
+      sky: this.sky,
+      camRig: this.camRig,
+      ui,
+      audio: this.audio,
+      onEvent: (type, data) => this.missions?.onEvent?.(type, data),
+    });
+    // fighting: bare hands, or the talwar once Tulsi Akhara's guru gives it
+    this.combat = new Combat({
+      player: this.player,
+      animator: this.animator,
+      scene,
+      audio: this.audio,
+      camRig: this.camRig,
+      rootMotion: this.rootMotion,
+      akhara: this.world.akhara,
+      onEvent: (type, data) => {
+        if (type === 'noSword') this.ui.toast('No sword yet', 'The guru of Tulsi Akhara keeps a talwar for those who train.', 3);
+        this.missions?.onEvent?.(`combat:${type}`, data);
+      },
+    });
+    this.player.combat = this.combat;
+    for (const [n, f] of [['whoosh', synthWhoosh], ['blade-whoosh', synthBladeWhoosh], ['thump', synthThump], ['blade-hit', synthBladeHit], ['blade-draw', synthDraw], ['blade-sheathe', synthSheathe]]) this.audio.synth(n, f);
+    this.player.actions = this.actions;
+    this.camRig.waterHeightAt = (x, z) => this.water.heightAt(x, z);
+    const rat = this.world.layout.flames.find((f) => f.id === 'ratneshwar');
+    if (rat) this.water.setEddy(rat.x, rat.z);
+
+    // Quest + HUD
+    this.quest = new Quest({ scene, layout: this.world.layout, props: this.world.props, fire: this.fire, smoke: this.smoke, water: this.water, audio: this.audio, ui, sky: this.sky });
+    this.quest.onComplete = () => {
+      this.player.blessing = true;
+      ui.setObjectives(this.quest.objectives(), true);
+      this.save();
+    };
+    ui.setObjectives(this.quest.objectives(), false);
+
+    // Four pooled point lights give real warm light around the nearest flames and lamps.
+    this.lightPool = [];
+    for (let i = 0; i < 6; i++) {
+      const l = new THREE.PointLight(0xff9a48, 0, 26, 2);
+      scene.add(l);
+      this.lightPool.push(l);
+    }
+    this.lightTimer = 0;
+
+    // The people of the ghats (bodies stream in after the title screen is up)
+    if (!NO_CROWD) {
+      try {
+        this.crowd = new Crowd({
+          scene,
+          physics,
+          layout: this.world.layout,
+          props: this.world.props,
+          water: this.water,
+          fx: this.fx,
+          ripples: this.ripples,
+          fire: this.fire,
+          smoke: this.smoke,
+          moored: this.moored,
+          renderer,
+          camera,
+          sun: this.sky.sun,
+          exclude: this.player.collider,
+          manifest: M.people,
+          quality: this.settings.quality,
+        });
+        console.info(`[crowd] ${this.crowd.stats.slots} people planned (${this.crowd.stats.walkers} strollers, ${this.crowd.stats.groups} conversations)`);
+      } catch (e) {
+        console.error('[crowd] disabled:', e);
+        this.crowd = null;
+      }
+    }
+    ui.setCompassMarkers([
+      ...this.quest.objectives().map((o) => ({ ...o, kind: 'flame' })),
+      { id: 'boat', name: 'Your boat', pos: this.boat.object.position, kind: 'boat' },
+    ]);
+
+    await Promise.all(pAudio);
+    const pSound = this.audio.prepare(); // decodes off the main thread while shaders compile
+    this.rs.buildComposer(scene, camera);
+    this.applySettings();
+
+    // Warm up: one update + render so shaders compile behind the title screen.
+    ui.setLoading(0.95, 'Compiling shaders…');
+    this.update(0.016, true);
+    scene.updateMatrixWorld();
+    renderer.compile(scene, camera);
+    this.rs.render(this.sky.exposure);
+    await pSound;
+    ui.setLoading(1, 'Ready');
+
+    window.addEventListener('resize', () => this.rs.resize());
+    this.input.onLockChange = (locked) => {
+      if (!locked && this.state === 'play' && !this.photo) this.pause();
+    };
+    this.canvas.addEventListener('click', () => {
+      if (this.state === 'play') this.input.requestLock();
+    });
+
+    const save = loadJSON(SAVE_KEY);
+    ui.showTitle({
+      hasSave: !!save,
+      settings: this.settings,
+      onBegin: () => this.begin(null),
+      onContinue: () => this.begin(save),
+      onQuality: (q) => this.setSetting('quality', q),
+      onIntro: () => playIntro({ force: true }),
+    });
+    this.state = 'title';
+    this.loop();
+    this.crowd?.load(assets.gltf);
+  }
+
+  buildCharacter(gltf, clips) {
+    const wrapper = new THREE.Group();
+    wrapper.name = 'prady';
+    if (gltf) {
+      const model = gltf.scene;
+      model.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(model, true);
+      const h = box.max.y - box.min.y || 1;
+      const s = ASSET_MANIFEST.character.height / h;
+      model.scale.multiplyScalar(s);
+      const c = box.getCenter(new THREE.Vector3());
+      model.position.set(-c.x * s, -box.min.y * s, -c.z * s);
+      model.traverse((o) => {
+        if (o.isMesh) {
+          o.castShadow = true;
+          o.receiveShadow = true;
+          o.frustumCulled = false;
+          if (o.material) {
+            makeWaterAware(o.material, { caustics: true, wetness: false, puddles: false, selfWet: this.pradyWet });
+            if (o.isSkinnedMesh && o.material.map && !this.cloth) this.cloth = new ClothSway(o.material);
+          }
+        }
+      });
+      wrapper.add(model);
+      wrapper.updateMatrixWorld(true);
+      this.animator = new CharacterAnimator(model, clips);
+    } else {
+      // Fallback body so the game still runs without the asset.
+      const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.1, 6, 12).translate(0, 0.85, 0), new THREE.MeshStandardMaterial({ color: 0xff8a2a }));
+      body.castShadow = true;
+      wrapper.add(body);
+      this.animator = { update() {} };
+    }
+    this.character = wrapper;
+    this.scene.add(wrapper);
+  }
+
+  // Photo mode: save exactly what is on screen (read straight after the render, same frame)
+  savePhoto() {
+    this._snap = false;
+    this.missions?.emit('photo', {});
+    const canvas = this.rs.renderer.domElement;
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement('a');
+      const t = new Date();
+      a.download = `kashi-${t.getFullYear()}${String(t.getMonth() + 1).padStart(2, '0')}${String(t.getDate()).padStart(2, '0')}-${String(t.getHours()).padStart(2, '0')}${String(t.getMinutes()).padStart(2, '0')}${String(t.getSeconds()).padStart(2, '0')}.png`;
+      a.href = URL.createObjectURL(blob);
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      this.ui.toast('Photo saved', a.download, 2);
+    }, 'image/png');
+  }
+
+  // world height of Prady's lower ankle (the cloth sway fades out above it)
+  footY() {
+    const a = this.animator.boneWorld('LeftFoot', this._fl || (this._fl = new THREE.Vector3()));
+    const b = this.animator.boneWorld('RightFoot', this._fr || (this._fr = new THREE.Vector3()));
+    return a && b ? Math.min(a.y, b.y) : this.player.feetY + 0.08;
+  }
+
+  // Foam behind the boat and around a swimmer; floating offerings part around both.
+  updateRiverSurface(dt, light) {
+    const b = this.boat;
+    const pushers = this._pushers || (this._pushers = [{ x: 0, z: 0, r: 0 }, { x: 0, z: 0, r: 0 }]);
+    if (dt > 0) {
+      this.wake.hull('boat', { x: b.x, z: b.z, yaw: b.yaw, speed: b.speed });
+      const p = this.player;
+      if (p.state === 'swim') this.wake.swimmer('prady', { x: p.position.x, z: p.position.z, yaw: p.yaw, speed: p.speed });
+      else this.wake.emitters.delete('prady');
+    }
+    this.wake.update(dt, light);
+    pushers[0].x = b.x;
+    pushers[0].z = b.z;
+    pushers[0].r = 3.4;
+    const swim = this.player.state === 'swim' || this.player.state === 'dive';
+    pushers[1].x = this.player.position.x;
+    pushers[1].z = this.player.position.z;
+    pushers[1].r = swim ? 1.1 : 0;
+    this.flowers.update(dt, { camera: this.camera, pushers });
+  }
+
+  makeFx() {
+    const g = this;
+    let swimOn = false;
+    return {
+      splash(x, y, z, power) {
+        g.splash.spawn(new THREE.Vector3(x, y, z), Math.round(30 * power + 10), 2 + power * 3);
+        g.ripples.spawn(x, y, z, 2.5 * power + 1, 2.2);
+        g.audio.play('splash', { at: new THREE.Vector3(x, y, z), volume: 0.5 + power * 0.5 });
+      },
+      spray(x, y, z) {
+        g.splash.spawn(new THREE.Vector3(x, y, z), 6, 1.8, 0.5);
+        if (Math.random() < 0.3) g.ripples.spawn(x, y, z, 1.2, 1.2);
+      },
+      wade(x, y, z) {
+        g.ripples.spawn(x, y, z, 1.2, 1.2);
+        g.splash.spawn(new THREE.Vector3(x, y, z), 4, 1.2, 0.3);
+        g.audio.play('splash', { at: new THREE.Vector3(x, y, z), volume: 0.18, rate: 1.3 + Math.random() * 0.2 });
+      },
+      ripple(x, y, z, size) {
+        g.ripples.spawn(x, y, z, size, 1.8);
+      },
+      footstep(speed) {
+        g.audio.play('footstep', { volume: 0.25 + Math.min(speed, 7) * 0.04, rate: 0.9 + Math.random() * 0.2 });
+      },
+      // wet prints on the stone after the river or in the rain
+      footprint(side) {
+        const foot = g.animator.boneWorld?.(side === 'Left' ? 'LeftFoot' : 'RightFoot', new THREE.Vector3());
+        if (!foot) return;
+        const y = groundHeight(foot.x, foot.z);
+        if (foot.y - y > 0.35) return;
+        g.weather?.footstep(foot.x, y, foot.z, g.player.yaw, side === 'Left' ? 1 : -1, g.actions?.wet ?? 0);
+      },
+      land(impact = 4) {
+        g.audio.play('footstep', { volume: Math.min(1, 0.4 + impact * 0.06), rate: 0.8 });
+        if (impact > 6) g.camRig.shake(Math.min(0.55, (impact - 6) / 14));
+      },
+      oar(x, z) {
+        g.audio.play('oar', { at: new THREE.Vector3(x, 0, z), volume: 0.8, rate: 0.95 + Math.random() * 0.1 });
+      },
+      swimming(on) {
+        if (on === swimOn) return;
+        swimOn = on;
+        g.loops?.swim?.setVolume(on ? 0.6 : 0, 0.25);
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------- flow
+  async begin(save) {
+    await this.audio.unlock();
+    this.ui.hideTitle();
+    this.rs.rest(150); // the first seconds stream in shaders and textures: not a reason to drop resolution
+    this.loops = {
+      music: this.audio.loop('music', { channel: 'music', volume: 1 }),
+      river: this.audio.loop('river', { volume: 0.5 }),
+      aarti: this.audio.loop('aartiAmbience', { volume: 0, at: this.quest.flames.find((f) => f.id === 'dashashwamedh').pos, ref: 25 }),
+      underwater: this.audio.loop('underwater', { volume: 0 }),
+      fire: this.audio.loop('fireLoop', { volume: 0, at: new THREE.Vector3(), ref: 4, channel: 'sfx' }),
+      swim: this.audio.loop('swim', { volume: 0, channel: 'sfx' }),
+      rain: this.audio.loop('rain', { volume: 0 }),
+    };
+    this.missions = this.missions || new Missions(this, save?.missions);
+    if (save) {
+      this.quest.restore(save.quest);
+      if (save.hours !== undefined) this.sky.setHours(save.hours);
+      if (save.player) this.player.teleport(save.player.x, save.player.y, save.player.z);
+      if (this.quest.complete) this.player.blessing = true;
+      this.ui.setObjectives(this.quest.objectives(), this.quest.complete);
+      this.state = 'play';
+      this.input.requestLock();
+      this.ui.showRegion('Kashi');
+      return;
+    }
+    this.quest.restore(null);
+    this.startIntro();
+  }
+
+  startIntro() {
+    this.state = 'intro';
+    this.ui.setCinematic(true);
+    const dash = ghatById('dashashwamedh');
+    const P = (u, v, y) => {
+      const p = ghatToWorld(dash, u, v);
+      return new THREE.Vector3(p.x, y, p.z);
+    };
+    const pl = this.player.position;
+    const back = new THREE.Vector3(-Math.sin(this.camRig.yaw), 0, -Math.cos(this.camRig.yaw));
+    const endPos = new THREE.Vector3(pl.x, pl.y + 1.4, pl.z).addScaledVector(back, 4.6);
+    this.camRig.playCinematic(
+      [
+        { t: 0, pos: P(-140, 210, 38), look: P(30, 0, 16) },
+        { t: 7, pos: P(-40, 110, 16), look: P(45, 5, 12) },
+        { t: 12.5, pos: P(48, 48, 7), look: new THREE.Vector3(pl.x, pl.y + 1.2, pl.z) },
+        { t: 15, pos: endPos, look: new THREE.Vector3(pl.x, pl.y + 1.3, pl.z) },
+      ],
+      () => {
+        this.state = 'play';
+        this.ui.setCinematic(false);
+        this.input.requestLock();
+        this.ui.showRegion('Dashashwamedh Ghat');
+        this.ui.toast('The Five Flames of Kashi', 'Follow the flame markers on the compass. Press E at each dark flame to rekindle it.', 7);
+      }
+    );
+    this.audio.play('conch', { volume: 0.7 });
+    this.audio.play('narrationIntro', { channel: 'voice', delay: 1.2 });
+    this.ui.subtitle('Kashi. Older than history… the city of light, where Shiva dwells. The five sacred flames of the ghats have gone dark, and Mother Ganga grows dim. Prady… rekindle the flames.', 14);
+  }
+
+  pause() {
+    if (this.state !== 'play') return;
+    this.state = 'paused';
+    this.ui.showPause(this.settings, {
+      onSetting: (k, v) => this.setSetting(k, v),
+      onResume: () => this.resume(),
+      onTime: (h) => {
+        this.setTimeOfDay(h, 2.5);
+        this.resume();
+      },
+      onReset: () => {
+        try {
+          localStorage.removeItem(SAVE_KEY);
+        } catch {
+          /* ignore */
+        }
+        location.reload();
+      },
+    });
+    this.save();
+  }
+
+  resume() {
+    this.ui.hidePause();
+    this.state = 'play';
+    this.input.requestLock();
+  }
+
+  setSetting(k, v) {
+    this.settings[k] = v;
+    saveJSON(SETTINGS_KEY, this.settings);
+    this.applySettings(k);
+  }
+
+  applySettings(changed) {
+    const s = this.settings;
+    if (changed === 'quality') {
+      this.rs.setQuality(s.quality);
+      this.sky.configureShadows(this.rs.quality.shadows);
+      this.water.setQuality(this.rs.quality);
+      this.crowd?.setQuality(s.quality);
+    }
+    this.rs.adaptive = s.adaptiveResolution;
+    this.audio.setVolume('music', s.musicVolume);
+    this.audio.setVolume('sfx', s.sfxVolume);
+    this.audio.setVolume('voice', Math.min(1, s.sfxVolume * 1.25));
+    this.audio.setVolume('ambience', s.ambienceVolume);
+    this.camRig.sensitivity = s.mouseSensitivity;
+    this.camRig.invertY = s.invertY;
+    this.sky.timeSpeed = s.timeSpeed;
+    this.weather?.setMode(s.weather || 'auto');
+    this.ui.setFpsVisible(s.showFps || DEBUG);
+  }
+
+  save() {
+    if (!this.player) return;
+    saveJSON(SAVE_KEY, {
+      quest: this.quest.serialize(),
+      missions: this.missions?.serialize(),
+      hours: this.sky.hours,
+      player: this.player.state === 'boat' ? null : { x: this.player.position.x, y: this.player.feetY, z: this.player.position.z },
+    });
+  }
+
+  // ---------------------------------------------------------------- loop
+  loop() {
+    const frame = (now) => {
+      requestAnimationFrame(frame);
+      const dt = Math.min(0.05, Math.max(0, (now - this.lastTime) / 1000));
+      this.lastTime = now;
+      const t0 = performance.now();
+      this.update(dt);
+      this.scene.updateMatrixWorld();
+      this.water.renderReflection(this.camera);
+      this.rs.render(this.sky.exposure * this.weather.exposureScale());
+      if (this.state === 'play' || this.state === 'intro') this.rs.adapt(dt, (performance.now() - t0) / 1000);
+      if (this._snap) this.savePhoto();
+      this.input.endFrame();
+      this.countFps(dt);
+    };
+    requestAnimationFrame(frame);
+  }
+
+  countFps(dt) {
+    const f = this.fpsAcc;
+    f.t += dt;
+    f.n++;
+    if (f.t > 0.5) {
+      f.fps = Math.round(f.n / f.t);
+      f.t = 0;
+      f.n = 0;
+    }
+  }
+
+  update(dt, warmup = false) {
+    const playing = this.state === 'play';
+    const paused = this.state === 'paused';
+    const simDt = paused ? 0 : dt;
+    const input = this.input;
+
+    if (playing) this.handleKeys();
+    if (this.state === 'intro' && (input.hit('Space') || input.hit('Enter') || input.hit('KeyE'))) this.camRig.skipCinematic();
+
+    // Time of day + world uniforms
+    this.sky.update(simDt, this.camera.position);
+    WORLD_UNIFORMS.uTime.value += simDt;
+    WORLD_UNIFORMS.uSunColor.value.copy(this.sky.sunColor).multiplyScalar(Math.min(1.2, this.sky.sun.intensity / 3.0) + 0.05);
+    WORLD_UNIFORMS.uCaustics.value = this.sky.sunDir.y > 0 ? 1 : 0.15;
+    this.weather.applyToSky(this.sky, this.scene);
+    this.weather.update(simDt, { sky: this.sky, underwater: this._under, hours: this.sky.hours });
+    this.pradyWet.value = this.actions?.wet ?? 0;
+    this.water.update(simDt, this.camera, this.sky);
+    this.world.city.setNight(this.sky.nightFactor);
+    this.world.props.setNight?.(this.sky.nightFactor);
+    if (this.timeTween) {
+      // fast, smooth time-lapse to a chosen hour (always forward)
+      const tw = this.timeTween;
+      tw.t = Math.min(1, tw.t + dt / tw.dur);
+      const e = tw.t * tw.t * (3 - 2 * tw.t);
+      this.sky.setHours(tw.from + tw.span * e);
+      if (tw.t >= 1) this.timeTween = null;
+    }
+
+    // Simulation: fixed 60 Hz steps (deterministic physics at any frame rate), rendered with
+    // interpolation between the last two steps.
+    if (!paused) {
+      const controlBoat = this.player.state === 'boat';
+      this.player.inputLocked = !playing || this.photo || controlBoat || !!this.missions?.dialogue;
+      this.player.readInput(input, this.camRig);
+      this.boat.readInput(input, controlBoat && playing && !this.photo);
+      this.simAcc = (this.simAcc || 0) + simDt;
+      let steps = 0;
+      while (this.simAcc >= FIXED_DT && steps < 5) {
+        this.player.fixedUpdate(FIXED_DT);
+        this.boat.fixedUpdate(FIXED_DT, this.water, this.fx);
+        this.physics.step(FIXED_DT);
+        this.simAcc -= FIXED_DT;
+        steps++;
+      }
+      if (steps === 5) this.simAcc = 0; // fell far behind (tab was hidden): don't spiral
+    }
+    const alpha = Math.min(1, (this.simAcc || 0) / FIXED_DT);
+    this.boat.lateUpdate(alpha);
+    this.player.lateUpdate(simDt, alpha);
+    this.combat?.late(simDt);
+    this.world.akhara?.update(simDt);
+    if (this.cloth && this.animator.boneWorld) {
+      const pl = this.player;
+      const hips = this.animator.boneWorld('Hips', this._hipW || (this._hipW = new THREE.Vector3()));
+      const vel = pl.state === 'boat' ? ZERO_VEL : pl.velocity;
+      this.cloth.update(simDt, { vel, yawRate: pl.state === 'boat' ? 0 : pl.yawRate, hipY: hips ? hips.y : pl.feetY + 0.95, footY: this.footY(), facing: { x: Math.sin(pl.yaw), z: Math.cos(pl.yaw) }, swimming: pl.state === 'swim' || pl.state === 'dive' });
+    }
+    this.moored.update(simDt, this.water, this.camera.position);
+    this.quest.update(simDt, this.rs.pixelRatio, this.sky.nightFactor, playing ? this.player.position : null);
+    if (!warmup) {
+      const camOpts = this.player.state === 'boat' ? { distance: 8, height: 2.2 } : this.player.state === 'swim' || this.player.state === 'dive' ? { height: 1.0 } : {};
+      const camFocus = this.player.state === 'swim' || this.player.state === 'dive' ? new THREE.Vector3(this.player.position.x, this.character.position.y + 0.9, this.player.position.z) : this.character.position;
+      this.camRig.update(dt, input, camFocus, camOpts);
+    } else {
+      const s = this.world.layout.playerStart;
+      this.camera.position.set(s.x - 40, 30, s.z + 60);
+      this.camera.lookAt(s.x, s.y + 5, s.z);
+    }
+
+    // Effects
+    const pr = this.rs.pixelRatio;
+    const light = new THREE.Color().copy(this.sky.hemi.color).multiplyScalar(lerp(0.25, 1.1, 1 - this.sky.nightFactor));
+    this.fire.update(simDt, pr);
+    this.smoke.update(simDt, pr, light, this.sky.nightFactor);
+    this.splash.update(simDt, pr, light);
+    this.ripples.update(simDt, (x, z) => this.water.heightAt(x, z), light);
+    this.updateRiverSurface(simDt, light);
+    if (!this._heatAll && this.crowd?.lifeProps) this._heatAll = [...this.heatSources, ...this.crowd.lifeProps.heatSpots];
+    this.rs.updateHeat(this.camera, this._under ? [] : this._heatAll || this.heatSources);
+    this.birds.update(simDt);
+    this.pigeons.update(simDt, { camera: this.camera, player: this.state === 'play' ? this.character.position : null, playerSpeed: this.player.speed, time: WORLD_UNIFORMS.uTime.value });
+    // diyas float out from Dashashwamedh every evening and night (more once the aarti is restored)
+    this.diyas.update(simDt, this.quest.eveningAarti || this.quest.complete || this.sky.nightFactor > 0.6, this.ripples);
+    // dawn mist on the river (and a little more haze in the air with it); sun shafts
+    const mist = this.mist.update(simDt, { hours: this.sky.hours, sky: this.sky, extra: this.weather?.mistExtra ?? 0 });
+    if (this.scene.fog) this.scene.fog.density *= 1 + mist * 0.9;
+    {
+      const e = this.sky.sunDir.y;
+      const low = Math.max(0, Math.min(1, (e + 0.03) / 0.08)) * (1 - Math.max(0, Math.min(1, (e - 0.22) / 0.4)));
+      const amount = (0.25 + 0.75 * low) * (e > -0.04 ? 1 : 0) * (1 - (this.weather?.overcast ?? 0));
+      this.rs.updateGodRays(this.camera, this.sky.sunDir, this.sky.sunColor, amount);
+    }
+    this.world.street.update(1 - this.sky.nightFactor);
+    this.lanterns.update(simDt, { night: this.sky.nightFactor, festival: this.quest.complete, aarti: this.quest.eveningAarti || this.quest.aartiLit, hours: this.sky.hours });
+    this.fireworks.update(simDt, { camera: this.camera, pixelRatio: pr, night: this.sky.nightFactor, festival: this.quest.complete, raining: (this.weather?.rain ?? 0) > 0.3 });
+    // a big burst lights the ghats and the river for a moment
+    if (this.fireworks.flash > 0.01) this.sky.hemi.intensity += this.fireworks.flash * 0.6;
+    this.night.update(simDt, { night: this.sky.nightFactor, festival: this.quest.complete, camera: this.camera, pixelRatio: pr, moonDir: this.sky.moonDir });
+    if (this.missions && this.state === 'play') this.missions.update(simDt);
+    if (!warmup) this.crowd?.update(simDt, { hours: this.sky.hours, aarti: this.quest.aartiLit, festival: this.quest.complete, playerPos: this.player.state === 'boat' ? null : this.character.position });
+
+    this.updateLightPool(dt);
+
+    // Underwater camera
+    const camWater = this.water.heightAt(this.camera.position.x, this.camera.position.z);
+    const under = this.camera.position.y < camWater - 0.05;
+    this._under = under;
+    this.water.setUnder(under);
+    this.sky.setUnderwater(under, this.scene.fog.color);
+    if (this.weather?.dome && under) this.weather.dome.visible = false;
+    {
+      const pl = this.player;
+      const swimming = pl.state === 'swim' || pl.state === 'dive';
+      this.underwater.update(simDt, { camera: this.camera, under, sky: this.sky, purity: this.water.purity, swimmer: swimming ? pl.position : null, pixelRatio: this.rs.pixelRatio });
+    }
+    if (under) {
+      this.scene.fog.color.copy(WORLD_UNIFORMS.uUnderwaterColor.value).multiplyScalar(1.6);
+      this.scene.fog.density = lerp(0.11, 0.035, this.water.purity);
+      FOG.params.x = 0; // uniform murk under water, no sun shafts through the haze
+      this.rs.updateGodRays(this.camera, this.sky.sunDir, this.sky.sunColor, 0);
+      FOG.params.w = 0;
+    }
+    // Bloom is for flames, lamps and glitter: strong at night, gentle against the daylight sky.
+    if (this.rs.bloom) {
+      const nf = this.sky.nightFactor;
+      this.rs.bloom.intensity = lerp(0.28, 1.15, nf) + this.sky.goldenFactor * 0.08;
+      // at night every flame, bulb and lit window should bloom; by day only the sun glitter
+      if (this.rs.bloom.luminanceMaterial) this.rs.bloom.luminanceMaterial.threshold = lerp(3.2, 1.05, nf);
+      this.fire.material.uniforms.uHalo.value = lerp(0.45, 0.85, nf);
+    }
+    if (this.rs.grade) applyGrade(this.rs.grade, { sunElevation: this.sky.sunDir.y, purity: this.water.purity, underwater: under, filter: this.photo ? this.photoFilter || 0 : 0 });
+    if (this.photo && this.rs.dofLevel > 0) this.rs.dofTarget.copy(this.character.position).add(this._dofUp || (this._dofUp = new THREE.Vector3(0, 1.45, 0)));
+    this.audio.setUnderwater(under);
+    this.audio.updateListener(this.camera);
+    this.updateAmbience(under);
+
+    // HUD
+    if (playing || paused) {
+      const inter = this.currentInteraction();
+      this.interaction = inter;
+      this.ui.updateHud({
+        purity: this.water.purity,
+        clock: this.sky.clockString(),
+        beads: this.quest.collected,
+        breath: this.player.breath / this.player.breathMax,
+        underwater: under,
+        prompt: inter?.prompt,
+        lockHint: playing && !this.input.locked && !this.photo,
+        fps: this.settings.showFps || DEBUG ? `${this.fpsAcc.fps} fps · ${this.rs.renderer.info.render.calls} draws · ${(this.rs.renderer.info.render.triangles / 1e6).toFixed(2)}M tris · x${this.rs.scale.toFixed(2)}` : undefined,
+      });
+      for (const m of this.ui.compassMarks) if (m.kind === 'flame') m.hidden = this.quest.flames.find((f) => f.id === m.id)?.lit;
+      this.ui.updateCompass(this.camRig.yaw, this.player.position);
+      this.updateRegion();
+      this.saveTimer = (this.saveTimer || 0) + dt;
+      if (this.saveTimer > 15) {
+        this.saveTimer = 0;
+        this.save();
+      }
+    }
+  }
+
+  // Six pooled point lights follow the nearest flames and lamps: chosen every 0.3 s,
+  // flickering every frame (firelight), so the ghats glow without hundreds of real lights.
+  updateLightPool(dt) {
+    const night = this.sky.nightFactor;
+    this.lightTimer -= dt;
+    if (this.lightTimer <= 0) {
+      this.lightTimer = 0.3;
+      const cam = this.camera.position;
+      const cands = [];
+      for (const f of this.quest.flames) if (f.lit) cands.push({ p: f.lamps[f.lamps.length - 1], k: 1.4, fire: true });
+      if (this.quest.aartiLit) {
+        const lamps = this.world.props.aartiLamps;
+        for (let i = 0; i < lamps.length; i += 10) cands.push({ p: lamps[i], k: 1.2, fire: true });
+      }
+      if (night > 0.45) {
+        for (const p of this.world.props.lampPosts) cands.push({ p, k: 0.8 });
+        for (const p of this.night?.lightSpots ?? []) cands.push({ p, k: 0.7, fire: true });
+      }
+      for (const c of cands) c.d = c.p.distanceToSquared(cam);
+      cands.sort((a, b) => a.d - b.d);
+      this.lightChoice = this.lightPool.map((_, i) => (cands[i] && cands[i].d < 90 * 90 ? cands[i] : null));
+    }
+    const t = performance.now() * 0.001;
+    this.lightPool.forEach((l, i) => {
+      const c = this.lightChoice?.[i];
+      if (!c) {
+        l.intensity = 0;
+        return;
+      }
+      l.position.copy(c.p);
+      l.position.y += 0.9; // above the flame so nearby stone isn't blown out
+      const flick = c.fire ? 0.84 + 0.09 * Math.sin(t * 9.1 + i * 2.3) + 0.05 * Math.sin(t * 17.3 + i) + 0.03 * Math.sin(t * 31.7 + i * 5.1) : 1;
+      l.intensity = c.k * lerp(4, 30, night) * flick;
+    });
+  }
+
+  currentInteraction() {
+    const p = this.player;
+    const mi = this.missions?.interaction();
+    if (mi) return mi;
+    if (p.state === 'boat') return { prompt: 'Step off the boat', action: () => this.leaveBoat() };
+    const q = this.quest.interactionAt(p.position);
+    if (q) return q;
+    if (this.actions.holyDipAvailable()) return { prompt: 'Ganga Snan: take the holy dip', action: () => this.actions.startHolyDip() };
+    const b = this.boat.object.position;
+    if (this.boat.distanceTo(p.position) < 4.2 && Math.abs(p.feetY - b.y) < 3) return { prompt: 'Board the boat  (W/S row · A/D steer)', action: () => this.boardBoat() };
+    return null;
+  }
+
+  boardBoat() {
+    this.player.enterBoat(this.boat);
+    this.audio.play('oar', { volume: 0.6 });
+  }
+
+  leaveBoat() {
+    const land = this.boat.findLanding();
+    if (land) this.player.exitBoat(land.x, land.y, land.z);
+    else {
+      const r = new THREE.Vector3(Math.cos(this.boat.yaw), 0, -Math.sin(this.boat.yaw));
+      this.player.exitBoat(this.boat.x + r.x * 2.2, -0.8, this.boat.z + r.z * 2.2);
+      this.fx.splash(this.boat.x + r.x * 2.2, 0, this.boat.z + r.z * 2.2, 0.6);
+    }
+  }
+
+  handleKeys() {
+    const input = this.input;
+    // talking: the keys belong to the conversation
+    if (this.missions?.dialogue) {
+      for (const code of ['KeyE', 'KeyQ', 'Space', 'Enter', 'Digit1', 'Digit2', 'Digit3', 'Pad2']) if (input.hit(code)) this.missions.key(code === 'Pad2' ? 'KeyE' : code);
+      return;
+    }
+    if (input.hit('KeyE') || input.hit('Pad2')) this.interaction?.action();
+    if (input.hit('KeyF') || input.hit('Pad3')) this.floatDiya();
+    if (input.hit('KeyN')) this.toggleNight();
+    if (input.hit('KeyG')) this.greet();
+    if (input.hit('KeyM')) this.actions.toggleMeditate();
+    if (input.hit('KeyJ')) this.missions?.journal();
+    // fighting
+    if (input.hit('Mouse0')) this.combat.attack();
+    if (input.hit('Mouse2')) this.combat.heavy();
+    if (input.hit('KeyR')) this.combat.toggleSword();
+    this.combat.setBlock(input.down('KeyQ') || input.down('Mouse1'));
+    if (input.hit('Space') && this.player.state === 'boat') this.actions.diveFromBoat(this.boat);
+    if (input.hit('KeyP')) {
+      this.photo = !this.photo;
+      this.ui.setPhotoMode(this.photo);
+      this.sky.frozen = this.photo;
+      if (!this.photo) {
+        this.rs.setDof(0, null);
+        this.ui.setLetterbox(false);
+      }
+    }
+    if (this.photo) {
+      if (input.down('BracketRight')) this.sky.setHours(this.sky.hours + 0.04);
+      if (input.down('BracketLeft')) this.sky.setHours(this.sky.hours - 0.04);
+      if (input.hit('KeyC')) {
+        this.photoFilter = ((this.photoFilter || 0) + 1) % PHOTO_FILTERS.length;
+        this.ui.toast(PHOTO_FILTERS[this.photoFilter], '', 1.4);
+      }
+      if (input.hit('KeyB')) {
+        const level = ((this.rs.dofLevel || 0) + 1) % 3;
+        this.rs.setDof(level, this.rs.dofTarget || new THREE.Vector3());
+        this.ui.toast(['Depth of field off', 'Soft focus on Prady', 'Shallow focus on Prady'][level], '', 1.4);
+      }
+      if (input.hit('KeyL')) this.ui.setLetterbox();
+      if (input.hit('Enter')) this._snap = true;
+    }
+    if (DEBUG) {
+      if (input.hit('F1') || input.hit('Digit1')) for (const f of SACRED_FLAMES) this.quest.lightFlame(f.id);
+      if (input.hit('F2') || input.hit('Digit2')) this.sky.setHours(this.sky.hours + 1);
+      if (input.hit('F3') || input.hit('Digit3')) {
+        this._tp = ((this._tp ?? -1) + 1) % this.quest.flames.length;
+        const f = this.quest.flames[this._tp];
+        this.player.teleport(f.pos.x + 2.5, groundHeight(f.pos.x + 2.5, f.pos.z) + 0.2, f.pos.z);
+      }
+      if (input.hit('F4') || input.hit('Digit4')) this.player.blessing = !this.player.blessing;
+    }
+  }
+
+  // Time-lapse to an hour of the day (always forward, over ~3 s).
+  setTimeOfDay(hours, dur = 3) {
+    const from = this.sky.hours;
+    const span = (((hours - from) % 24) + 24) % 24;
+    this.timeTween = { from, span, t: 0, dur };
+  }
+
+  toggleNight() {
+    const h = this.sky.hours;
+    const isNight = h > 19 || h < 5;
+    this.setTimeOfDay(isNight ? 6.6 : 20.4);
+    this.ui.toast(isNight ? 'Dawn over the Ganga' : 'Night falls on Kashi', isNight ? '' : 'The diyas wake along the ghats.', 3);
+  }
+
+  // Prady folds his hands in pranam; people nearby answer.
+  greet() {
+    if (!this.actions.pranam()) return;
+    this.crowd?.greet(this.character.position);
+  }
+
+  floatDiya() {
+    // on the bottom steps: kneel and set it on the water (animation-driven)
+    if (this.actions.floatDiya()) return;
+    const p = this.player.position;
+    const surface = this.water.heightAt(p.x, p.z);
+    if (this.player.state === 'swim' || this.player.state === 'boat' || (this.player.feetY < surface + 0.4 && surface - groundHeight(p.x, p.z) > 0.15)) {
+      const f = new THREE.Vector3(Math.sin(this.player.yaw), 0, Math.cos(this.player.yaw));
+      this.diyas.launch(p.x + f.x * 1.2, p.z + f.z * 1.2);
+      this.missions?.emit('diya', { x: p.x + f.x * 1.2, z: p.z + f.z * 1.2 });
+      this.ripples.spawn(p.x + f.x * 1.2, surface, p.z + f.z * 1.2, 1, 1.6);
+      if (!this._diyaToast) {
+        this._diyaToast = true;
+        this.ui.toast('Deep Daan', 'A small flame offered to Mother Ganga drifts downstream.', 4);
+      }
+    }
+  }
+
+  updateRegion() {
+    const p = this.player.position;
+    const { v } = bankCoords(p.x, p.z);
+    let name;
+    const seg = segmentForX(p.x);
+    if (v > FAR_BANK_V - 10) name = 'The Sand Bank';
+    else if (v > 60) name = 'Mother Ganga';
+    else if (v > -6 && seg) name = seg.name;
+    else if (v < -10) name = 'The Lanes of Kashi';
+    if (name) this.ui.showRegion(name);
+  }
+
+  updateAmbience(under) {
+    if (!this.loops) return;
+    const L = this.loops;
+    const p = this.player.position;
+    const { v } = bankCoords(p.x, p.z);
+    const nearRiver = 1 - Math.min(1, Math.max(0, (-v - 5) / 60));
+    L.river?.setVolume(under ? 0.05 : 0.15 + nearRiver * 0.55);
+    L.underwater?.setVolume(under ? 0.9 : 0, 0.15);
+    L.rain?.setVolume(this.weather.rain * 0.85, 0.6);
+    const evening = this.quest.eveningAarti || this.quest.complete;
+    L.aarti?.setVolume(evening ? 1 : 0, 2);
+    // fire crackle follows the nearest lit flame
+    let best = null;
+    let bd = 25;
+    for (const f of this.quest.flames) {
+      if (!f.lit) continue;
+      const d = f.pos.distanceTo(p);
+      if (d < bd) {
+        bd = d;
+        best = f;
+      }
+    }
+    if (best) {
+      L.fire?.setPosition(best.lamps[best.lamps.length - 1]);
+      L.fire?.setVolume(0.7);
+    } else L.fire?.setVolume(0);
+    // the odd flutter of pigeons near Dashashwamedh
+    this._pigeonT = (this._pigeonT ?? 20) - (1 / 60);
+    if (this._pigeonT < 0) {
+      this._pigeonT = 25 + Math.random() * 30;
+      const f = this.birds.flocks[0];
+      if (Math.hypot(p.x - f.cx, p.z - f.cz) < 90) this.audio.play('pigeons', { at: new THREE.Vector3(f.cx, f.y, f.cz), volume: 0.7, ref: 20 });
+    }
+  }
+}

@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="UTF-8"><title>inspect</title></head><body><pre id="o">…</pre>
+<script type="module">
+import * as THREE from 'three';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+const n = new URLSearchParams(location.search).get('n') || 'Male_Adult_15';
+const manager = new THREE.LoadingManager();
+manager.setURLModifier((u) => (/\.tga$/i.test(u) ? 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' : u));
+const fbx = await new FBXLoader(manager).loadAsync(`/source-assets/rocketbox/${n}/${n}.fbx`);
+const out = { meshes: [], bones: [], anims: fbx.animations.map((a) => a.name) };
+fbx.updateMatrixWorld(true);
+const box = new THREE.Box3().setFromObject(fbx, true);
+out.size = box.getSize(new THREE.Vector3()).toArray().map((v) => +v.toFixed(2));
+out.rootScale = fbx.scale.toArray();
+fbx.traverse((o) => {
+  if (o.isMesh) out.meshes.push({ name: o.name, skinned: !!o.isSkinnedMesh, tris: (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3, groups: o.geometry.groups.length, mats: (Array.isArray(o.material) ? o.material : [o.material]).map((m) => m.name + '|' + (m.map?.name || '') + '|' + m.type) });
+  if (o.isBone) out.bones.push(o.name);
+});
+window.__out = out;
+document.getElementById('o').textContent = JSON.stringify(out, null, 1);
+</script></body></html>
