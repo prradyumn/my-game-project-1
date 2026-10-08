@@ -148,6 +148,7 @@ class Body {
       rHand: B('R_Hand'),
       rFinger: B('R_Finger2'),
       pelvis: B('Pelvis'),
+      spine1: B('Spine1'),
     };
     // three's mixer only writes a bone whose animated value changed, so every bone the
     // procedural layer touches is restored to the mixer's clean output before each update.
@@ -355,7 +356,15 @@ export class Crowd {
     const ud = g.scene.children[0]?.userData || g.scene.userData || {};
     av.walkSpeed = ud.walkSpeed || 1.5;
     av.height = ud.height || 1.75;
-    for (const name of ['idle', 'walk', 'sit', 'sitChin', 'wash', 'wait', 'stretch', 'wave', 'talk', 'agree', 'headShake', 'pranam', 'surya', 'meditate', 'floorSit', 'danceA', 'danceB', 'drum', 'stir', 'buy', 'sweep', 'toss', 'hopscotch', 'play']) if (!av.clips.has(name)) av.clips.set(name, av.clips.get('idle') || g.animations[0]);
+    // a missing motion stands in with idle. It must be its OWN copy: a mixer gives every name
+    // that shares one clip the same action, and blend() stopping the unused alias "wait" would
+    // stop "idle" itself (the person froze in the bind pose)
+    for (const name of ['idle', 'walk', 'sit', 'sitChin', 'wash', 'wait', 'stretch', 'wave', 'talk', 'agree', 'headShake', 'pranam', 'surya', 'meditate', 'floorSit', 'danceA', 'danceB', 'drum', 'stir', 'buy', 'sweep', 'toss', 'hopscotch', 'play']) {
+      if (av.clips.has(name)) continue;
+      const stand = (av.clips.get('idle') || g.animations[0]).clone();
+      stand.name = name;
+      av.clips.set(name, stand);
+    }
     // generous bounds (the bind pose doesn't cover a seated or stretching body)
     av.sphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.4);
     g.scene.traverse((o) => {
@@ -740,6 +749,9 @@ export class Crowd {
   // ---------------------------------------------------------------- runtime
 
   _isOn(s, ctx) {
+    // a fight nearby (Asuras on the ghat): everyone but the story's own actors has fled
+    const D = ctx.danger;
+    if (D && !s.actor && Math.hypot((s.group ? s.group.cx : s.x) - D.x, (s.group ? s.group.cz : s.z) - D.z) < D.r) return false;
     if (s.aarti) return ctx.aarti;
     if (s.festival && !ctx.festival) return false;
     return within(ctx.hours, s.hours);
@@ -919,11 +931,13 @@ export class Crowd {
       body.mixer.update(adt);
       body.save();
       const ik = s.seat && s.dist < 30;
-      const look = this._lookWeight(s, adt, ctx);
-      if (ik || look > 0.01 || s.kind === 'priest') {
+      const row = s.ride?.boat.oarHands && s.dist < 90;
+      const look = row ? 0 : this._lookWeight(s, adt, ctx);
+      if (ik || look > 0.01 || s.kind === 'priest' || row) {
         body.holder.updateMatrixWorld(true);
         if (ik) this._plantFeet(s, body);
         if (s.kind === 'priest') this._aartiArms(s, body);
+        if (row) this._rowArms(s, body);
         if (look > 0.01) this._look(s, body, look);
       }
     }
@@ -935,6 +949,17 @@ export class Crowd {
   // Where the body goes this frame.
   _place(s, dt) {
     const h = s.inst.holder;
+    if (s.ride) {
+      const b = s.ride.boat.object;
+      const L = s.ride.local;
+      _v.set(L.x, L.y, L.z).applyMatrix4(b.matrixWorld);
+      h.position.copy(_v);
+      h.quaternion.copy(b.quaternion);
+      s.x = _v.x;
+      s.z = _v.z;
+      s.y = _v.y;
+      return;
+    }
     if (s.kind === 'boatSit') {
       this.moored.mesh.getMatrixAt(s.boat, _m);
       _m2.compose(_v.set(0, 0.5 - SEAT_H * s.scale, s.local.z), _q.setFromAxisAngle(UP, s.local.yaw), _s.set(1, 1, 1));
@@ -1254,6 +1279,20 @@ export class Crowd {
   }
 
   // The aarti: a big brass lamp circled in slow vertical loops, a bell in the other hand.
+  // A boatman at his oars: lean with the drive, hands on the grips (Oars.js), elbows out and down.
+  _rowArms(s, body) {
+    const b = body.b;
+    const boat = s.ride.boat;
+    const H = boat.oarHands;
+    const R = _v3.set(-Math.cos(boat.yaw), 0, Math.sin(boat.yaw)); // his right (he faces the bow, +Z)
+    if (b.spine1) {
+      rotateBoneAxis(b.spine1, R, -(boat.oarLean ?? 0) * 0.26);
+      b.spine1.updateMatrixWorld(true);
+    }
+    if (b.lUpper && b.lFore && b.lHand) solveTwoBone(b.lUpper, b.lFore, b.lHand, H[0], new THREE.Vector3().copy(R).multiplyScalar(-0.75).addScaledVector(UP, -0.65), 1);
+    if (b.rUpper && b.rFore && b.rHand) solveTwoBone(b.rUpper, b.rFore, b.rHand, H[1], new THREE.Vector3().copy(R).multiplyScalar(0.75).addScaledVector(UP, -0.65), 1);
+  }
+
   _aartiArms(s, body) {
     const b = body.b;
     if (!b.rUpper || !b.rFore || !b.rHand) return;
@@ -1321,10 +1360,12 @@ export class Crowd {
   // People the missions place and move: a giver waiting at a ghat, a passenger in Prady's
   // boat, a lost child who follows him home. Always drawn when near (ahead of the budget);
   // the mission sets x, y, z, yaw, clip and actor.speed (m/s, blends the walk) every frame.
-  addActor({ avatarId, x, y, z, yaw = 0, clip = 'idle', seatY, feetY, noCollider = false, name = '' }) {
+  addActor({ avatarId, x, y, z, yaw = 0, clip = 'idle', seatY, feetY, noCollider = false, name = '', ride = null }) {
     const seat = seatY !== undefined;
+    if (ride) noCollider = true; // (a boatman standing at his oars: the boat carries him)
     const s = this._slot({ kind: 'actor', actor: { speed: 0, name }, avatarId, clip, x, y, z, yaw, seat, seatY, feetY, hours: [0, 24], roles: ['local'], noCollider, scale: 1 }, this.rng || { range: (a, b) => (a + b) / 2, next: () => 0.5 });
     s.yawNow = yaw;
+    s.ride = ride; // { boat (PlayerBoat), local: {x, y, z} }: stands in it, hands on its oars
     const def = this.manifest.avatars.find((d) => d.id === avatarId);
     if (def?.kurta && !s.tint) s.tint = 'cream';
     this.selectTimer = 0;

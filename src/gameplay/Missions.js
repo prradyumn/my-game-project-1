@@ -112,6 +112,15 @@ export class Missions {
     return { done: [...this.done], punya: this.punya, perks: this.perks };
   }
 
+  /** Load a journey's progress (or none: a fresh start). */
+  restore(saved) {
+    this.done = new Set(saved?.done || []);
+    this.punya = saved?.punya || 0;
+    this.perks = saved?.perks || {};
+    this.applyPerks();
+    this.g.ui.setPunya(this.punya);
+  }
+
   applyPerks() {
     const g = this.g;
     if (this.perks.oar) g.boat.power = 1.25;
@@ -138,10 +147,12 @@ export class Missions {
 
   showLine() {
     const d = this.dialogue;
-    const [who, text] = d.lines[d.i];
+    const [who, text, voice] = d.lines[d.i];
     const last = d.i === d.lines.length - 1;
     this.g.ui.showDialogue(who, text, last && d.opts.choices ? d.opts.choices : null);
-    if (this.g.audio && d.i === 0) this.g.audio.play('bell', { volume: 0.06, rate: 1.6 });
+    if (this.g.audio && d.i === 0 && !voice) this.g.audio.play('bell', { volume: 0.06, rate: 1.6 });
+    if (voice) this.g.voice(voice);
+    else this.g.stopVoice?.();
   }
 
   /** Keys while talking. Returns true if the key was taken. */
@@ -168,6 +179,7 @@ export class Missions {
   }
 
   endTalk() {
+    this.g.stopVoice?.();
     this.dialogue = null;
     this.g.ui.hideDialogue();
     this.g.player.inputLocked = false;
@@ -201,6 +213,7 @@ export class Missions {
     if (def.reward.perk) this.perks[def.reward.perk] = true;
     this.applyPerks();
     this.g.ui.setPunya(this.punya);
+    this.g.story?.onEvent('mission:done', { id: def.id });
     const finish = () => {
       this.cleanup(run);
       this.g.ui.toast(`${def.title} · complete`, `+${def.reward.punya} punya${def.reward.note ? ` · ${def.reward.note}` : ''}`, 5);
@@ -264,7 +277,7 @@ export class Missions {
 
   update(dt) {
     const g = this.g;
-    if (!g.crowd) return;
+    if (!g.crowd) return this.markers.begin(), this.markers.end(dt);
     // givers: at their spots during their hours (while no other task is in hand)
     for (const def of this.defs) {
       let a = this.givers.get(def.id);
@@ -297,6 +310,9 @@ export class Missions {
         if (d < 90) this.markers.add('giver', _v.set(a.x, a.y + 2.35, a.z), 1 - Math.max(0, (d - 70) / 20), a.id * 0.37);
       }
     }
+    // the story's signs too (one marker pass for everything)
+    for (const mk of this.g.story?.run?.marks || []) this.markers.add(mk.kind, mk.kind === 'giver' ? _v.set(mk.pos.x, (mk.pos.y ?? 0) + 2.35, mk.pos.z) : mk.pos, 1, 0.3);
+    for (const mk of this.g.race?.marks || []) this.markers.add(mk.kind, mk.pos, 1, 0.5);
     this.markers.end(dt);
     this.updateCompass();
   }

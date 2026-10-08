@@ -54,6 +54,17 @@ const CMU = [
   { name: 'slashA', file: '02_08', start: 6.3, end: 7.55, rootMotion: true, strike: { t: 0.57, bone: 'RightHand' } },
   { name: 'slashB', file: '02_08', start: 8.9, end: 10.15, rootMotion: true, strike: { t: 0.6, bone: 'RightHand' } },
   { name: 'heavyCut', file: '79_01', start: 0.35, end: 1.7, rootMotion: true, strike: { t: 0.72, bone: 'RightHand' } },
+
+  // ---- defence (CMU; segments found from the hip height over each take, tools/bvh-measure.mjs)
+  // a dive roll out of a run: down at 0.8 s, inverted to 1.1 s, standing by 2.0 s (played fast)
+  { name: 'dodgeRoll', file: '127_23', start: 0.55, end: 2.1 },
+  // quick large steps backwards (a hop out of reach)
+  { name: 'dodgeBack', file: '76_11', start: 0.3, end: 1.35 },
+  // knocked flat on the back (a rug pulled from under him), and the same fall held as death
+  { name: 'knockdown', file: '90_18', start: 0.6, end: 1.7 },
+  { name: 'death', file: '90_18', start: 0.6, end: 3.0 },
+  // getting up from lying on the back: rolls up to sitting, crouch, stands
+  { name: 'getUp', file: '140_08', start: 2.0, end: 5.6, restHipY: 14.5 }, // (its first frame lies: standing hips from 6.5 s)
 ];
 
 const loader = new GLTFLoader();

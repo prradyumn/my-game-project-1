@@ -76,6 +76,79 @@ float wCaustic(vec2 p, float t) {
  * Patch a MeshStandardMaterial so it shows: wet darkening at the waterline, caustics and
  * depth tint under water. Works for plain and instanced meshes.
  */
+// Occluders that step aside for the camera: a prop (a straw umbrella) that sits right at the
+// lens, or between the lens and Prady (or the enemy he's locked on to), dithers almost away,
+// a whole instance at a time. Its shadow stays. Game feeds the focus points every frame.
+export const OCCLUDE = {
+  uFocusA: { value: new THREE.Vector3(0, -999, 0) },
+  uFocusB: { value: new THREE.Vector3(0, -999, 0) },
+  uOccOn: { value: 1 },
+};
+
+/** Fade the instances of an InstancedMesh material that block the view. top: the prop's
+ *  height (its axis runs from the base up to it), r: its radius. */
+export function occluderFade(material, { top = 3, r = 2, minY = null } = {}) {
+  const prev = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    prev?.(shader, renderer);
+    shader.uniforms.uFocusA = OCCLUDE.uFocusA;
+    shader.uniforms.uFocusB = OCCLUDE.uFocusB;
+    shader.uniforms.uOccOn = OCCLUDE.uOccOn;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform vec3 uFocusA;
+        uniform vec3 uFocusB;
+        uniform float uOccOn;
+        varying float vOcclude;
+        float occSeg(vec3 p, vec3 a, vec3 b) {
+          vec3 ab = b - a;
+          float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-4), 0.0, 1.0);
+          return distance(p, a + ab * t);
+        }`
+      )
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+        {
+          mat4 im = modelMatrix;
+          #ifdef USE_INSTANCING
+            im = modelMatrix * instanceMatrix;
+          #endif
+          vec3 base = (im * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+          vec3 head = (im * vec4(0.0, ${top.toFixed(2)}, 0.0, 1.0)).xyz;
+          vec3 mid = mix(base, head, 0.55);
+          float dA = min(occSeg(head, cameraPosition, uFocusA), occSeg(mid, cameraPosition, uFocusA));
+          float dB = uFocusB.y > -900.0 ? min(occSeg(head, cameraPosition, uFocusB), occSeg(mid, cameraPosition, uFocusB)) : 99.0;
+          // the lens against the prop itself: its disc (a canopy of radius r at the top) and its pole
+          vec2 toAxis = cameraPosition.xz - head.xz;
+          float dDisc = length(vec2(max(length(toAxis) - ${r.toFixed(2)}, 0.0), cameraPosition.y - head.y));
+          float dC = min(dDisc, occSeg(cameraPosition, base, head));
+          // in the way of a focus (and not beyond it: what stands behind him stays)
+          float dm = distance(cameraPosition, mid);
+          float blockA = (1.0 - smoothstep(${(r * 0.85).toFixed(2)}, ${(r * 1.35).toFixed(2)}, dA)) * (1.0 - smoothstep(0.0, 2.0, dm - distance(cameraPosition, uFocusA)));
+          float blockB = (1.0 - smoothstep(${(r * 0.85).toFixed(2)}, ${(r * 1.35).toFixed(2)}, dB)) * (1.0 - smoothstep(0.0, 2.0, dm - distance(cameraPosition, uFocusB)));
+          float lens = 1.0 - smoothstep(1.4, 3.2, dC);
+          vOcclude = max(max(blockA, blockB), lens) * uOccOn;
+          ${minY === null ? '' : `vOcclude *= step(${minY.toFixed(2)}, position.y); // (what stands below this stays: the takht people sit on)`}
+        }`
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vOcclude;')
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+        if (vOcclude > 0.01) {
+          float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+          if (n < vOcclude) discard;
+        }`
+      );
+  };
+  material.customProgramCacheKey = () => `occlude-${top}-${r}-${minY}`;
+  return material;
+}
+
 export function makeWaterAware(material, { caustics = true, wetness = true, puddles = true, selfWet = null } = {}) {
   // selfWet: a per-material { value } (Prady fresh out of the river)
   const self = selfWet || { value: 0 };

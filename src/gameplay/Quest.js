@@ -102,7 +102,7 @@ export class Quest {
       if (d < f.radius && dy < 4.5 && (!best || d < best.d)) best = { d, flame: f };
     }
     if (!best) return null;
-    return { prompt: `Light the ${best.flame.name}`, action: () => this.lightFlame(best.flame.id) };
+    return { prompt: `Light the ${best.flame.name}`, flameId: best.flame.id, action: () => this.lightFlame(best.flame.id) };
   }
 
   lightFlame(id, silent = false) {
@@ -117,6 +117,7 @@ export class Quest {
       this.ui.toast(`${f.name} burns again`, f.lore, 7);
       this.ui.flash();
     }
+    this.onLit?.(id, silent);
     if (id === 'dashashwamedh') this.smokeIds.filter((s) => s.aarti).forEach((s) => this.smoke.setStrength(s.id, 0.14));
     if (this.litCount === this.flames.length && !this.complete) this.finish(silent);
   }
@@ -177,12 +178,13 @@ export class Quest {
     }
     const dashLit = this.flames.find((f) => f.id === 'dashashwamedh').lit;
     const evening = this.sky.hours > 18.3 && this.sky.hours < 22.5;
-    const aarti = this.complete || (dashLit && evening);
+    // (forceAarti: Chapter III holds an aarti before its flame is lit)
+    const aarti = this.complete || ((dashLit || this.forceAarti) && evening);
     if (aarti !== this.aartiLit) {
       this.aartiLit = aarti;
       for (const e of this.aartiEmitters) this.fire.setLit(e, aarti ? 1 : 0);
     }
-    this.eveningAarti = dashLit && evening;
+    this.eveningAarti = (dashLit || this.forceAarti) && evening;
 
     // Beads spin and bob
     const m = this._m;

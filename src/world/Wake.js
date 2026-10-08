@@ -50,13 +50,18 @@ void main() {
   float n = vnoise(q * 6.0);
   float m = vnoise(q * 2.5) * 0.65 + vnoise(q * 11.0) * 0.35;
   float mask = 1.0 - smoothstep(0.15, 0.5, r + (n - 0.5) * 0.25);
-  vec2 c = cells(q * (8.0 + vFoam.w * 3.0));
+  // the cells warped by noise (no regular net), walls broken into strands and flecks
+  vec2 qw = q * (8.0 + vFoam.w * 3.0) + (vec2(vnoise(q * 3.1), vnoise(q * 3.1 + 5.2)) - 0.5) * 2.2;
+  vec2 c = cells(qw);
   // fresh foam is a dense sheet; as it ages it opens into thin, broken lace
   float age = vFoam.z;
   float wall = mix(0.5, 0.05, sqrt(age)) * (0.45 + m);
-  float lace = 1.0 - smoothstep(wall * 0.35, wall, c.y - c.x);
+  float lace = 1.0 - smoothstep(wall * 0.2, wall * 1.35, c.y - c.x);
+  lace *= mix(1.0, smoothstep(0.32, 0.62, vnoise(qw * 0.9 + 3.7)), smoothstep(0.1, 0.5, age));
+  // fine flecks between the strands
+  lace = max(lace, (1.0 - smoothstep(0.0, 0.06, c.x)) * 0.55 * (1.0 - age));
   float breakup = smoothstep(0.25 + age * 0.35, 0.6 + age * 0.2, m);
-  float a = mask * lace * breakup * vFoam.x;
+  float a = mask * lace * breakup * vFoam.x * mix(1.0, 0.7, age);
   if (a < 0.01) discard;
   gl_FragColor = vec4(uLight * (0.86 + 0.14 * n), a);
   #include <fog_fragment>

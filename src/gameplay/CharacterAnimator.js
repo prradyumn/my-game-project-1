@@ -164,7 +164,7 @@ export class CharacterAnimator {
     // sitting down to meditate, stepping up, the dive take-off. One plays at a time; switching
     // crossfades. See play() / stop().
     this.clipActions = {};
-    for (const k of ['wave', 'stretch', 'lookAround', 'pranam', 'meditate', 'sitToStand', 'crouchReach', 'stepUp', 'diveTakeoff', 'guard', 'oneTwo', 'bodyShot', 'frontKick', 'roundKick', 'thrust', 'parry', 'swordStance', 'slashA', 'slashB', 'heavyCut']) {
+    for (const k of ['wave', 'stretch', 'lookAround', 'pranam', 'meditate', 'sitToStand', 'crouchReach', 'stepUp', 'diveTakeoff', 'guard', 'oneTwo', 'bodyShot', 'frontKick', 'roundKick', 'thrust', 'parry', 'swordStance', 'slashA', 'slashB', 'heavyCut', 'dodgeRoll', 'dodgeBack', 'knockdown', 'getUp', 'death', 'hitLight', 'hitHeavy']) {
       if (clips[k]) this.clipActions[k] = this.mixer.clipAction(clips[k]);
     }
     this.cur = null;

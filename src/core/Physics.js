@@ -11,15 +11,21 @@ import RAPIER from '@dimforge/rapier3d-compat';
 const PEOPLE = 0x0002;
 const TREAD = 0x0004;
 const RAMP = 0x0008;
+const CAMONLY = 0x0010; // things only the camera bumps into (umbrella canopies: walk under, never look through)
 const g = (member, filter) => ((member << 16) | filter) >>> 0;
 export const GROUPS = {
   people: g(PEOPLE, 0xffff),
   tread: g(TREAD, 0xffff),
   ramp: g(RAMP, 0xffff),
-  mover: g(0xffff, 0xffff & ~TREAD), // the character controller: ramps, not treads
-  feet: g(0xffff, 0xffff & ~RAMP), // rays that look for the real ground
+  mover: g(0xffff, 0xffff & ~TREAD & ~CAMONLY), // the character controller: ramps, not treads
+  feet: g(0xffff, 0xffff & ~RAMP & ~CAMONLY), // rays that look for the real ground
   ignorePeople: g(0xffff, 0xffff & ~PEOPLE & ~RAMP), // the camera
-  climb: g(0xffff, 0xffff & ~PEOPLE & ~RAMP & ~TREAD), // ledges Prady can climb onto
+  climb: g(0xffff, 0xffff & ~PEOPLE & ~RAMP & ~TREAD & ~CAMONLY), // ledges Prady can climb onto
+  cameraOnly: g(CAMONLY, 0xffff),
+  // the Asuras: walk on the ramps like Prady, but pass each other and the townsfolk (they
+  // steer apart instead: a controller stepping onto another capsule stacks them up)
+  enemyMover: g(0xffff, 0xffff & ~TREAD & ~PEOPLE & ~CAMONLY),
+  enemyFeet: g(0xffff, 0xffff & ~RAMP & ~PEOPLE & ~CAMONLY),
 };
 
 export class Physics {
@@ -56,6 +62,13 @@ export class Physics {
 
   addCylinder(cx, cy, cz, radius, height) {
     const desc = this.RAPIER.ColliderDesc.cylinder(height / 2, radius).setTranslation(cx, cy + height / 2, cz);
+    this.colliderCount++;
+    return this.world.createCollider(desc, this.fixedBody);
+  }
+
+  /** A flat disc only the camera collides with (an umbrella's canopy). */
+  addCameraDisc(cx, cy, cz, radius, height) {
+    const desc = this.RAPIER.ColliderDesc.cylinder(height / 2, radius).setTranslation(cx, cy, cz).setCollisionGroups(GROUPS.cameraOnly);
     this.colliderCount++;
     return this.world.createCollider(desc, this.fixedBody);
   }

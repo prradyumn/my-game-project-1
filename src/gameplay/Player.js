@@ -484,7 +484,7 @@ export class Player {
     this.headUnderwater = false;
     this.breath = this.breathMax;
     this.fx.swimming(false);
-    this.animator.update(dt, 'boat', 0, { rowPhase: b.rowPhase ?? 0, lookYaw: 0 });
+    this.animator.update(dt, 'boat', 0, { rowPhase: b.rowPhase ?? 0, lookYaw: 0, oarHands: b.oarHands, oarLean: b.oarLean });
   }
 }
 

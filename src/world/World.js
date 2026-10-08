@@ -1,3 +1,4 @@
+import { buildGalis } from './Galis.js';
 import { WORLD } from '../config.js';
 import { buildCity } from './City.js';
 import { buildGhats } from './Ghats.js';
@@ -23,10 +24,11 @@ export function buildWorld(scene, textures, physics) {
   const street = buildStreetLife(layout, physics);
   scene.add(street.mesh);
   const akhara = new Akhara({ scene, physics, textures });
-  layout.clutter = [...street.clutter, ...akhara.clutter];
+  const galis = buildGalis(layout, textures, physics, scene);
+  layout.clutter = [...street.clutter, ...akhara.clutter, ...galis.clutter];
   addBoundaries(physics);
   console.info(`[world] built in ${(performance.now() - t0).toFixed(0)} ms — ${layout.buildings.length} buildings, ${city.stats.windows} windows, ${physics.colliderCount} colliders`);
-  return { layout, terrain, ghats, city, props, street, akhara };
+  return { layout, terrain, ghats, city, props, street, akhara, galis };
 }
 
 // Invisible walls: behind the city, both ends of the map, and the far side of the sandbank.

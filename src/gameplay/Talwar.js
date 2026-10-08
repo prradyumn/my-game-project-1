@@ -19,7 +19,7 @@ function bladeGeometry() {
     const t = k / n;
     const y = 0.02 + t * BLADE;
     const curve = -0.11 * t * t; // sweeps back toward the spine side
-    let w = 0.036 - 0.008 * t + (t > 0.72 ? 0.008 * Math.sin(((t - 0.72) / 0.28) * Math.PI) : 0);
+    let w = 0.041 - 0.009 * t + (t > 0.72 ? 0.009 * Math.sin(((t - 0.72) / 0.28) * Math.PI) : 0);
     if (t > 0.93) w *= 1 - (t - 0.93) / 0.07; // the point
     return { y, z: curve, w: Math.max(0.0015, w), th: 0.0045 * (1 - t * 0.6) };
   };

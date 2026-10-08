@@ -11,12 +11,25 @@ export class Input {
     this.locked = false;
     this.enabled = true;
     this.onLockChange = null;
+    this.usingPad = false; // the last thing touched was a gamepad (prompts show its buttons)
 
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
-      if (['Space', 'ArrowUp', 'ArrowDown', 'Tab'].includes(e.code)) e.preventDefault();
+      // Cmd or Option frees the mouse without pausing (the system screenshot tools, another
+      // window); a click on the game takes it back. (Keys held with Cmd may never send a keyup
+      // on macOS: forget them so nothing sticks down.)
+      if (/^(Meta|Alt)(Left|Right)$/.test(e.code)) {
+        this.keys.clear();
+        if (this.locked) {
+          this.freed = true;
+          document.exitPointerLock();
+        }
+        return;
+      }
+      if (['Space', 'ArrowUp', 'ArrowDown', 'Tab', 'F9'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
       this.pressed.add(e.code);
+      this.usingPad = false;
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     // mouse buttons as keys (Mouse0 left, Mouse2 right) while the pointer is locked: the click
@@ -127,9 +140,23 @@ export class Input {
     const prev = this._gpPrev || [];
     if (gp) {
       gp.buttons.forEach((b, i) => {
-        if (b.pressed && !prev[i]) this.pressed.add(`Pad${i}`);
+        if (b.pressed && !prev[i]) {
+          this.pressed.add(`Pad${i}`);
+          this.usingPad = true;
+        }
       });
       this._gpPrev = gp.buttons.map((b) => b.pressed);
+      // the left stick as a d-pad for menus (edge-triggered, with a held repeat)
+      const ax = gp.axes[0] || 0;
+      const ay = gp.axes[1] || 0;
+      const dir = Math.abs(ax) > 0.6 || Math.abs(ay) > 0.6 ? (Math.abs(ax) > Math.abs(ay) ? (ax > 0 ? 'right' : 'left') : ay > 0 ? 'down' : 'up') : null;
+      if (dir) this.usingPad = true;
+      this._stickT = dir && dir === this._stickDir ? this._stickT - 1 : 0;
+      if (dir && (dir !== this._stickDir || this._stickT <= -18)) {
+        this.pressed.add(`Stick${dir}`);
+        if (this._stickT <= -18) this._stickT = -12;
+      }
+      this._stickDir = dir;
     }
   }
 }

@@ -297,7 +297,10 @@ export function waterNormalTexture(size = 256) {
       h[y * size + x] = s;
     }
   }
-  const data = new Uint8Array(size * size * 4);
+  // half-float, not 8-bit: the field is smooth, and 8-bit steps showed up in the sun's highlight
+  // on the river as a fine terraced grid
+  const H16 = THREE.DataUtils.toHalfFloat;
+  const data = new Uint16Array(size * size * 4);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const dx = h[y * size + ((x + 1) % size)] - h[y * size + ((x - 1 + size) % size)];
@@ -306,12 +309,13 @@ export function waterNormalTexture(size = 256) {
       let ny = -dy * 1.6;
       const inv = 1 / Math.hypot(nx, ny, 1);
       const i = (y * size + x) * 4;
-      data[i] = (nx * inv * 0.5 + 0.5) * 255;
-      data[i + 1] = (ny * inv * 0.5 + 0.5) * 255;
-      data[i + 2] = (inv * 0.5 + 0.5) * 255;
-      data[i + 3] = 255;
+      data[i] = H16(nx * inv * 0.5 + 0.5);
+      data[i + 1] = H16(ny * inv * 0.5 + 0.5);
+      data[i + 2] = H16(inv * 0.5 + 0.5);
+      data[i + 3] = H16(1);
     }
   }
-  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.HalfFloatType);
+  tex.magFilter = THREE.LinearFilter;
   return finish(tex, { srgb: false });
 }

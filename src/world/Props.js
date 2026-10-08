@@ -4,7 +4,7 @@ import { MeshBuilder } from '../utils/MeshBuilder.js';
 import { RNG } from '../utils/math.js';
 import { leafTexture } from '../utils/textures.js';
 import { GHAT_SEGMENTS, frameAtX, frameToWorld, ghatById, ghatToWorld } from './WorldLayout.js';
-import { WORLD_UNIFORMS, makeWaterAware, surfaceMaterial } from './materials.js';
+import { WORLD_UNIFORMS, makeWaterAware, occluderFade, surfaceMaterial } from './materials.js';
 import { buildTemple } from './Temple.js';
 
 // Set dressing and the sacred-flame structures. Fire/smoke emitters are returned as plain
@@ -42,6 +42,9 @@ export function buildProps(layout, textures, physics, extraFlags = []) {
   const umbGeo = umbrellaGeometry();
   const canopyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, side: THREE.DoubleSide, map: textures.straw?.map || null, normalMap: textures.straw?.normalMap || null });
   const frameMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, map: textures.wood?.map || null, normalMap: textures.wood?.normalMap || null });
+  // (an umbrella between the camera and Prady fades away instead of filling the frame)
+  occluderFade(canopyMat, { top: 2.95, r: 2.3 });
+  occluderFade(frameMat, { top: 2.95, r: 2.3, minY: 0.9 }); // (the pole and ribs; never the takht below)
   const umbMeshes = [new THREE.InstancedMesh(umbGeo.canopy, canopyMat, layout.umbrellas.length), new THREE.InstancedMesh(umbGeo.frame, frameMat, layout.umbrellas.length)];
   layout.umbrellas.forEach((u, i) => {
     _e.set(u.tilt, u.yaw, u.tilt * 0.6);
@@ -49,6 +52,7 @@ export function buildProps(layout, textures, physics, extraFlags = []) {
     for (const um of umbMeshes) um.setMatrixAt(i, _m);
     physics.addBox(u.x, u.y + 0.25, u.z, 1.9, 0.5, 1.2, u.yaw);
     physics.addCylinder(u.x, u.y + 0.5, u.z, 0.06, 2.6); // the bamboo pole (stand on the takht beside it)
+    physics.addCameraDisc(u.x, u.y + 2.95, u.z, 2.3, 0.55); // the canopy: the camera stays under it
   });
   for (const um of umbMeshes) {
     um.castShadow = true;

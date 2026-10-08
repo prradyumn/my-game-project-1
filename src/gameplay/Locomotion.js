@@ -251,7 +251,7 @@ export class Locomotion {
     const armW = clamp(groundish + W.air, 0, 1) * (1 - Wsw);
     // with the mocap front crawl only treading water still needs the procedural sculling
     const armSwim = ctx.swimMocap ? W.tread || 0 : Wsw;
-    if (ctx.state === 'boat') this.rowArms(ctx.rowPhase ?? 0);
+    if (ctx.state === 'boat') this.rowArms(ctx.rowPhase ?? 0, ctx.oarHands, ctx.oarLean);
     else if (armSwim > 0.05) this.swimArms(ctx, armSwim);
     else if (armW > 0.01 && !this.mocap) this.walkArms(ctx, W, legPhase, armW);
 
@@ -334,8 +334,22 @@ export class Locomotion {
     }
   }
 
-  // Both hands on the oars: reach forward, pull back.
-  rowArms(phase) {
+  // Both hands on the oars: the grips (Oars.js) when the boat has them, else a mimed stroke.
+  rowArms(phase, hands, lean) {
+    if (hands) {
+      // a lean with the drive: forward as the handles go out, upright again for the catch
+      const right = _w.crossVectors(_F, _U).normalize();
+      if (this.b.spine1) rotateBoneAxis(this.b.spine1, right, -0.16 * (lean ?? 0));
+      if (this.b.spine2) rotateBoneAxis(this.b.spine2, right, -0.1 * (lean ?? 0));
+      for (const [i, side] of [[0, 'Left'], [1, 'Right']]) {
+        const s = side === 'Left' ? 1 : -1;
+        const B = this.b[side];
+        // elbows out and down
+        _p.copy(_L).multiplyScalar(s * 0.75).addScaledVector(_U, -0.65).normalize();
+        solveTwoBone(B.arm, B.fore, B.hand, hands[i], _p, 1);
+      }
+      return;
+    }
     const k = Math.sin(phase * Math.PI * 2);
     for (const side of ['Left', 'Right']) {
       const s = side === 'Left' ? 1 : -1;

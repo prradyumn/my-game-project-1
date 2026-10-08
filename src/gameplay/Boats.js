@@ -106,6 +106,8 @@ export class PlayerBoat {
     this.seat = new THREE.Vector3(0, 0.12, -1.6);
     this.input = { thrust: 0, turn: 0 };
     this.power = 1; // stroke strength (Ramu's oar: rows faster after the ferry mission)
+    this.boost = 1; // this stroke's strength (a well-timed stroke in the boat race pulls harder)
+    this.pendingBoost = 0; // ...set for the next stroke
   }
 
   get speed() {
@@ -166,6 +168,8 @@ export class PlayerBoat {
     if ((Math.abs(thrust) > 0.1 || Math.abs(turn) > 0.1) && this.strokeTimer <= 0) {
       this.strokeTimer = 1.1;
       this.stroke = 0.55;
+      this.boost = this.pendingBoost || 1;
+      this.pendingBoost = 0;
       this.strokeSide = Math.abs(turn) > 0.3 ? Math.sign(turn) : 0;
       this.strokeDir = Math.abs(thrust) > 0.1 ? Math.sign(thrust) : 1;
       fx.oar(this.x, this.z);
@@ -180,7 +184,7 @@ export class PlayerBoat {
     if (this.stroke > 0) {
       this.stroke -= dt;
       const pull = Math.sin(Math.PI * (1 - this.stroke / 0.55)); // smooth pulse
-      const fwd = (this.strokeSide === 0 ? 2.6 : 1.5) * this.strokeDir * pull * this.power;
+      const fwd = (this.strokeSide === 0 ? 2.6 : 1.5) * this.strokeDir * pull * this.power * this.boost;
       ax += f.x * fwd;
       az += f.z * fwd;
       yawAcc += this.strokeSide * 1.4 * pull; // one-oar stroke yaws the boat

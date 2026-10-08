@@ -40,7 +40,9 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   float sat = (mx - mn) / max(mx, 1e-4);
   g = mix(vec3(l), g, uSaturation * (1.0 + uVibrance * (1.0 - sat)));
   float n = fract(sin(dot(uv * vec2(1931.7, 1213.3) + fract(uTime * 7.31), vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
-  float grain = uGrain;
+  // (no grain in normal play: on top of a sharpened, upscaled image it read as noise on faces;
+  // the photo-mode looks add their own)
+  float grain = uFilter > 0.5 ? uGrain : 0.0;
   if (uFilter > 0.5) {
     float f = uFilter;
     vec3 c = clamp(g, 0.0, 1.0);

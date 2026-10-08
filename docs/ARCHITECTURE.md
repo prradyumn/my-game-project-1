@@ -117,7 +117,16 @@ movement is identical at 30, 60 or 120 fps.
 | `core/Renderer.js` | WebGLRenderer + postprocessing (N8AO, bloom, ACES, vignette, SMAA), quality presets, adaptive resolution. |
 | `core/AudioManager.js` | Web Audio buses (music/ambience/sfx/voice), HRTF positional sounds, ducking, underwater low-pass. |
 | `core/Assets.js` | `ASSET_MANIFEST` — the only place file paths live. Missing files fall back gracefully. |
-| `ui/UI.js`, `ui/style.css` | DOM HUD: loading, title, objectives, compass, purity, breath, prompts, toasts, region titles, pause/settings, photo mode. |
+| `ui/UI.js`, `ui/style.css` | DOM HUD: loading, title, objectives, compass, purity, breath, prompts, toasts, region titles, pause/settings, photo mode, health, lock-on marker, enemy and boss bars, menus (journeys, Chapter Select), story panel, chapter cards, captions, rhythm bar, race panel, stroke ring, countdown. |
+| `gameplay/Combat.js` | Prady's fighting: strikes (root motion, approach, run-in dash, tracking, aim pitch toward a target up or down the steps, blade swept between frames), defence (dodge roll with grace frames, guard, parry, hit reactions, knockdown, death / revive), the talwar in hand or scabbard, flinch springs. |
+| `gameplay/Health.js` · `Targets.js` · `LockOn.js` | Prady's prana (grace, regen); the registry of everything strikable; lock-on (acquire, switch, camera framing). |
+| `gameplay/Asuras.js` · `world/AsuraLook.js` | The Asuras: kinds (shade, brute, boss), the AI (rise → stalk / circle → approach with a token → telegraphed attack → recover; stagger, poise, hit-stun, a pack-wide beat between blows), bodies (Rocketbox + CMU pack, horns, ember-crack shader, eyes, foot IK on the steps), particles, the stomp's warning ring, prana from kills. |
+| `gameplay/Encounters.js` · `BattleMusic.js` | Waves at a ghat, the boss's phases, restart after a fall; the fight / boss music loops mixed by intensity. |
+| `gameplay/Story.js` · `gameplay/chapters/*` | Chapters as step lists (`prep` for test jumps, `start`, `update`, `interact`, `on`, `stop`, `lightFlame`), cutscenes (camera keys + voiced captions), flame gating, save/restore. `lines.js` holds every voiced line; `kit.js` the placement / camera helpers. |
+| `gameplay/Missions.js` · `missions/*` | Side missions, dialogue box, punya, perks, the marker pass (story, missions and race markers in one instanced mesh). |
+| `gameplay/BoatRace.js` · `Oars.js` · `RiverAarti.js` | Nauka Daud (course, gates, rival boats steered by a helmsman, stroke timing, standings); oars for every rowing boat with the rower's hands IK'd to the grips; the evening aarti from the water. |
+| `gameplay/TestMenu.js` | Chapter Select · Test: every system registers jumps (`add(group, label, sub, run)`); jumps grant what they need and never save. |
+| `world/Galis.js` · `Kitchen.js` · `BhairavTemple.js` · `Ramnagar.js` | The lanes and their shops / shrines, Amma's kitchen, the Kaal Bhairav temple, Ramnagar Fort. |
 
 ## How to extend (recipes)
 
@@ -138,12 +147,23 @@ movement is identical at 30, 60 or 120 fps.
 - **Tune the look:** sky/fog/exposure in `SkySystem.js`, water colours in `Water.update`,
   bloom/tone mapping in `Renderer.buildComposer`.
 
+- **New chapter step:** add an object to a chapter's `steps` (`prep(g)` must put the world in
+  the state the step needs, so its Chapter Select jump works with nothing done before). Voiced
+  lines go in `chapters/lines.js`; render them with `node tools/voice-lines.mjs --key-file …`.
+- **New fight:** `game.encounters.start({ ghat, u, waves: [{ n, kind }], onWin })`; register a test
+  jump in `Game.registerFightJumps`.
+- **New activity:** a class with `interaction()`, `update(dt)` and `stop()`; wire it into
+  `Game.currentInteraction`, the update loop and `stopActivities`, and give it a test jump.
+
 ## Performance notes
 
-- ~60 draw calls and ~1.4 M triangles at Medium (includes the shadow pass).
+- ~60 draw calls and ~1.4 M triangles at Medium (includes the shadow pass) on the ghats; the boat
+  race adds ~10 (rival hulls are one instanced mesh, oars another, three boatmen).
 - Everything static is merged per material; repeated things are `InstancedMesh`.
 - Reflection pass renders at 33 % (Medium) / 50 % (High) of the screen and reuses the last shadow map.
-- Adaptive resolution trims the pixel ratio when the frame rate drops below 48 fps.
+- Adaptive resolution trims the pixel ratio only when the GPU is the bottleneck and two trimmed
+  windows are slow (never below a preset's `minScale`; Very High holds 1.0).
+- Props that block the view (straw umbrellas) dither away per instance (`occluderFade`).
 - The boat you ride is 23.7 k triangles; moored boats use a 3.5 k LOD (`boat-lod.glb`).
 - People: one draw call per body (body + head share an atlas; hair cards add one), shared
   materials per avatar (a private dithered copy only while fading), bodies up on the ghats stay

@@ -25,6 +25,13 @@ water, sky, particles, umbrellas, trees, birds) is generated in code.
 | Motion capture (idle, walk, run, sneak, agree, head-shake, soldier set) | `characters/prady-mocap.json` | Mixamo mocap from the three.js example characters (`source-assets/mixamo/Xbot.glb`, `Soldier.glb`), retargeted onto Prady with `tools/retarget.html` | Mixamo animations are royalty-free for use inside your game; don't redistribute them as standalone files. |
 | Carved temple sandstone, weathered wood, straw weave | `textures/gemini-*.jpg` (1K) · `source-assets/textures/*-2k.jpg` | Gemini 3 Pro Image via `tools/gemini-image.mjs` | Temples, takhts/balconies/platforms/pyres, umbrella canopies. |
 
+| Asura shades / Rakshasa / Andhaka | `people/Male_Adult_11.glb` + `people/motions-asura.glb` | Rocketbox body (MIT) with the ember-crack shader and horns in code; CMU takes (crouched idle, bent-over walk, sideways sneak, hooks, lunge, overhead chop, reel back, fall) baked by `tools/bake-people.mjs pack` | `PACK_ASURA` in `tools/people-config.js`. |
+| Prady's fighting mocap | `characters/prady-mocap.json` (29 clips) | CMU takes (boxing, swordplay, kicks, rolls, a backward hop, falls, a get-up) via `tools/retarget.js` | Every take picked from contact sheets (`tools/mocap-sheet.html`) and measured with `tools/bvh-measure.mjs`. |
+| Chapter voices (61 lines) | `audio/voice/ch1…ch5/*.mp3` | Gemini 2.5 Pro TTS via `tools/voice-lines.mjs` (cast in `chapters/lines.js`) | Each line transcribed back and checked against its text. |
+| Battle music | `audio/battle-ghats-loop.mp3`, `audio/battle-andhaka-loop.mp3` | Gemini Lyria via `tools/gemini-music.mjs`, cut to 48 s seamless loops (crossfaded on the bar, padded with their own wrapped audio; `ASSET_MANIFEST.battleMusic.*.loop`) | Tabla, dholak, sitar; Andhaka's darker. |
+| Asura sounds | `audio/sfx/asura-*.mp3`, `audio/sfx/andhaka-roar.mp3` | Genex sfx, pitched / levelled copies (originals beside them in `audio/`) | |
+| Kaal Bhairav murti | `images/gemini-bhairav-murti-v2.jpg` (2K original in `source-assets/images/`) | Gemini 3 Pro Image | The relief in the temple's sanctum. |
+
 The texture lane was down at the provider while building, so the three surfaces came from the
 image lane and are processed into PBR sets in the browser instead.
 

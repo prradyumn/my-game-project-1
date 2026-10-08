@@ -35,6 +35,30 @@ export const ASSET_MANIFEST = {
     // shared motion packs (skeleton + clips) by body type: adult male / adult female / child
     packs: { m: 'motions-m', f: 'motions-f', c: 'motions-c' },
   },
+  // The Asuras (src/gameplay/Asuras.js): a person's body re-skinned as darkness, driven by an
+  // enemy motion pack (tools/people.js "asura" pack: CMU + Mixamo mocap on the same skeleton).
+  // roles: which clip plays each part of a fight (the first one present wins).
+  enemies: {
+    body: `${A}/people/Male_Adult_11.glb`,
+    packBase: `${A}/people/motions-m.glb`,
+    pack: `${A}/people/motions-asura.glb`,
+    bossBody: null,
+    // ('-name': the clip played backwards)
+    roles: {
+      idle: ['asuraIdle', 'wait', 'idle'],
+      walk: ['asuraWalk', 'walk'],
+      run: ['asuraRun'],
+      strafeL: ['asuraStrafeL', '-asuraStrafeR'],
+      strafeR: ['asuraStrafeR'],
+      attackA: ['asuraSwipe'],
+      attackB: ['asuraLunge'],
+      heavy: ['asuraSmash'],
+      hit: ['asuraHit'],
+      stagger: ['asuraStagger'],
+      death: ['asuraDeath'],
+      roar: ['asuraRoar'],
+    },
+  },
   character: {
     // Prady, rigged by Uthana with a Mixamo-named skeleton (game copy with 2K textures;
     // the full-resolution originals are in /source-assets, outside the web build).
@@ -50,6 +74,8 @@ export const ASSET_MANIFEST = {
       // combat (CMU: boxer 13, karate 135, swordplay 02, woodcutter 79)
       guard: 'guard', oneTwo: 'oneTwo', bodyShot: 'bodyShot', frontKick: 'frontKick', roundKick: 'roundKick',
       thrust: 'thrust', parry: 'parry', swordStance: 'swordStance', slashA: 'slashA', slashB: 'slashB', heavyCut: 'heavyCut',
+      // defence (CMU): dodge roll / backstep, knockdown + get up, the fall
+      dodgeRoll: 'dodgeRoll', dodgeBack: 'dodgeBack', knockdown: 'knockdown', getUp: 'getUp', death: 'death',
     },
     // Fallback clips (Genex / Uthana) used if the mocap file is missing.
     clips: {
@@ -73,7 +99,18 @@ export const ASSET_MANIFEST = {
     wood: `${A}/textures/gemini-wood-planks.jpg`,
     straw: `${A}/textures/gemini-straw-thatch.jpg`,
   },
+  // voiced lines for the chapters (Gemini TTS, tools/gemini-tts.mjs), loaded a chapter at a time
+  voice: `${A}/audio/voice`,
   keyArt: `${A}/images/cinematic-key-art-for-a-mythological-ope-cmuyh9f3.png`,
+  // Kaal Bhairav's shringar in his sanctum (Gemini 3 Pro Image; 2K original in source-assets/images)
+  murti: `${A}/images/gemini-bhairav-murti-v2.jpg`,
+  // battle music, fetched once the game has begun (Lyria 3.5 via tools/gemini-music.mjs; 48 s
+  // seamless loops cut on the bar, padded 0.5 s either side with their own wrapped audio: `loop`
+  // is [loopStart, loopEnd] in seconds)
+  battleMusic: {
+    fight: { url: `${A}/audio/battle-ghats-loop.mp3`, loop: [0.5, 48.5015] },
+    boss: { url: `${A}/audio/battle-andhaka-loop.mp3`, loop: [0.5, 48.5015] },
+  },
   audio: {
     music: `${A}/audio/seamless-meditative-loop-for-a-sacred-ri-cmuyh8w5.mp3`,
     river: `${A}/audio/gentle-wide-river-water-lapping-against-cmuyh90m.mp3`,
@@ -91,6 +128,11 @@ export const ASSET_MANIFEST = {
     pigeons: `${A}/audio/flock-of-pigeons-taking-off-wings-flappi-cmuyhux9.mp3`,
     narrationIntro: `${A}/audio/kashi-older-than-history-the-city-of-lig-cmuyhulu.mp3`,
     narrationEnd: `${A}/audio/the-five-flames-burn-once-more-mother-ga-cmuyhunv.mp3`,
+    // the Asuras (Genex sfx, pitched / levelled copies of the originals beside them)
+    'asura-growl': `${A}/audio/sfx/asura-growl.mp3`,
+    'asura-attack': `${A}/audio/sfx/asura-attack.mp3`,
+    'asura-death': `${A}/audio/sfx/asura-death.mp3`,
+    'andhaka-roar': `${A}/audio/sfx/andhaka-roar.mp3`,
   },
 };
 

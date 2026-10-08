@@ -81,6 +81,70 @@ export class AudioManager {
     this.pendingLoops = [];
   }
 
+  /** Fetch + decode a buffer on demand (battle music: not needed at the title). Cached promise. */
+  fetchBuffer(name, url) {
+    this.fetching = this.fetching || {};
+    if (this.buffers[name]) return Promise.resolve(this.buffers[name]);
+    if (!this.fetching[name]) {
+      const ctx = this.ctx || this._ctx;
+      this.fetching[name] = fetch(url)
+        .then((r) => (r.ok ? r.arrayBuffer() : null))
+        .then((ab) => (ab && ctx ? ctx.decodeAudioData(ab) : null))
+        .then((b) => (b ? (this.buffers[name] = b) : null))
+        .catch(() => null);
+    }
+    return this.fetching[name];
+  }
+
+  // ---------------------------------------------------------------- voiced lines (loaded per chapter)
+  /** Fetch + decode a line (cached). Returns a promise of the buffer (null if missing). */
+  loadVoice(url) {
+    this.voices = this.voices || new Map();
+    if (!this.voices.has(url)) {
+      const ctx = this.ctx || this._ctx;
+      const p = fetch(url)
+        .then((r) => (r.ok ? r.arrayBuffer() : null))
+        .then((ab) => (ab && ctx ? ctx.decodeAudioData(ab) : null))
+        .catch(() => null);
+      p.then((b) => (p.buffer = b));
+      this.voices.set(url, p);
+    }
+    return this.voices.get(url);
+  }
+
+  /** Speak a line now (stops the last one). Returns { duration } if it was ready, else null. */
+  speak(url) {
+    this.stopVoice();
+    const p = this.loadVoice(url);
+    if (!this.ctx) return null;
+    const play = (buf) => {
+      if (!buf || this._wantVoice !== url) return;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(this.buses.voice);
+      src.start();
+      this.duck(buf.duration);
+      this._voiceSrc = src;
+    };
+    this._wantVoice = url;
+    if (p.buffer) {
+      play(p.buffer);
+      return { duration: p.buffer.duration };
+    }
+    p.then(play);
+    return null;
+  }
+
+  stopVoice() {
+    this._wantVoice = null;
+    try {
+      this._voiceSrc?.stop();
+    } catch {
+      /* already ended */
+    }
+    this._voiceSrc = null;
+  }
+
   setVolume(bus, v) {
     this.volumes[bus] = v;
     if (this.buses?.[bus]) this.buses[bus].gain.setTargetAtTime(v, (this.ctx || this._ctx).currentTime, 0.1);
@@ -159,6 +223,9 @@ export class AudioManager {
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffers[name];
     src.loop = true;
+    // exact loop points (a file padded either side with its own wrapped audio loops gaplessly
+    // whatever the decoder's priming delay)
+    if (opts.loop) [src.loopStart, src.loopEnd] = opts.loop;
     const g = this.ctx.createGain();
     g.gain.value = opts.volume ?? 1;
     let node = src.connect(g);
@@ -168,7 +235,7 @@ export class AudioManager {
       node = node.connect(panner);
     }
     node.connect(this.buses[opts.channel || 'ambience']);
-    src.start(0, Math.random() * src.buffer.duration);
+    src.start(0, opts.loop ? opts.loop[0] : Math.random() * src.buffer.duration);
     const ctx = this.ctx;
     const handle = {
       gain: g,
@@ -181,7 +248,11 @@ export class AudioManager {
           panner.positionZ.setTargetAtTime(p.z, ctx.currentTime, 0.1);
         } else panner.setPosition(p.x, p.y, p.z);
       },
-      stop: () => src.stop(),
+      stop: (fade = 0) => {
+        g.gain.setTargetAtTime(0, ctx.currentTime, fade / 4 + 0.001);
+        src.stop(ctx.currentTime + fade);
+        if (this.loops[name] === handle) delete this.loops[name];
+      },
     };
     this.loops[name] = handle;
     return handle;

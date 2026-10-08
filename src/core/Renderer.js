@@ -66,6 +66,11 @@ export class RenderSystem {
       // AO under them is the faint AO of what lies behind: side by side it looks identical.
       ao.configuration.transparencyAware = false;
       ao.setQualityMode(q.aoMode || 'Low');
+      // a thorough blur of the half-resolution AO: with N8AO's 4-sample denoise it crawled as
+      // grain over faces and clothes (most visible on Prady close up)
+      ao.configuration.denoiseSamples = 8;
+      ao.configuration.denoiseRadius = 10;
+      if (q.aoMode === 'Performance') ao.configuration.aoSamples = 12;
       composer.addPass(ao);
       this.ao = ao;
     } else this.ao = null;
@@ -102,7 +107,7 @@ export class RenderSystem {
     this.grade = new ColorGradeEffect();
     effects.push(this.grade);
     effects.push(new VignetteEffect({ offset: 0.32, darkness: 0.42 }));
-    if (q.smaa) effects.push(new SMAAEffect({ preset: SMAAPreset.MEDIUM }));
+    if (q.smaa) effects.push(new SMAAEffect({ preset: this.qualityName === 'medium' ? SMAAPreset.MEDIUM : SMAAPreset.HIGH }));
     composer.addPass(new EffectPass(camera, ...effects));
     // last: restore the detail lost to upscaling (its own pass: it reads neighbouring pixels)
     if (q.sharpen > 0) composer.addPass(new EffectPass(camera, new SharpenEffect(q.sharpen)));

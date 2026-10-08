@@ -59,8 +59,24 @@ const PACK_CHILD = [
   { name: 'play', cmu: '142_01', start: 4.0, end: 11.9, loopBlend: 0.8 }, // skipping about
   { name: 'floorSit', cmu: '114_16', start: 9.4, end: 14.2, loopBlend: 0.8 },
 ];
+// The Asuras (src/gameplay/Asuras.js): a predator's crouch and creep, claw swipes, a lunge, the
+// woodcutter's overhead chop as the heavy smash, a reel back, a fall on the face. CMU takes, each
+// picked from a contact sheet (tools/mocap-sheet.html). Mixamo creature clips replace these when
+// present (ASSET_MANIFEST.enemies.roles lists the order of preference).
+const PACK_ASURA = [
+  { name: 'asuraIdle', cmu: '55_23', start: 11.6, end: 13.8, loopBlend: 0.6, fps: 30 }, // "devil": crouched, claws forward
+  { name: 'asuraWalk', cmu: '136_01', start: 1.5, end: 6.3, loopBlend: 0.6, fps: 30 }, // walking bent forward
+  { name: 'asuraStrafeR', cmu: '139_15', start: 1.0, end: 7.0, loopBlend: 0.6, fps: 30 }, // sneaking sideways (to its right; played backwards for the left)
+  { name: 'asuraSwipe', cmu: '13_17', start: 10.45, end: 11.5, fps: 30 }, // a boxer's hook (lands at 0.48)
+  { name: 'asuraLunge', cmu: '76_01', start: 5.4, end: 7.4, fps: 30 }, // a lunging hook (lands at 0.49)
+  { name: 'asuraSmash', cmu: '79_01', start: 0.35, end: 1.7, fps: 30 }, // overhead two-handed chop (lands at 0.52)
+  { name: 'asuraStagger', cmu: '76_11', start: 0.3, end: 2.0, fps: 30 }, // quick large steps backwards
+  { name: 'asuraDeath', cmu: '90_16', start: 2.3, end: 4.6, fps: 30 }, // falling onto the face
+  { name: 'asuraRoar', cmu: '55_23', start: 45.6, end: 49.0, fps: 30 }, // rearing up, claws high
+];
 export const PACKS = {
   m: { avatar: 'Male_Adult_15', motions: PACK_ADULT },
   f: { avatar: 'Female_Adult_06', motions: PACK_ADULT },
   c: { avatar: 'Male_Child_01', motions: PACK_CHILD },
+  asura: { avatar: 'Male_Adult_11', motions: PACK_ASURA },
 };

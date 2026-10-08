@@ -599,7 +599,7 @@ shots.forEach((s, i) => {
 });
 const amix = `${mix.join(';')};${mix.map((_, i) => `[a${i}]`).join('')}amix=inputs=${mix.length}:normalize=0,alimiter=limit=0.9,atrim=0:${total.toFixed(2)},afade=t=out:st=${(total - 1.2).toFixed(2)}:d=1.2[a]`;
 fs.mkdirSync(path.dirname(FINAL), { recursive: true });
-ff(...vIn, ...audioIn, '-filter_complex', `${chain};${amix}`, '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'slow', '-crf', '23', '-maxrate', '3.6M', '-bufsize', '7.2M', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-c:a', 'aac', '-b:a', '160k', '-t', total.toFixed(2), FINAL);
+ff(...vIn, ...audioIn, '-filter_complex', `${chain};${amix}`, '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'slow', '-tune', 'film', '-crf', '19', '-maxrate', '8M', '-bufsize', '16M', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-c:a', 'aac', '-b:a', '160k', '-t', total.toFixed(2), FINAL);
 // poster frame for the player
 ff('-ss', '1.6', '-i', FINAL, '-frames:v', '1', '-q:v', '3', FINAL.replace(/\.mp4$/, '-poster.jpg'));
 console.log(`wrote ${FINAL} (${total.toFixed(1)} s, ${(fs.statSync(FINAL).size / 1e6).toFixed(1)} MB)`);

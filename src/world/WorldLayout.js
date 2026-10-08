@@ -234,6 +234,10 @@ function generateCity() {
   const mainRoad = { x0: MAIN_ROAD_X - 5, x1: MAIN_ROAD_X + 5 };
   // Inland special: a golden-spired temple behind Man Mandir.
   const goldenLot = { row: 2, x0: 98, x1: 126 };
+  // Kaal Bhairav's temple (Chapter V, BhairavTemple.js): a walled courtyard shrine on the first
+  // lane behind Panchganga, its gate on the lane
+  const bhairavLot = { row: 1, x0: 350, x1: 372 };
+  let bhairav = null;
 
   ROWS.forEach((row, ri) => {
     row.index = ri;
@@ -272,6 +276,17 @@ function generateCity() {
           continue;
         }
       }
+      if (ri === bhairavLot.row && x >= bhairavLot.x0 - 0.01 && x < bhairavLot.x1) {
+        const xc = (bhairavLot.x0 + bhairavLot.x1) / 2;
+        const f = frameAtX(xc);
+        const d = 16;
+        const p = frameToWorld(f, 0, row.v0 - d / 2);
+        bhairav = { x: p.x, z: p.z, yaw: f.yaw, w: bhairavLot.x1 - bhairavLot.x0, d, baseY: GHAT_TOP, frontV: row.v0 };
+        if (buildings.length && buildings[buildings.length - 1].row === ri) buildings[buildings.length - 1].rightOpen = true;
+        x = bhairavLot.x1;
+        prevGap = true;
+        continue;
+      }
       if (ri === goldenLot.row && x >= goldenLot.x0 - 0.01 && x < goldenLot.x1) {
         const xc = (goldenLot.x0 + goldenLot.x1) / 2;
         const f = frameAtX(xc);
@@ -288,6 +303,7 @@ function generateCity() {
         .map((s) => s.x0)
         .filter((s) => s > x + 0.01);
       if (ri === goldenLot.row && goldenLot.x0 > x + 0.01) nextStops.push(goldenLot.x0);
+      if (ri === bhairavLot.row && bhairavLot.x0 > x + 0.01) nextStops.push(bhairavLot.x0);
       const nextStop = Math.min(CITY_X1, ...nextStops);
       if (x + w > nextStop - 6) w = nextStop - x;
       if (w < 4) {
@@ -309,7 +325,7 @@ function generateCity() {
     }
   });
 
-  return { buildings, temples };
+  return { buildings, temples, bhairav };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -501,6 +517,7 @@ export function generateLayout() {
     ghats: GHAT_SEGMENTS,
     buildings: city.buildings,
     temples: city.temples,
+    bhairav: city.bhairav,
     flames: generateFlames(),
     umbrellas: generateUmbrellas(rng),
     aartiPlatforms: generateAartiPlatforms(),

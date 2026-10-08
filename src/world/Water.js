@@ -318,7 +318,8 @@ export class Water {
       this.reflectionRT = null;
     }
     if (q.reflection > 0) {
-      this.reflectionRT = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType, samples: 0 });
+      // (multisampled from High up: thin things in the mirror, oars, poles, railings, were stair-stepped)
+      this.reflectionRT = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType, samples: q.reflection >= 0.45 ? 4 : 0 });
       this.reflectionRT.texture.generateMipmaps = false;
       this.uniforms.uReflection.value = this.reflectionRT.texture;
     }

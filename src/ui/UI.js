@@ -41,7 +41,36 @@ export class UI {
       mission: $('#mission', root),
       punya: $('#punya b', root),
       dialogue: $('#dialogue', root),
+      health: $('#health', root),
+      healthFill: $('#health .track i', root),
+      healthTrail: $('#health .track u', root),
+      hurt: $('#hurt', root),
+      lock: $('#lockon', root),
+      bars: $('#enemybars', root),
+      boss: $('#bossbar', root),
+      revive: $('#revive', root),
+      menu: $('#menu', root),
+      story: $('#story', root),
+      card: $('#chaptercard', root),
+      caption: $('#caption', root),
+      rhythm: $('#rhythm', root),
+      fade: $('#fadeblack', root),
+      race: $('#race', root),
+      stroke: $('#stroke', root),
+      countdown: $('#countdown', root),
     };
+    this.barPool = [];
+    this.healthShown = 0;
+    this.padMode = false;
+    // arrows / Esc inside the journey and chapter-select lists
+    window.addEventListener('keydown', (e) => {
+      if (!this.menuOpen) return;
+      const dir = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[e.code];
+      if (dir) {
+        e.preventDefault();
+        this.navigate(dir);
+      } else if (e.code === 'Escape') this.els.menu.querySelector('.close').click();
+    });
     this.compassMarks = [];
     this.lastRegion = '';
     this.buildCompass();
@@ -53,10 +82,14 @@ export class UI {
     if (text) this.els.loadText.textContent = text;
   }
 
-  showTitle({ hasSave, settings, onBegin, onContinue, onQuality, onIntro }) {
+  showTitle({ hasSave, settings, onBegin, onContinue, onQuality, onIntro, onLoad, onTest }) {
     this.els.loading.classList.add('hidden');
     const intro = $('#btn-intro', this.root);
     if (intro) intro.onclick = () => onIntro?.();
+    const load = $('#btn-load', this.root);
+    load.classList.toggle('hidden', !onLoad);
+    load.onclick = () => onLoad?.();
+    $('#btn-test', this.root).onclick = () => onTest?.();
     this.els.title.classList.remove('hidden');
     this.els.cont.classList.toggle('hidden', !hasSave);
     const sel = $('#title-quality', this.root);
@@ -156,10 +189,237 @@ export class UI {
     }
     this.els.water.classList.toggle('on', !!underwater);
     if (prompt) {
-      this.els.prompt.innerHTML = `<kbd>E</kbd> ${prompt}`;
+      this.els.prompt.innerHTML = `<kbd>${this.padMode ? 'X' : 'E'}</kbd> ${prompt}`;
       this.els.prompt.classList.remove('hidden');
     } else this.els.prompt.classList.add('hidden');
     if (fps !== undefined) this.els.fps.textContent = fps;
+  }
+
+  // ------------------------------------------------------------- combat
+  /** Prana (health) 0..1; shown while hurt or fighting, the white trail catches up after a hit. */
+  setHealth(frac, show) {
+    const el = this.els.health;
+    el.classList.toggle('off', !show);
+    this.els.healthFill.style.width = `${(frac * 100).toFixed(1)}%`;
+    if (frac >= this.healthShown) this.healthShown = frac;
+    else this.healthShown += (frac - this.healthShown) * 0.04;
+    this.els.healthTrail.style.width = `${(this.healthShown * 100).toFixed(1)}%`;
+    el.classList.toggle('low', frac < 0.3);
+    this.els.hurt.style.setProperty('--low', frac < 0.3 ? ((0.3 - frac) / 0.3).toFixed(2) : '0');
+  }
+
+  /** A red flash at the screen's edge when a blow lands (k 0..1). */
+  hurtFlash(k = 1) {
+    const el = this.els.hurt;
+    el.style.setProperty('--k', k.toFixed(2));
+    el.classList.remove('go');
+    void el.offsetWidth;
+    el.classList.add('go');
+  }
+
+  /** Lock-on marker at screen point {x, y} (pixels), or null to hide. */
+  setLock(pt) {
+    const el = this.els.lock;
+    el.classList.toggle('hidden', !pt);
+    if (pt) el.style.transform = `translate(${pt.x.toFixed(1)}px, ${pt.y.toFixed(1)}px)`;
+  }
+
+  /** Small health bars over hurt enemies: [{ x, y, frac, alpha }] in pixels. */
+  setEnemyBars(list) {
+    const box = this.els.bars;
+    while (this.barPool.length < list.length) {
+      const el = document.createElement('div');
+      el.className = 'ebar';
+      el.innerHTML = '<i></i>';
+      box.appendChild(el);
+      this.barPool.push(el);
+    }
+    this.barPool.forEach((el, i) => {
+      const b = list[i];
+      if (!b) {
+        el.style.display = 'none';
+        return;
+      }
+      el.style.display = '';
+      el.style.transform = `translate(${b.x.toFixed(1)}px, ${b.y.toFixed(1)}px)`;
+      el.style.opacity = b.alpha.toFixed(2);
+      el.firstChild.style.width = `${(b.frac * 100).toFixed(1)}%`;
+    });
+  }
+
+  /** The boss's bar at the bottom of the screen: { name, title, frac } or null. */
+  setBoss(b) {
+    const el = this.els.boss;
+    el.classList.toggle('off', !b);
+    this.root.classList.toggle('bossfight', !!b);
+    if (!b) return;
+    if (el.dataset.name !== b.name) {
+      el.dataset.name = b.name;
+      el.querySelector('h5').textContent = b.name;
+      el.querySelector('small').textContent = b.title || '';
+    }
+    el.querySelector('.track i').style.width = `${(Math.max(0, b.frac) * 100).toFixed(1)}%`;
+  }
+
+  // ------------------------------------------------------------- the boat race
+  /** { pos, of, time, gate, gates, board: [{ name, you, done }] } or null */
+  setRace(r) {
+    const el = this.els.race;
+    el.classList.toggle('hidden', !r);
+    this.root.classList.toggle('racing', !!r);
+    if (!r) return;
+    const ord = (n) => `${n}${['th', 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'th'}`;
+    el.querySelector('.pos b').textContent = ord(r.pos);
+    el.querySelector('.pos .of').textContent = `of ${r.of}`;
+    el.querySelector('.time').textContent = r.time;
+    el.querySelector('.gate').textContent = r.gate;
+    const key = r.board.map((b) => `${b.name}${b.done ? '*' : ''}`).join('|');
+    if (key !== el.dataset.board) {
+      el.dataset.board = key;
+      el.querySelector('.board').innerHTML = r.board.map((b) => `<li class="${b.you ? 'you' : ''}${b.done ? ' done' : ''}">${b.name}</li>`).join('');
+    }
+  }
+
+  /** The stroke ring: { k (0..1 through the stroke), win (the catch window, fraction of the
+   *  ring at its top), streak, flash: 'good' | 'miss' | null } or null */
+  setStroke(st) {
+    const el = this.els.stroke;
+    el.classList.toggle('hidden', !st);
+    if (!st) return;
+    const C = 2 * Math.PI * 24;
+    const fg = el.querySelector('circle.fg');
+    fg.style.strokeDasharray = `${C}`;
+    fg.style.strokeDashoffset = `${C * (1 - st.k)}`;
+    const win = el.querySelector('circle.win');
+    win.style.strokeDasharray = `${C * st.win} ${C}`;
+    win.style.strokeDashoffset = `${C * st.win * 0.6}`;
+    el.querySelector('.streak').textContent = st.streak > 1 ? `×${st.streak}` : '';
+    if (st.flash) {
+      el.classList.remove('good', 'miss');
+      void el.offsetWidth;
+      el.classList.add(st.flash);
+    }
+  }
+
+  /** The big count before a race: '3', '2', '1', 'Chalo!' ('' hides it). */
+  countdown(text) {
+    const el = this.els.countdown;
+    el.textContent = text;
+    el.classList.remove('pop');
+    if (!text) return;
+    void el.offsetWidth;
+    el.classList.add('pop');
+  }
+
+  /** A plain fade to black and back (a boatman rowing you across, time passing). */
+  fadeBlack(on) {
+    this.els.fade.classList.toggle('on', on);
+  }
+
+  /** Mother Ganga's grace after a fall: a golden-white fade with a line of text. */
+  showRevive(on, text = '') {
+    const el = this.els.revive;
+    if (text) el.querySelector('p').textContent = text;
+    el.classList.toggle('on', on);
+  }
+
+  // ------------------------------------------------------------- story
+  /** The chapter in hand: { chapter, title, text } or null. */
+  setStory(st) {
+    const el = this.els.story;
+    el.classList.toggle('hidden', !st);
+    if (!st) return;
+    const key = `${st.chapter}|${st.title}|${st.text}`;
+    if (key === this._storyKey) return;
+    const changed = this._storyKey && this._storyKey.split('|')[2] !== st.text;
+    this._storyKey = key;
+    el.querySelector('small').textContent = st.chapter;
+    el.querySelector('h4').textContent = st.title;
+    el.querySelector('p').textContent = st.text;
+    if (changed) {
+      el.classList.remove('pulse');
+      void el.offsetWidth;
+      el.classList.add('pulse');
+    }
+  }
+
+  /** A chapter opens: its number, its title and the legend behind it, over the world. */
+  chapterCard(roman, title, legend) {
+    const el = this.els.card;
+    el.querySelector('small').textContent = `Chapter ${roman}`;
+    el.querySelector('h2').textContent = title;
+    el.querySelector('p').textContent = legend || '';
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+  }
+
+  /** A line in a cutscene (speaker + words), or null to clear. */
+  caption(who, text) {
+    const el = this.els.caption;
+    if (!who && !text) return el.classList.remove('on');
+    el.querySelector('b').textContent = who || '';
+    el.querySelector('span').textContent = text || '';
+    el.classList.remove('on');
+    void el.offsetWidth;
+    el.classList.add('on');
+  }
+
+  // ------------------------------------------------------------- the rhythm bar (stirring, rowing)
+  /** opts: { title, hint, need, speed, zone } → call rhythmUpdate(dt, pressed) each frame. */
+  rhythmStart(opts) {
+    const el = this.els.rhythm;
+    this.rh = { t: 0, x: 0, dir: 1, ok: 0, miss: 0, need: opts.need || 5, speed: opts.speed || 0.9, zone: opts.zone || 0.16, center: 0.5 + (Math.random() - 0.5) * 0.4, flash: 0 };
+    el.querySelector('h5').textContent = opts.title || '';
+    el.querySelector('small').textContent = opts.hint || '';
+    el.classList.remove('hidden');
+    this.rhythmDraw();
+  }
+
+  /** Returns 'done' when enough good presses, 'hit' / 'miss' on a press, else null. */
+  rhythmUpdate(dt, pressed) {
+    const r = this.rh;
+    if (!r) return null;
+    r.x += r.dir * r.speed * dt;
+    if (r.x > 1) (r.x = 1), (r.dir = -1);
+    if (r.x < 0) (r.x = 0), (r.dir = 1);
+    let res = null;
+    if (pressed) {
+      if (Math.abs(r.x - r.center) < r.zone / 2) {
+        r.ok++;
+        res = 'hit';
+        r.center = 0.15 + Math.random() * 0.7;
+        r.speed *= 1.07;
+      } else {
+        r.miss++;
+        res = 'miss';
+      }
+      r.flash = 1;
+      r.last = res;
+    }
+    r.flash = Math.max(0, r.flash - dt * 3);
+    this.rhythmDraw();
+    if (r.ok >= r.need) {
+      this.rhythmStop();
+      return 'done';
+    }
+    return res;
+  }
+
+  rhythmDraw() {
+    const r = this.rh;
+    const el = this.els.rhythm;
+    el.querySelector('.zone').style.left = `${((r.center - r.zone / 2) * 100).toFixed(1)}%`;
+    el.querySelector('.zone').style.width = `${(r.zone * 100).toFixed(1)}%`;
+    el.querySelector('.mark').style.left = `${(r.x * 100).toFixed(1)}%`;
+    el.querySelector('.count').textContent = `${r.ok} / ${r.need}`;
+    el.classList.toggle('good', r.flash > 0 && r.last === 'hit');
+    el.classList.toggle('bad', r.flash > 0 && r.last === 'miss');
+  }
+
+  rhythmStop() {
+    this.rh = null;
+    this.els.rhythm.classList.add('hidden');
   }
 
   // ------------------------------------------------------------- missions
@@ -247,6 +507,89 @@ export class UI {
     this.root.classList.toggle('letterbox', on);
   }
 
+  // ------------------------------------------------------------- menus (journeys, chapter select)
+  /**
+   * A full-screen list: { title, note, sections: [{ heading, items: [{ label, sub, onClick, disabled, tag }] }],
+   * onClose }. Keyboard / gamepad: arrows move, Enter / A chooses, Esc / B closes.
+   */
+  openMenu(m) {
+    const el = this.els.menu;
+    el.classList.remove('hidden');
+    el.querySelector('h2').textContent = m.title;
+    el.querySelector('.note').textContent = m.note || '';
+    const list = el.querySelector('.list');
+    list.innerHTML = '';
+    for (const sec of m.sections) {
+      if (sec.heading) {
+        const h = document.createElement('h3');
+        h.textContent = sec.heading;
+        list.appendChild(h);
+      }
+      const grid = document.createElement('div');
+      grid.className = 'items';
+      for (const it of sec.items) {
+        const b = document.createElement('button');
+        b.className = 'item' + (it.primary ? ' primary' : '');
+        b.disabled = !!it.disabled;
+        b.innerHTML = `<b>${it.label}</b>${it.sub ? `<small>${it.sub}</small>` : ''}${it.tag ? `<em>${it.tag}</em>` : ''}`;
+        b.onclick = () => it.onClick?.();
+        grid.appendChild(b);
+      }
+      list.appendChild(grid);
+    }
+    const close = el.querySelector('.close');
+    close.onclick = () => {
+      this.closeMenu();
+      m.onClose?.();
+    };
+    this.menuOpen = m;
+    list.scrollTop = 0;
+    requestAnimationFrame(() => el.querySelector('button.item:not([disabled])')?.focus());
+  }
+
+  closeMenu() {
+    this.els.menu.classList.add('hidden');
+    this.menuOpen = null;
+  }
+
+  /** Gamepad / arrow navigation inside whatever screen is open: dir 'up'|'down'|'left'|'right'. */
+  navigate(dir) {
+    const screen = [this.els.menu, this.els.pause, this.els.title].find((e) => e && !e.classList.contains('hidden'));
+    if (!screen) return;
+    const all = [...screen.querySelectorAll('button:not([disabled]):not(.hidden), select, input')].filter((b) => b.offsetParent !== null);
+    if (!all.length) return;
+    const cur = document.activeElement && all.includes(document.activeElement) ? document.activeElement : null;
+    if (!cur) return all[0].focus();
+    // spatial: the nearest element in that direction
+    const r0 = cur.getBoundingClientRect();
+    const c0 = { x: r0.left + r0.width / 2, y: r0.top + r0.height / 2 };
+    let best = null;
+    let bd = Infinity;
+    for (const b of all) {
+      if (b === cur) continue;
+      const r = b.getBoundingClientRect();
+      const c = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      const dx = c.x - c0.x;
+      const dy = c.y - c0.y;
+      const ok = dir === 'down' ? dy > 4 : dir === 'up' ? dy < -4 : dir === 'right' ? dx > 4 : dx < -4;
+      if (!ok) continue;
+      const main = dir === 'down' || dir === 'up' ? Math.abs(dy) : Math.abs(dx);
+      const side = dir === 'down' || dir === 'up' ? Math.abs(dx) : Math.abs(dy);
+      const d = main + side * 2.5;
+      if (d < bd) {
+        bd = d;
+        best = b;
+      }
+    }
+    (best || cur).focus();
+    (best || cur).scrollIntoView?.({ block: 'nearest' });
+  }
+
+  activate() {
+    const a = document.activeElement;
+    if (a && a.tagName === 'BUTTON') a.click();
+  }
+
   // ------------------------------------------------------------- pause / settings
   showPause(settings, handlers) {
     const p = this.els.pause;
@@ -272,6 +615,7 @@ export class UI {
     bind('#set-weather', 'weather', 'select');
     bind('#set-fps', 'showFps', 'check');
     $('#btn-resume', p).onclick = handlers.onResume;
+    $('#btn-ptest', p).onclick = () => handlers.onTest?.();
     for (const b of p.querySelectorAll('.timeofday button')) b.onclick = () => handlers.onTime?.(parseFloat(b.dataset.hour));
     $('#btn-reset', p).onclick = () => {
       if (confirm('Start a new journey? Lit flames and collected rudraksha will be reset.')) handlers.onReset();
@@ -309,19 +653,22 @@ const TEMPLATE = /* html */ `
     <div class="buttons">
       <button id="btn-continue" class="primary hidden">Continue Journey</button>
       <button id="btn-begin" class="primary">Begin Journey</button>
+      <button id="btn-load" class="hidden">Load Journey</button>
       <button id="btn-intro" type="button">Watch Gameplay</button>
+      <button id="btn-test" type="button" title="Jump to any chapter or activity, no prerequisites">Chapter Select · Test</button>
     </div>
     <label class="inline">Graphics <select id="title-quality"></select></label>
     <div class="controls">
       <span><kbd>WASD</kbd> move</span><span><kbd>Mouse</kbd> look</span><span><kbd>Shift</kbd> sprint</span>
       <span><kbd>Space</kbd> jump · dive · swim up</span><span><kbd>C</kbd> dive</span><span><kbd>E</kbd> interact · boat</span>
-      <span><kbd>F</kbd> float a diya</span><span><kbd>G</kbd> pranam</span><span><kbd>M</kbd> meditate</span><span><kbd>J</kbd> task</span><span><kbd>LMB</kbd> strike · <kbd>RMB</kbd> kick / heavy cut</span><span><kbd>Q</kbd> guard</span><span><kbd>R</kbd> draw talwar</span><span><kbd>X</kbd> walk</span><span><kbd>N</kbd> night / dawn</span><span><kbd>P</kbd> photo mode</span><span><kbd>Esc</kbd> menu</span>
+      <span><kbd>F</kbd> float a diya</span><span><kbd>G</kbd> pranam</span><span><kbd>M</kbd> meditate</span><span><kbd>J</kbd> task</span><span><kbd>LMB</kbd> strike · <kbd>RMB</kbd> kick / heavy cut</span><span><kbd>Q</kbd> guard</span><span><kbd>R</kbd> draw talwar</span><span><kbd>X</kbd> walk</span><span><kbd>N</kbd> night / dawn</span><span><kbd>P</kbd> photo mode</span><span><kbd>F9</kbd> screenshot</span><span><kbd>⌘</kbd> / <kbd>⌥</kbd> free the mouse</span><span><kbd>Esc</kbd> menu</span>
     </div>
   </div>
 </div>
 
 <div id="hud" class="hidden">
   <div id="compass"><div class="strip"></div><div class="tick"></div></div>
+  <div id="story" class="hidden"><small></small><h4></h4><p></p></div>
   <div id="objective">
     <h4>The Five Flames of Kashi</h4>
     <ul></ul>
@@ -333,6 +680,13 @@ const TEMPLATE = /* html */ `
     <div id="punya" title="Punya: merit earned by helping the people of Kashi"><span class="lotus"></span><b>0</b></div>
   </div>
   <div id="purity"><label>Ganga Purity <b>0%</b></label><div class="track"><i></i></div></div>
+  <div id="health" class="off"><label>Prana</label><div class="track"><u></u><i></i></div></div>
+  <div id="enemybars"></div>
+  <div id="lockon" class="hidden"><span></span></div>
+  <div id="bossbar" class="off"><h5></h5><small></small><div class="track"><i></i></div></div>
+  <div id="race" class="hidden"><h4>Nauka Daud</h4><div class="pos"><b>1st</b><span class="of">of 4</span><i class="time">0:00.0</i></div><p class="gate"></p><ol class="board"></ol></div>
+  <div id="stroke" class="hidden"><svg viewBox="0 0 60 60"><circle class="bg" cx="30" cy="30" r="24"/><circle class="win" cx="30" cy="30" r="24"/><circle class="fg" cx="30" cy="30" r="24"/></svg><b class="streak"></b><small>Space on the catch</small></div>
+  <div id="countdown"></div>
   <div id="breath" class="hidden"><svg viewBox="0 0 50 50"><circle class="bg" cx="25" cy="25" r="22"/><circle class="fg" cx="25" cy="25" r="22"/></svg><span>Breath</span></div>
   <div id="prompt" class="hidden"></div>
   <div id="dialogue" class="hidden"><div class="who"></div><div class="line"></div><div class="next"></div></div>
@@ -344,9 +698,24 @@ const TEMPLATE = /* html */ `
 </div>
 
 <div id="underwater"></div>
+<div id="hurt"></div>
+<div id="chaptercard"><small></small><h2></h2><p></p></div>
+<div id="caption"><b></b><span></span></div>
+<div id="rhythm" class="hidden"><h5></h5><div class="bar"><i class="zone"></i><i class="mark"></i></div><div class="row"><small></small><b class="count"></b></div></div>
+<div id="revive"><p></p></div>
+<div id="fadeblack"></div>
 <div id="flash"></div>
 <div id="photo-hint">PHOTO MODE · mouse to orbit · [ ] time of day · C look · B focus · L letterbox · Enter save · P exit</div>
 <div class="letterbox-bar top"></div><div class="letterbox-bar bottom"></div>
+
+<div id="menu" class="screen hidden">
+  <div class="panel">
+    <h2></h2>
+    <p class="note"></p>
+    <div class="list"></div>
+    <div class="buttons"><button class="close">Back</button></div>
+  </div>
+</div>
 
 <div id="pause" class="screen hidden">
   <div class="panel">
@@ -373,6 +742,7 @@ const TEMPLATE = /* html */ `
     </div>
     <div class="buttons">
       <button id="btn-resume" class="primary">Resume</button>
+      <button id="btn-ptest">Chapter Select · Test</button>
       <button id="btn-reset">New journey</button>
     </div>
   </div>

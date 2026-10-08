@@ -12,7 +12,22 @@ import { Player } from '../gameplay/Player.js';
 import { PradyActions } from '../gameplay/Actions.js';
 import { ClothSway } from '../gameplay/ClothSway.js';
 import { Missions } from '../gameplay/Missions.js';
-import { Combat, synthBladeHit, synthBladeWhoosh, synthDraw, synthSheathe, synthThump, synthWhoosh } from '../gameplay/Combat.js';
+import { Combat, synthBladeHit, synthBladeWhoosh, synthBlock, synthBodyHit, synthDraw, synthParry, synthSheathe, synthThump, synthWhoosh } from '../gameplay/Combat.js';
+import { Health } from '../gameplay/Health.js';
+import { AsuraSystem } from '../gameplay/Asuras.js';
+import { Encounters } from '../gameplay/Encounters.js';
+import { BattleMusic } from '../gameplay/BattleMusic.js';
+import { Oars } from '../gameplay/Oars.js';
+import { BoatRace } from '../gameplay/BoatRace.js';
+import { RiverAarti } from '../gameplay/RiverAarti.js';
+import { Kitchen } from '../world/Kitchen.js';
+import { BhairavTemple } from '../world/BhairavTemple.js';
+import { RamnagarFort } from '../world/Ramnagar.js';
+import { synthEmberHiss, synthHowl } from '../world/AsuraLook.js';
+import { LockOn } from '../gameplay/LockOn.js';
+import { Targets } from '../gameplay/Targets.js';
+import { TestMenu } from '../gameplay/TestMenu.js';
+import { Story } from '../gameplay/Story.js';
 import { Quest } from '../gameplay/Quest.js';
 import { UI } from '../ui/UI.js';
 import { makeSurfaceSet, proceduralSurface } from '../utils/textures.js';
@@ -20,7 +35,7 @@ import { lerp } from '../utils/math.js';
 import { PHOTO_FILTERS, applyGrade } from './Grading.js';
 import { playIntro } from '../ui/IntroVideo.js';
 import { FOG } from '../world/Atmosphere.js';
-import { WORLD_UNIFORMS, makeWaterAware } from '../world/materials.js';
+import { OCCLUDE, WORLD_UNIFORMS, makeWaterAware } from '../world/materials.js';
 import { RippleSystem, SmokeSystem, SplashSystem } from '../world/Particles.js';
 import { FireSystem } from '../world/Fire.js';
 import { NightScene } from '../world/Night.js';
@@ -36,9 +51,12 @@ import { Underwater } from '../world/Underwater.js';
 import { Weather, synthRain, synthThunder } from '../world/Weather.js';
 import { Water } from '../world/Water.js';
 import { buildWorld } from '../world/World.js';
-import { bankCoords, ghatById, ghatToWorld, groundHeight, segmentForX } from '../world/WorldLayout.js';
+import { GHAT_SEGMENTS, LANDING_1, PROFILE_LEN, bankCoords, ghatById, ghatToWorld, groundHeight, segmentForX } from '../world/WorldLayout.js';
 
-const SAVE_KEY = 'prady-save-v1';
+const SAVE_KEY = 'prady-save-v1'; // the single save from before journeys had slots (read once, kept)
+const SLOTS = 3;
+const slotKey = (i) => `lov-slot-${i}`;
+const LAST_KEY = 'lov-last-slot';
 const SETTINGS_KEY = 'prady-settings-v1';
 const DEBUG = new URLSearchParams(location.search).has('debug');
 const NO_CROWD = new URLSearchParams(location.search).has('nocrowd');
@@ -71,6 +89,31 @@ export class Game {
     this.fpsAcc = { t: 0, n: 0, fps: 0 };
     this.photo = false;
     this.pradyWet = { value: 0 }; // wet skin: fresh out of the river, or in the rain
+    const game = this;
+    this.worldState = {
+      shrines: new Set(),
+      serialize() {
+        return { shrines: [...this.shrines], raceBest: game.race?.serialize() ?? null };
+      },
+      restore(d) {
+        this.shrines = new Set(d?.shrines || []);
+        game.race?.restore(d?.raceBest);
+      },
+    };
+    this.timeScale = 1; // slow motion (a perfect parry, a fall)
+    this.slowT = 0;
+    this.timers = []; // [{ t, fn }] in game time (pause stops them)
+  }
+
+  /** Run fn after `secs` of game time. */
+  after(secs, fn) {
+    this.timers.push({ t: secs, fn });
+  }
+
+  /** Slow the whole world to `scale` for `secs` (real) seconds. */
+  slowMo(scale, secs) {
+    this.timeScale = scale;
+    this.slowT = secs;
   }
 
   async init() {
@@ -141,6 +184,16 @@ export class Game {
     scene.add(this.diyas.group);
     this.pigeons = new GroundPigeons(this.world.layout.pigeonSpots, { audio: this.audio });
     scene.add(this.pigeons.mesh);
+    // Amma's kitchen at Kedar Ghat (Chapter II)
+    this.kitchen = new Kitchen({ scene, physics, textures, fire: this.fire, smoke: this.smoke });
+    this.world.layout.clutter.push(...this.kitchen.clutter);
+    // Kaal Bhairav's temple on the first lane behind Panchganga (Chapter V)
+    this.bhairav = new BhairavTemple({ scene, physics, textures, fire: this.fire, lot: { ...this.world.layout.bhairav, bankX: 361 }, murtiUrl: M.murti });
+    this.world.layout.clutter.push(...this.bhairav.clutter);
+    // Ramnagar Fort on the far bank, upstream (Chapter V)
+    this.ramnagar = new RamnagarFort({ scene, physics, textures, fire: this.fire });
+    // the galis: a diya burns in every hidden shrine
+    for (const f of this.world.galis.shrineFlames) this.fire.add(f, 0.45, true);
     // Manikarnika: two of the pyres smoulder day and night
     this.heatSources = [];
     this.world.layout.pyres.forEach((p, i) => {
@@ -194,6 +247,10 @@ export class Game {
     for (const b of this.world.layout.boats.moored) physics.addBox(b.x, -0.06, b.z, 1.7, 0.78, 7.0, b.yaw);
     scene.add(this.moored.mesh);
     this.boat = new PlayerBoat(boatGeo, this.world.layout.boats.player);
+    this.boatGeo = boatGeo;
+    // the oars (every rowing boat's pair, one instanced mesh)
+    this.oars = new Oars(scene);
+    this.oars.add(this.boat);
     scene.add(this.boat.object);
 
     // Kashi after dark: ghat diyas, festival lights, boat lanterns, Milky Way
@@ -223,7 +280,14 @@ export class Game {
       audio: this.audio,
       onEvent: (type, data) => this.missions?.onEvent?.(type, data),
     });
-    // fighting: bare hands, or the talwar once Tulsi Akhara's guru gives it
+    // fighting: bare hands, or the talwar once Tulsi Akhara's guru gives it. Everything that can
+    // be struck is in one registry (the akhara's dummies here; Asuras add themselves).
+    this.targets = new Targets();
+    const ak = this.world.akhara;
+    for (const d of ak?.dummies ?? []) {
+      this.targets.add({ kind: 'dummy', pos: d, radius: 0.24, height: 2, alive: true, enemy: false, touch: (pt, r) => ak.touching(pt, r) === d, hit: (h) => ak.hit(d, h.dir.x, h.dir.z, h.k, h.at) });
+    }
+    this.health = new Health(100);
     this.combat = new Combat({
       player: this.player,
       animator: this.animator,
@@ -231,14 +295,21 @@ export class Game {
       audio: this.audio,
       camRig: this.camRig,
       rootMotion: this.rootMotion,
-      akhara: this.world.akhara,
-      onEvent: (type, data) => {
-        if (type === 'noSword') this.ui.toast('No sword yet', 'The guru of Tulsi Akhara keeps a talwar for those who train.', 3);
-        this.missions?.onEvent?.(`combat:${type}`, data);
-      },
+      targets: this.targets,
+      health: this.health,
+      onEvent: (type, data) => this.onCombatEvent(type, data),
     });
     this.player.combat = this.combat;
-    for (const [n, f] of [['whoosh', synthWhoosh], ['blade-whoosh', synthBladeWhoosh], ['thump', synthThump], ['blade-hit', synthBladeHit], ['blade-draw', synthDraw], ['blade-sheathe', synthSheathe]]) this.audio.synth(n, f);
+    this.manifestEnemies = M.enemies;
+    this.asuras = new AsuraSystem(this);
+    this.encounters = new Encounters(this);
+    this.battleMusic = new BattleMusic(this);
+    this.race = new BoatRace(this);
+    this.riverAarti = new RiverAarti(this);
+    this.audio.synth('ember-hiss', synthEmberHiss);
+    this.audio.synth('howl', synthHowl);
+    this.lockOn = new LockOn({ targets: this.targets, camRig: this.camRig, player: this.player, combat: this.combat, camera, ui });
+    for (const [n, f] of [['whoosh', synthWhoosh], ['blade-whoosh', synthBladeWhoosh], ['thump', synthThump], ['blade-hit', synthBladeHit], ['blade-draw', synthDraw], ['blade-sheathe', synthSheathe], ['block', synthBlock], ['parry', synthParry], ['hurt', synthBodyHit]]) this.audio.synth(n, f);
     this.player.actions = this.actions;
     this.camRig.waterHeightAt = (x, z) => this.water.heightAt(x, z);
     const rat = this.world.layout.flames.find((f) => f.id === 'ratneshwar');
@@ -246,6 +317,7 @@ export class Game {
 
     // Quest + HUD
     this.quest = new Quest({ scene, layout: this.world.layout, props: this.world.props, fire: this.fire, smoke: this.smoke, water: this.water, audio: this.audio, ui, sky: this.sky });
+    this.quest.onLit = (id, silent) => !silent && this.story?.onEvent('flame', { id });
     this.quest.onComplete = () => {
       this.player.blessing = true;
       ui.setObjectives(this.quest.objectives(), true);
@@ -253,6 +325,10 @@ export class Game {
     };
     ui.setObjectives(this.quest.objectives(), false);
 
+    // A soft key light that keeps Prady readable at night (the moon alone leaves him a black
+    // shape against the river): warm, no shadows, riding above his shoulder on the camera side.
+    this.heroLight = new THREE.PointLight(0xffc89a, 0, 7, 2);
+    scene.add(this.heroLight);
     // Four pooled point lights give real warm light around the nearest flames and lamps.
     this.lightPool = [];
     for (let i = 0; i < 6; i++) {
@@ -310,18 +386,32 @@ export class Game {
 
     window.addEventListener('resize', () => this.rs.resize());
     this.input.onLockChange = (locked) => {
+      // (freed on purpose with Cmd / Option: keep playing, the cursor is the player's)
+      if (!locked && this.input.freed) return;
+      if (locked) this.input.freed = false;
       if (!locked && this.state === 'play' && !this.photo) this.pause();
     };
     this.canvas.addEventListener('click', () => {
       if (this.state === 'play') this.input.requestLock();
     });
 
-    const save = loadJSON(SAVE_KEY);
+    this.missions = new Missions(this, null);
+    this.story = new Story(this);
+    this.testMenu = new TestMenu(this);
+    this.registerChapterJumps();
+    this.registerMissionJumps();
+    this.registerFightJumps();
+    this.registerRiverJumps();
+    this.migrateSave();
+    const last = loadJSON(LAST_KEY);
+    const lastSave = last ? loadJSON(slotKey(last)) : null;
     ui.showTitle({
-      hasSave: !!save,
+      hasSave: !!lastSave,
       settings: this.settings,
-      onBegin: () => this.begin(null),
-      onContinue: () => this.begin(save),
+      onBegin: () => this.newJourney(),
+      onContinue: () => this.startSlot(last),
+      onLoad: this.slotList().some(Boolean) ? () => this.openSlots('load') : null,
+      onTest: () => this.testMenu.open('title'),
       onQuality: (q) => this.setSetting('quality', q),
       onIntro: () => playIntro({ force: true }),
     });
@@ -380,7 +470,7 @@ export class Game {
       a.href = URL.createObjectURL(blob);
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      this.ui.toast('Photo saved', a.download, 2);
+      this.ui.toast(this.photo ? 'Photo saved' : 'Screenshot saved', `${a.download} · in your Downloads`, 2.5);
     }, 'image/png');
   }
 
@@ -459,8 +549,68 @@ export class Game {
     };
   }
 
+  // ---------------------------------------------------------------- journeys (save slots)
+  migrateSave() {
+    if (this.slotList().some(Boolean)) return;
+    const old = loadJSON(SAVE_KEY);
+    if (!old) return;
+    saveJSON(slotKey(1), { ...old, meta: { when: Date.now(), chapter: 'Journey from before', flames: old.quest?.flames?.length ?? 0, punya: old.missions?.punya ?? 0 } });
+    saveJSON(LAST_KEY, 1);
+  }
+
+  slotList() {
+    return Array.from({ length: SLOTS }, (_, i) => loadJSON(slotKey(i + 1)));
+  }
+
+  newJourney() {
+    const list = this.slotList();
+    const free = list.findIndex((x) => !x);
+    if (free < 0) return this.openSlots('new');
+    this.startSlot(free + 1, true);
+  }
+
+  startSlot(i, fresh = false) {
+    this.ui.closeMenu();
+    this.slot = i;
+    saveJSON(LAST_KEY, i);
+    const data = fresh ? null : loadJSON(slotKey(i));
+    if (fresh) {
+      try {
+        localStorage.removeItem(slotKey(i));
+      } catch {
+        /* ignore */
+      }
+    }
+    this.begin(data);
+  }
+
+  /** mode 'load': pick a journey (an empty slot starts a new one); 'new': choose one to replace. */
+  openSlots(mode) {
+    const list = this.slotList();
+    const when = (t) => (t ? new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+    this.ui.openMenu({
+      title: mode === 'new' ? 'Begin a New Journey' : 'Journeys',
+      note: mode === 'new' ? 'All three journeys are in use. Choose one to begin again in its place (it will be replaced).' : 'Choose a journey to continue, or an empty one to begin anew.',
+      sections: [
+        {
+          items: list.map((d, k) => ({
+            label: `Journey ${k + 1}`,
+            sub: d ? `${d.meta?.chapter || ''} · ${d.meta?.flames ?? d.quest?.flames?.length ?? 0} of 5 flames · ${d.meta?.punya ?? d.missions?.punya ?? 0} punya<br>${when(d.meta?.when)}` : 'Empty — begin a new journey here',
+            tag: d ? '' : 'new',
+            onClick: () => {
+              if (mode === 'new' && d && !confirm(`Replace Journey ${k + 1}? Its progress will be lost.`)) return;
+              this.startSlot(k + 1, mode === 'new' || !d);
+            },
+          })),
+        },
+      ],
+    });
+  }
+
   // ---------------------------------------------------------------- flow
-  async begin(save) {
+  async begin(save, opts = {}) {
+    if (this.state !== 'title') return;
+    this.state = 'starting';
     await this.audio.unlock();
     this.ui.hideTitle();
     this.rs.rest(150); // the first seconds stream in shaders and textures: not a reason to drop resolution
@@ -473,20 +623,158 @@ export class Game {
       swim: this.audio.loop('swim', { volume: 0, channel: 'sfx' }),
       rain: this.audio.loop('rain', { volume: 0 }),
     };
-    this.missions = this.missions || new Missions(this, save?.missions);
+    // the battle music: fetched once the city is up, decoded off the main thread
+    this.after(6, () => this.battleMusic.prefetch());
+    this.missions.restore(save?.missions);
+    this.worldState.restore(save?.world);
+    this.health.revive(1);
+    this.combat.revive();
+    this.storySave = save?.story ?? null;
     if (save) {
       this.quest.restore(save.quest);
       if (save.hours !== undefined) this.sky.setHours(save.hours);
       if (save.player) this.player.teleport(save.player.x, save.player.y, save.player.z);
       if (this.quest.complete) this.player.blessing = true;
       this.ui.setObjectives(this.quest.objectives(), this.quest.complete);
+      this.story.restore(save.story, save.quest?.flames || []);
+      this.after(1.5, () => this.story.showCard());
       this.state = 'play';
       this.input.requestLock();
       this.ui.showRegion('Kashi');
       return;
     }
     this.quest.restore(null);
+    if (!this.testSession) this.story.restore(null, []);
+    if (opts.skipIntro) {
+      this.state = 'play';
+      this.ui.setCinematic(false);
+      this.input.requestLock();
+      return;
+    }
     this.startIntro();
+  }
+
+  /** The test menu's jumps into the side missions: at the giver, at a good hour, already accepted. */
+  registerMissionJumps() {
+    for (const def of this.missions.defs) {
+      this.testMenu.add('Side missions', def.title, def.giver.name, (g) => {
+        const h = def.giver.hours;
+        if (h && !this.missions.available({ ...def, id: '__test' })) g.sky.setHours(h[0] <= h[1] ? (h[0] + h[1]) / 2 : h[0] + 0.5);
+        g.missions.done.delete(def.id);
+        const at = def.giver.at();
+        const back = 2.2;
+        g.testMenu.place(at.x + Math.sin(at.yaw) * back, at.y, at.z + Math.cos(at.yaw) * back, at.yaw + Math.PI);
+        g.missions.update(0);
+        g.missions.start(def);
+      });
+    }
+  }
+
+  /** Speak a voiced line (key = file under the voice folder). Returns { duration } once loaded. */
+  voice(key) {
+    return this.audio.speak(`${ASSET_MANIFEST.voice}/${key}.mp3`);
+  }
+
+  stopVoice() {
+    this.audio.stopVoice();
+  }
+
+  preloadVoices(keys) {
+    for (const k of keys) this.audio.loadVoice(`${ASSET_MANIFEST.voice}/${k}.mp3`);
+  }
+
+  /** Test menu: every chapter, and every step of it, with nothing required first. */
+  registerChapterJumps() {
+    const R = ['', 'I', 'II', 'III', 'IV', 'V'];
+    this.story.chapters.forEach((c, ci) => {
+      const grp = `Chapter ${R[c.num]} · ${c.title}`;
+      c.steps.forEach((st, si) => {
+        this.testMenu.add(grp, si === 0 ? 'Start the chapter' : `${si + 1}. ${st.title || st.text}`, si === 0 ? c.legend : st.text, async (g) => {
+          await g.story.jump(ci, si);
+        });
+      });
+    });
+  }
+
+  /** Test menu: the fights on their own (the chapters stage them with story around them). */
+  registerFightJumps() {
+    const F = 'Fights';
+    const arm = (g) => {
+      g.combat.setHasSword(true);
+      g.combat.armed = true;
+      g.combat.stance(4);
+    };
+    const win = (t) => () => this.ui.toast(t, 'The darkness sinks back into the river.', 4);
+    this.testMenu.add(F, 'Asuras rise from the river', 'Three shades walk up out of the Ganga at Manikarnika, night', async (g) => {
+      g.testMenu.placeOnGhat('manikarnika', 40, 1, 0.6);
+      g.sky.setHours(21);
+      arm(g);
+      await g.encounters.start({ ghat: 'manikarnika', u: 40, waves: [{ n: 3, kind: 'shade' }], onWin: win('The shades are gone') });
+    });
+    this.testMenu.add(F, 'Waves of the dark', 'Two waves, then a Rakshasa, dusk at Scindia Ghat', async (g) => {
+      g.testMenu.placeOnGhat('scindia', 40, 1, 0.6);
+      g.sky.setHours(18.9);
+      arm(g);
+      await g.encounters.start({ ghat: 'scindia', u: 40, waves: [{ n: 2, kind: 'shade' }, { n: 3, kind: 'shade' }, { n: 1, kind: 'brute' }], onWin: win('Scindia Ghat is quiet again') });
+    });
+    this.testMenu.add(F, 'Andhaka, the Blind Darkness', 'The boss rises at Panchganga, midnight (three phases)', async (g) => {
+      g.testMenu.placeOnGhat('panchganga', 62, 1, 0.6);
+      g.sky.setHours(23.5);
+      arm(g);
+      await g.encounters.start({ ghat: 'panchganga', u: 62, waves: [{ kind: 'boss', name: 'Andhaka', title: 'the Blind Darkness' }], onWin: win('Andhaka is no more') });
+    });
+  }
+
+  registerRiverJumps() {
+    const R = 'River life';
+    // in his boat on the water before Dashashwamedh, bow to the river
+    const inBoat = (g, out = 22) => {
+      const gh = ghatById('dashashwamedh');
+      const p = ghatToWorld(gh, gh.width * 0.5, PROFILE_LEN + out);
+      const b = g.boat;
+      if (g.player.state !== 'boat') g.player.enterBoat(b);
+      b.x = b.prev.x = p.x;
+      b.z = b.prev.z = p.z;
+      b.vx = b.vz = 0;
+      b.yaw = b.prev.yaw = Math.atan2(-gh.N.x, -gh.N.z); // facing the ghat
+      g.camRig.yaw = b.yaw;
+      g.camRig.first = true;
+    };
+    this.testMenu.add(R, 'Nauka Daud · the boat race', 'Race three boatmen downstream to Panchganga, 9:00', (g) => {
+      g.sky.setHours(9);
+      g.race.begin();
+    });
+    this.testMenu.add(R, 'Nauka Daud · the last gates', 'Start past the fifth gate (to test the finish)', (g) => {
+      g.sky.setHours(9);
+      g.race.begin({ fromGate: 5 });
+    });
+    this.testMenu.add(R, 'Aarti from the water', 'Dusk, in your boat before Dashashwamedh (E to watch)', (g) => {
+      g.sky.setHours(18.6);
+      inBoat(g);
+    });
+    this.testMenu.add(R, 'The start of the race', 'Row up to the Nauka Daud banner yourself (E to race)', (g) => {
+      g.sky.setHours(8.5);
+      inBoat(g, 14);
+    });
+  }
+
+  /** End whatever is running (a mission, a fight, an activity) before a test jump. */
+  stopActivities() {
+    const m = this.missions;
+    if (m?.dialogue) m.endTalk();
+    if (m?.active) m.abandon(m.active);
+    this.encounters?.clear?.();
+    this.asuras.clear();
+    this.race?.stop();
+    this.riverAarti?.stop();
+    this.story?.stopForTest?.();
+    this.lockOn.release();
+    if (this.health.dead || this.combat.dead) {
+      this.combat.revive();
+      this.health.revive(1);
+    }
+    this.ui.setBoss(null);
+    this.ui.closeMenu();
   }
 
   startIntro() {
@@ -512,7 +800,8 @@ export class Game {
         this.ui.setCinematic(false);
         this.input.requestLock();
         this.ui.showRegion('Dashashwamedh Ghat');
-        this.ui.toast('The Five Flames of Kashi', 'Follow the flame markers on the compass. Press E at each dark flame to rekindle it.', 7);
+        this.after(2.5, () => this.story.showCard());
+        this.after(10, () => this.ui.toast('The Legend begins', 'Your chapter and its task are at the top left; the compass shows where to go.', 6));
       }
     );
     this.audio.play('conch', { volume: 0.7 });
@@ -526,13 +815,14 @@ export class Game {
     this.ui.showPause(this.settings, {
       onSetting: (k, v) => this.setSetting(k, v),
       onResume: () => this.resume(),
+      onTest: () => this.testMenu.open('pause'),
       onTime: (h) => {
         this.setTimeOfDay(h, 2.5);
         this.resume();
       },
       onReset: () => {
         try {
-          localStorage.removeItem(SAVE_KEY);
+          if (this.slot) localStorage.removeItem(slotKey(this.slot));
         } catch {
           /* ignore */
         }
@@ -575,12 +865,15 @@ export class Game {
   }
 
   save() {
-    if (!this.player) return;
-    saveJSON(SAVE_KEY, {
+    if (!this.player || !this.slot || this.testSession) return;
+    saveJSON(slotKey(this.slot), {
       quest: this.quest.serialize(),
       missions: this.missions?.serialize(),
+      story: this.story?.serialize?.(),
+      world: this.worldState?.serialize?.(),
       hours: this.sky.hours,
       player: this.player.state === 'boat' ? null : { x: this.player.position.x, y: this.player.feetY, z: this.player.position.z },
+      meta: { when: Date.now(), chapter: this.story?.label?.() || `The Five Flames`, flames: this.quest.litCount, punya: this.missions?.punya ?? 0 },
     });
   }
 
@@ -617,15 +910,41 @@ export class Game {
   update(dt, warmup = false) {
     const playing = this.state === 'play';
     const paused = this.state === 'paused';
-    const simDt = paused ? 0 : dt;
+    if (this.slowT > 0) {
+      this.slowT -= dt;
+      if (this.slowT <= 0) this.timeScale = 1;
+    }
+    const simDt = paused ? 0 : dt * this.timeScale;
     const input = this.input;
+    // F9 any time: a screenshot of the game itself (no HUD), saved as a PNG
+    if (!warmup && input.hit('F9') && this.state !== 'title' && this.state !== 'loading') this._snap = true;
+    if (simDt > 0 && this.timers.length) {
+      const due = [];
+      for (const t of this.timers) if ((t.t -= simDt) <= 0) due.push(t);
+      if (due.length) {
+        this.timers = this.timers.filter((t) => t.t > 0);
+        for (const t of due) t.fn();
+      }
+    }
 
+    this.ui.padMode = input.usingPad;
+    this.pollMenus(input);
     if (playing) this.handleKeys();
     if (this.state === 'intro' && (input.hit('Space') || input.hit('Enter') || input.hit('KeyE'))) this.camRig.skipCinematic();
+    if (this.state === 'cutscene') this.story.updateScene(dt, input);
 
     // Time of day + world uniforms
     this.sky.update(simDt, this.camera.position);
     WORLD_UNIFORMS.uTime.value += simDt;
+    // what the camera must keep in view (umbrellas in the way fade): Prady, and the enemy he's
+    // locked on to (or Andhaka, who fills the frame anyway)
+    {
+      const c = this.character?.position || this.player.position;
+      OCCLUDE.uFocusA.value.set(c.x, c.y + 1.1, c.z);
+      const L = this.lockOn?.target?.alive ? this.lockOn.target : this.asuras?.list.find((a) => a.alive && a.K.boss);
+      if (L) L.lockPoint ? L.lockPoint(OCCLUDE.uFocusB.value) : OCCLUDE.uFocusB.value.set(L.pos.x, L.pos.y + 1.2, L.pos.z);
+      else OCCLUDE.uFocusB.value.y = -999;
+    }
     WORLD_UNIFORMS.uSunColor.value.copy(this.sky.sunColor).multiplyScalar(Math.min(1.2, this.sky.sun.intensity / 3.0) + 0.05);
     WORLD_UNIFORMS.uCaustics.value = this.sky.sunDir.y > 0 ? 1 : 0.15;
     this.weather.applyToSky(this.sky, this.scene);
@@ -634,6 +953,7 @@ export class Game {
     this.water.update(simDt, this.camera, this.sky);
     this.world.city.setNight(this.sky.nightFactor);
     this.world.props.setNight?.(this.sky.nightFactor);
+    this.ramnagar.setNight(this.sky.nightFactor);
     if (this.timeTween) {
       // fast, smooth time-lapse to a chosen hour (always forward)
       const tw = this.timeTween;
@@ -647,14 +967,15 @@ export class Game {
     // interpolation between the last two steps.
     if (!paused) {
       const controlBoat = this.player.state === 'boat';
-      this.player.inputLocked = !playing || this.photo || controlBoat || !!this.missions?.dialogue;
+      this.player.inputLocked = !playing || this.photo || controlBoat || !!this.missions?.dialogue || !!this.ui.rh;
       this.player.readInput(input, this.camRig);
-      this.boat.readInput(input, controlBoat && playing && !this.photo);
+      this.boat.readInput(input, controlBoat && playing && !this.photo && !this.race?.holdInput);
       this.simAcc = (this.simAcc || 0) + simDt;
       let steps = 0;
       while (this.simAcc >= FIXED_DT && steps < 5) {
         this.player.fixedUpdate(FIXED_DT);
         this.boat.fixedUpdate(FIXED_DT, this.water, this.fx);
+        this.race.fixed(FIXED_DT);
         this.physics.step(FIXED_DT);
         this.simAcc -= FIXED_DT;
         steps++;
@@ -663,8 +984,18 @@ export class Game {
     }
     const alpha = Math.min(1, (this.simAcc || 0) / FIXED_DT);
     this.boat.lateUpdate(alpha);
+    this.race.late(alpha);
+    this.oars.update(simDt);
     this.player.lateUpdate(simDt, alpha);
     this.combat?.late(simDt);
+    if (this.health) {
+      const near = this.targets.enemies().some((e) => Math.hypot(e.pos.x - this.player.position.x, e.pos.z - this.player.position.z) < 25 && e.awake !== false);
+      this.inCombat = near;
+      this.health.update(simDt, near);
+      if (playing || paused) this.ui.setHealth(this.health.frac, this.health.frac < 0.995 || near);
+      if (playing) this.lockOn.update(dt, input);
+      else if (this.lockOn.active && this.state !== 'paused') this.lockOn.release();
+    }
     this.world.akhara?.update(simDt);
     if (this.cloth && this.animator.boneWorld) {
       const pl = this.player;
@@ -676,6 +1007,8 @@ export class Game {
     this.quest.update(simDt, this.rs.pixelRatio, this.sky.nightFactor, playing ? this.player.position : null);
     if (!warmup) {
       const camOpts = this.player.state === 'boat' ? { distance: 8, height: 2.2 } : this.player.state === 'swim' || this.player.state === 'dive' ? { height: 1.0 } : {};
+      const boss = this.asuras.list.find((a) => a.K.boss && a.alive && Math.hypot(a.pos.x - this.player.position.x, a.pos.z - this.player.position.z) < 28);
+      if (boss && !camOpts.distance) camOpts.distance = this.camRig.targetDistance + 1.3;
       const camFocus = this.player.state === 'swim' || this.player.state === 'dive' ? new THREE.Vector3(this.player.position.x, this.character.position.y + 0.9, this.player.position.z) : this.character.position;
       this.camRig.update(dt, input, camFocus, camOpts);
     } else {
@@ -714,9 +1047,31 @@ export class Game {
     if (this.fireworks.flash > 0.01) this.sky.hemi.intensity += this.fireworks.flash * 0.6;
     this.night.update(simDt, { night: this.sky.nightFactor, festival: this.quest.complete, camera: this.camera, pixelRatio: pr, moonDir: this.sky.moonDir });
     if (this.missions && this.state === 'play') this.missions.update(simDt);
-    if (!warmup) this.crowd?.update(simDt, { hours: this.sky.hours, aarti: this.quest.aartiLit, festival: this.quest.complete, playerPos: this.player.state === 'boat' ? null : this.character.position });
+    if (!warmup && (playing || this.state === 'cutscene')) this.story.update(simDt);
+    // the Asuras (and the people keeping well away from them)
+    if (!paused) this.encounters.update(simDt);
+    if (!paused) this.race.update(simDt);
+    if (!paused) this.riverAarti.update(simDt);
+    this.battleMusic.update(Math.min(dt, 0.1));
+    this.asuras.update(simDt, { pixelRatio: pr, light });
+    if (playing || paused) this.asuras.hud(this.camera, this.ui);
+    let danger = null;
+    if (this.asuras.active) {
+      const P = this.player.position;
+      danger = { x: P.x, z: P.z, r: 32 };
+    }
+    if (!warmup) this.crowd?.update(simDt, { hours: this.sky.hours, aarti: this.quest.aartiLit, festival: this.quest.complete, danger, playerPos: this.player.state === 'boat' ? null : this.character.position });
 
     this.updateLightPool(dt);
+    {
+      const c = this.character.position;
+      const cam = this.camera.position;
+      const dx = cam.x - c.x;
+      const dz = cam.z - c.z;
+      const l = Math.hypot(dx, dz) || 1;
+      this.heroLight.position.set(c.x + (dx / l) * 1.6 - (dz / l) * 0.8, c.y + 2.3, c.z + (dz / l) * 1.6 + (dx / l) * 0.8);
+      this.heroLight.intensity = this.sky.nightFactor * (this._under ? 0.4 : 1) * (this.inCombat ? 3.2 : 2.2);
+    }
 
     // Underwater camera
     const camWater = this.water.heightAt(this.camera.position.x, this.camera.position.z);
@@ -762,7 +1117,7 @@ export class Game {
         breath: this.player.breath / this.player.breathMax,
         underwater: under,
         prompt: inter?.prompt,
-        lockHint: playing && !this.input.locked && !this.photo,
+        lockHint: playing && !this.input.locked && !this.photo && !this.input.freed,
         fps: this.settings.showFps || DEBUG ? `${this.fpsAcc.fps} fps · ${this.rs.renderer.info.render.calls} draws · ${(this.rs.renderer.info.render.triangles / 1e6).toFixed(2)}M tris · x${this.rs.scale.toFixed(2)}` : undefined,
       });
       for (const m of this.ui.compassMarks) if (m.kind === 'flame') m.hidden = this.quest.flames.find((f) => f.id === m.id)?.lit;
@@ -792,6 +1147,13 @@ export class Game {
       }
       if (night > 0.45) {
         for (const p of this.world.props.lampPosts) cands.push({ p, k: 0.8 });
+        for (const p of this.world.galis.lamps) cands.push({ p, k: 0.55 });
+        for (const p of this.ramnagar.lamps) cands.push({ p, k: 1.2, fire: true });
+      }
+      {
+        // the temple's sanctum glows with its lamps day and night
+        const cam = this.camera.position;
+        for (const p of this.bhairav.lightSpots) if (p.distanceToSquared(cam) < 40 * 40) cands.push({ p, k: 0.5, fire: true });
         for (const p of this.night?.lightSpots ?? []) cands.push({ p, k: 0.7, fire: true });
       }
       for (const c of cands) c.d = c.p.distanceToSquared(cam);
@@ -814,15 +1176,107 @@ export class Game {
 
   currentInteraction() {
     const p = this.player;
+    // E advances the open dialogue: no other prompt beside it
+    if (this.missions?.dialogue) return null;
+    const si = this.story?.interaction();
+    if (si) return si;
     const mi = this.missions?.interaction();
     if (mi) return mi;
+    const ri = this.race?.interaction() || this.riverAarti?.interaction();
+    if (ri) return ri;
+    // (racing: E would only end it; no prompt over the stroke ring)
+    if (p.state === 'boat' && (this.race.phase === 'race' || this.race.phase === 'count')) return null;
     if (p.state === 'boat') return { prompt: 'Step off the boat', action: () => this.leaveBoat() };
     const q = this.quest.interactionAt(p.position);
-    if (q) return q;
+    if (q && this.story.canLight(q.flameId)) return q;
+    if (q && !this.inCombat && this._flameHint !== q.flameId) {
+      // (once per flame: a dark flame whose chapter hasn't come yet)
+      this._flameHint = q.flameId;
+      this.ui.toast('This flame will not take yet', `Its story is still to be told. ${this.story.label() || ''}`, 4);
+    }
+    // (mid-fight, the quiet things wait: no holy dip, shrine or boat prompt over the Asuras)
+    if (this.inCombat) return null;
     if (this.actions.holyDipAvailable()) return { prompt: 'Ganga Snan: take the holy dip', action: () => this.actions.startHolyDip() };
+    const sh = this.nearShrine();
+    if (sh) return { prompt: 'Offer a pranam at the hidden shrine', action: () => this.offerShrine(sh) };
     const b = this.boat.object.position;
     if (this.boat.distanceTo(p.position) < 4.2 && Math.abs(p.feetY - b.y) < 3) return { prompt: 'Board the boat  (W/S row · A/D steer)', action: () => this.boardBoat() };
     return null;
+  }
+
+  // ---------------------------------------------------------------- combat events
+  onCombatEvent(type, data) {
+    if (type === 'noSword') this.ui.toast('No sword yet', 'The guru of Tulsi Akhara keeps a talwar for those who train.', 3);
+    if (type === 'hurt') {
+      this.ui.hurtFlash(data.heavy ? 1 : 0.6);
+      this.camRig.shake(data.heavy ? 0.5 : 0.28);
+    }
+    if (type === 'blocked') this.camRig.shake(data.heavy ? 0.3 : 0.12);
+    if (type === 'parry') {
+      this.slowMo(0.22, 0.42);
+      this.camRig.shake(0.22);
+      this.ui.flash();
+    }
+    if (type === 'dying') {
+      this.slowMo(0.3, 1.1);
+      this.lockOn.release();
+    }
+    if (type === 'death') this.respawn();
+    this.missions?.onEvent?.(`combat:${type}`, data);
+    this.story?.onEvent?.(`combat:${type}`, data);
+    this.encounters?.onEvent?.(`combat:${type}`, data);
+  }
+
+  /** Where Prady wakes after a fall: the story's checkpoint, else the nearest ghat's first landing. */
+  respawnPoint() {
+    if (this.checkpoint) return this.checkpoint;
+    const p = this.player.position;
+    let g = segmentForX(p.x);
+    if (!g) g = p.x < 0 ? GHAT_SEGMENTS[0] : GHAT_SEGMENTS[GHAT_SEGMENTS.length - 1];
+    const { u } = bankCoords(p.x, p.z);
+    const w = ghatToWorld(g, Math.max(4, Math.min(g.width - 4, u)), (LANDING_1.v0 + LANDING_1.v1) / 2);
+    return { x: w.x, y: LANDING_1.h0, z: w.z, yaw: Math.atan2(g.N.x, g.N.z) };
+  }
+
+  respawn() {
+    this.ui.showRevive(true, 'Mother Ganga lifts you out of the dark…');
+    this.after(2.2, () => {
+      const r = this.respawnPoint();
+      this.player.teleport(r.x, r.y + 0.1, r.z);
+      if (r.yaw !== undefined) this.player.yaw = this.camRig.yaw = r.yaw;
+      this.camRig.first = true;
+      this.combat.revive();
+      if (this.combat.armedBeforeDeath === false) this.combat.armed = false;
+      this.health.revive(1);
+      this.encounters?.onPlayerRevived?.();
+      this.story?.onPlayerRevived?.();
+      this.after(0.6, () => this.ui.showRevive(false));
+    });
+  }
+
+  // ---------------------------------------------------------------- hidden shrines (the galis)
+  nearShrine() {
+    const p = this.player.position;
+    for (const s of this.world.galis.shrines) {
+      if (this.worldState.shrines.has(s.id)) continue;
+      if (Math.hypot(s.center.x - p.x, s.center.z - p.z) < 1.9 && Math.abs(this.player.feetY - s.y) < 1) return s;
+    }
+    return null;
+  }
+
+  offerShrine(s) {
+    const pr = this.actions.pranam();
+    this.player.yaw = Math.atan2(s.x - this.player.position.x, s.z - this.player.position.z);
+    this.worldState.shrines.add(s.id);
+    const n = this.worldState.shrines.size;
+    const total = this.world.galis.shrines.length;
+    this.missions.punya += 5;
+    this.ui.setPunya(this.missions.punya);
+    this.audio.play('bell', { at: s.center, volume: 0.5, rate: 1.25 });
+    this.ui.toast(`Hidden shrine ${n} / ${total}`, n === total ? 'Every hidden shrine of the galis has your pranam. Kashi notices.' : '+5 punya', 3.5);
+    if (n === total) this.health.setMax(this.health.max + 10);
+    void pr;
+    this.save();
   }
 
   boardBoat() {
@@ -840,6 +1294,19 @@ export class Game {
     }
   }
 
+  /** Gamepad on the title screen, the pause menu and the lists: stick / d-pad move, A chooses, B backs out. */
+  pollMenus(input) {
+    const ui = this.ui;
+    if (!(ui.menuOpen || this.state === 'title' || this.state === 'paused')) return;
+    for (const [code, dir] of [['Pad12', 'up'], ['Pad13', 'down'], ['Pad14', 'left'], ['Pad15', 'right'], ['Stickup', 'up'], ['Stickdown', 'down'], ['Stickleft', 'left'], ['Stickright', 'right']]) if (input.hit(code)) ui.navigate(dir);
+    if (input.hit('Pad0')) ui.activate();
+    if (input.hit('Pad1')) {
+      if (ui.menuOpen) ui.els.menu.querySelector('.close').click();
+      else if (this.state === 'paused') this.resume();
+    }
+    if (input.hit('Pad9') && this.state === 'paused' && !ui.menuOpen) this.resume();
+  }
+
   handleKeys() {
     const input = this.input;
     // talking: the keys belong to the conversation
@@ -847,19 +1314,33 @@ export class Game {
       for (const code of ['KeyE', 'KeyQ', 'Space', 'Enter', 'Digit1', 'Digit2', 'Digit3', 'Pad2']) if (input.hit(code)) this.missions.key(code === 'Pad2' ? 'KeyE' : code);
       return;
     }
+    // gamepad: A jump · B dodge (dive in the water) · X interact · Y draw / sheathe · RB strike ·
+    // RT heavy · LB guard · LT or R3 lock-on · L3 sprint · Start pause · Back task · d-pad: up diya,
+    // down meditate, left pranam, right photo mode
     if (input.hit('KeyE') || input.hit('Pad2')) this.interaction?.action();
-    if (input.hit('KeyF') || input.hit('Pad3')) this.floatDiya();
+    if (input.hit('KeyF') || input.hit('Pad12')) this.floatDiya();
     if (input.hit('KeyN')) this.toggleNight();
-    if (input.hit('KeyG')) this.greet();
-    if (input.hit('KeyM')) this.actions.toggleMeditate();
-    if (input.hit('KeyJ')) this.missions?.journal();
+    if (input.hit('KeyG') || input.hit('Pad14')) this.greet();
+    if (input.hit('KeyM') || input.hit('Pad13')) this.actions.toggleMeditate();
+    if (input.hit('KeyJ') || input.hit('Pad8')) this.missions?.journal();
+    if (input.hit('Pad9')) return this.pause();
     // fighting
-    if (input.hit('Mouse0')) this.combat.attack();
-    if (input.hit('Mouse2')) this.combat.heavy();
-    if (input.hit('KeyR')) this.combat.toggleSword();
-    this.combat.setBlock(input.down('KeyQ') || input.down('Mouse1'));
-    if (input.hit('Space') && this.player.state === 'boat') this.actions.diveFromBoat(this.boat);
-    if (input.hit('KeyP')) {
+    if (input.hit('Mouse0') || input.hit('Pad5')) this.combat.attack();
+    if (input.hit('Mouse2') || input.hit('Pad7')) this.combat.heavy();
+    if (input.hit('KeyR') || input.hit('Pad3')) this.combat.toggleSword();
+    this.combat.setBlock(input.down('KeyQ') || input.down('Mouse1') || input.gpButton(4));
+    if ((input.hit('KeyC') || input.hit('ControlLeft') || input.hit('Pad1')) && this.player.state === 'ground') {
+      const c = this.player.cmd;
+      this.combat.dodge(c.mag > 0.2 ? { x: c.wish.x, z: c.wish.z } : null);
+    }
+    if (input.hit('Tab') || input.hit('Pad6') || input.hit('Pad11')) this.lockOn.toggle();
+    if ((input.hit('Space') || input.hit('Pad0')) && this.player.state === 'boat') {
+      // in the race, Space is the stroke's catch; otherwise it's over the side
+      if (this.race.phase === 'race') this.race.catchStroke();
+      // (never over the side by accident while lined up, racing or just over the line)
+      else if (input.hit('Space') && !this.race.active) this.actions.diveFromBoat(this.boat);
+    }
+    if (input.hit('KeyP') || input.hit('Pad15')) {
       this.photo = !this.photo;
       this.ui.setPhotoMode(this.photo);
       this.sky.frozen = this.photo;
@@ -941,7 +1422,7 @@ export class Game {
     else if (v > 60) name = 'Mother Ganga';
     else if (v > -6 && seg) name = seg.name;
     else if (v < -10) name = 'The Lanes of Kashi';
-    if (name) this.ui.showRegion(name);
+    if (name && !this.race?.active) this.ui.showRegion(name);
   }
 
   updateAmbience(under) {

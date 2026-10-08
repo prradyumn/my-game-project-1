@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { GROUPS } from '../core/Physics.js';
-import { clamp, damp, smoothDamp } from '../utils/math.js';
+import { clamp, damp, dampAngle, smoothDamp } from '../utils/math.js';
 
 // Third-person orbit camera: mouse/stick look, wheel zoom, collision so it never clips into
-// walls, plus a scripted cinematic mode for the opening shot.
+// walls, plus a scripted cinematic mode for the opening shot. With a lock-on target (lockAt) the
+// view turns to keep the enemy framed beside the hero; the mouse then only flicks between targets.
 
 export class CameraRig {
   constructor(camera, physics) {
@@ -26,6 +27,10 @@ export class CameraRig {
     this.trauma = 0;
     this.shakeT = 0;
     this.waterHeightAt = null; // (x, z) => surface y, keeps the lens out of the waterline
+    this.lockAt = null; // Vector3: a locked-on enemy to keep in view
+    this.lockH = 1.75; // its height: a giant needs the camera further back and higher
+    this.lockW = 0;
+    this.lift = 0;
   }
 
   // Camera shake: trauma in [0,1] decays; offset grows with trauma^2 (feels right at any size).
@@ -76,11 +81,23 @@ export class CameraRig {
 
     const look = input.look();
     const s = 0.0022 * this.sensitivity;
-    this.yaw -= look.dx * s;
-    this.pitch += look.dy * s * (this.invertY ? -1 : 1);
+    this.lockW = damp(this.lockW, this.lockAt ? 1 : 0, 5, dt);
+    if (this.lockAt) {
+      // turn to frame the enemy: aim past the hero at it, looking a little down on both
+      const dx = this.lockAt.x - focus.x;
+      const dz = this.lockAt.z - focus.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.6) this.yaw = dampAngle(this.yaw, Math.atan2(dx, dz), 6.5, dt);
+      const big = Math.max(0, this.lockH - 1.9);
+      const wantPitch = clamp(0.3 - d * 0.008 + (focus.y + 1.5 - this.lockAt.y) * 0.08 + big * 0.03, 0.1, 0.52);
+      this.pitch = damp(this.pitch, wantPitch, 3.5, dt);
+    } else {
+      this.yaw -= look.dx * s;
+      this.pitch += look.dy * s * (this.invertY ? -1 : 1);
+    }
     this.pitch = clamp(this.pitch, -0.55, 1.2);
     if (input.wheel) this.targetDistance = clamp(this.targetDistance + input.wheel * 0.6, 1.8, 12);
-    const want = opts.distance ?? this.targetDistance;
+    const want = (opts.distance ?? this.targetDistance) + this.lockW * (0.9 + Math.max(0, this.lockH - 1.9) * 0.85);
     this.distance = damp(this.distance, want, 6, dt);
 
     // Follow target (head height) through a critically damped spring: tight horizontally, softer
@@ -101,11 +118,28 @@ export class CameraRig {
     const dir = new THREE.Vector3(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
     const right = this.right;
     const pivot = this.smoothedTarget.clone().addScaledVector(right, this.shoulder * Math.min(1, this.distance / 4));
+    if (this.lockAt && this.lockW > 0.01) {
+      // frame both: the point we orbit slides a third of the way toward the enemy, and up a bit
+      const k = this.lockW * 0.32;
+      pivot.x += (this.lockAt.x - pivot.x) * k;
+      pivot.z += (this.lockAt.z - pivot.z) * k;
+      pivot.y += this.lockW * 0.25 + Math.max(0, this.lockAt.y - pivot.y) * k * 0.6;
+    }
 
     // Collision: sweep a small sphere (the lens) so the camera never slips through wall edges.
     let dist = this.distance;
-    const hit = this.physics.sphereCast(pivot, dir, 0.22, this.distance, this.excludeCollider, GROUPS.ignorePeople);
-    if (hit !== null) dist = Math.max(0.5, hit - 0.05);
+    let hit = this.physics.sphereCast(pivot, dir, 0.22, this.distance, this.excludeCollider, GROUPS.ignorePeople);
+    // squeezed against a wall or a step behind: rise up over the shoulder rather than end up
+    // inside the hero's arms (look down at him a little more)
+    const squeezed = hit !== null && hit < Math.min(1.7, this.distance * 0.55) ? 1 : 0;
+    this.lift = damp(this.lift, squeezed, squeezed ? 6 : 2, dt);
+    if (this.lift > 0.02) {
+      pivot.y += this.lift * 0.9;
+      dir.y += this.lift * 0.55;
+      dir.normalize();
+      hit = this.physics.sphereCast(pivot, dir, 0.22, this.distance, this.excludeCollider, GROUPS.ignorePeople);
+    }
+    if (hit !== null) dist = Math.max(0.9, hit - 0.05);
     // pull in instantly, ease back out
     this.currentDist = dist < this.currentDist ? dist : smoothDamp(this.currentDist, dist, this.spring, 'd', 0.35, dt);
 
