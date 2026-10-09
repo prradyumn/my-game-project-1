@@ -205,6 +205,9 @@ export class SkySystem {
       this.sun.position.z = this.sun.target.position.z + lightDir.z * 180;
     }
 
+    // moonlit shadows are faint: full-strength ones under the dim night sky read as black holes
+    this.sun.shadow.intensity = lerp(0.45, 1, day);
+
     sampleKeys(HEMI_SKY, elev, this.hemi.color);
     this.hemi.groundColor.setRGB(0.42, 0.34, 0.26).multiplyScalar(lerp(0.15, 1, day));
     this.hemi.intensity = lerp(0.42, 0.45, day);

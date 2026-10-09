@@ -31,7 +31,7 @@ const _z = new THREE.Vector3();
 export const ASURA_KINDS = {
   shade: { label: 'Asura', scale: 1.1, hp: 60, poise: 50, speed: 1.6, run: 3.6, ring: [3.4, 4.6], dmg: 0.72, attacks: ['swipe', 'lunge', 'swipe', 'smash'], smoke: 1 },
   brute: { label: 'Rakshasa', scale: 1.32, hp: 140, poise: 110, speed: 1.3, run: 2.9, ring: [3.8, 5.2], dmg: 1.2, attacks: ['smash', 'swipe', 'smash'], smoke: 1.4 },
-  boss: { label: 'Andhaka', scale: 3.0, hp: 760, poise: 360, speed: 1.15, run: 2.4, ring: [5.5, 7.5], dmg: 0.65, attacks: ['sweep', 'smash', 'stomp', 'lunge'], smoke: 3, boss: true },
+  boss: { label: 'Andhaka', scale: 3.0, hp: 760, poise: 360, speed: 1.15, run: 2.4, ring: [5.5, 7.5], dmg: 0.65, attacks: ['sweep', 'smash', 'lunge'], smoke: 3, boss: true },
 };
 
 // attacks: clip role, when the blow lands (fraction of the clip), reach (m, x scale), arc (rad
@@ -574,18 +574,21 @@ export class Asura {
     B.holder.position.set(this.pos.x, this.visY, this.pos.z);
     B.holder.rotation.set(0, this.yaw, 0);
     B.holder.updateMatrixWorld(true);
-    // Andhaka between the camera and Prady: he thins out (dithered) so Prady is never lost behind him
-    if (this.K.boss) {
+    // a body between the camera and Prady, or right at the lens, thins out so Prady is never lost
+    // behind it (Andhaka and the Rakshasas fill the frame; a shade only when the lens is in it)
+    {
       const cam = this.sys.g.camera.position;
       const P = this.sys.player.position;
       const dP = Math.hypot(P.x - cam.x, P.z - cam.z);
-      let block = false;
-      if (Math.hypot(this.pos.x - cam.x, this.pos.z - cam.z) < dP) {
-        for (let k = 0.15; k < 1 && !block; k += 0.1) {
+      const dB = Math.hypot(this.pos.x - cam.x, this.pos.z - cam.z);
+      const big = this.K.boss || this.kindName === 'brute';
+      let block = dB < this.radius + (this.K.boss ? 2.6 : big ? 1.4 : 0.8) && cam.y < this.pos.y + this.height + 0.5;
+      if (!block && big && dB < dP) {
+        for (let k = 0.05; k < 1 && !block; k += 0.08) {
           const qx = cam.x + (P.x - cam.x) * k;
           const qy = cam.y + (P.y + 1.1 - cam.y) * k;
           const qz = cam.z + (P.z - cam.z) * k;
-          block = qy > this.pos.y && qy < this.pos.y + this.height && Math.hypot(qx - this.pos.x, qz - this.pos.z) < this.radius * 1.3;
+          block = qy > this.pos.y && qy < this.pos.y + this.height && Math.hypot(qx - this.pos.x, qz - this.pos.z) < this.radius * 1.5;
         }
       }
       this.ghost = (this.ghost || 0) + ((block && this.alive ? 0.62 : 0) - (this.ghost || 0)) * Math.min(1, dt * 7);
@@ -758,9 +761,10 @@ export class AsuraSystem {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       const nm = mats.map((m) => {
         const am = asuraMaterial(m, uniforms, { scale: Math.max(0.01, bb.max.y - bb.min.y) / 1.75 });
-        // Andhaka is drawn as a blended surface so he can thin smoothly when he stands between the
-        // camera and Prady (opacity 1 otherwise: a switch at runtime would recompile mid-fight)
-        if (boss) am.transparent = true;
+        // drawn as a blended surface so the body can thin smoothly when it stands between the
+        // camera and Prady, or right at the lens (opacity 1 otherwise: a switch at runtime would
+        // recompile mid-fight)
+        am.transparent = true;
         if (m.alphaTest) am.alphaTest = m.alphaTest;
         if (m.map && m.alphaTest) am.side = THREE.DoubleSide;
         materials.push(am);

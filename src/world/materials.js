@@ -127,9 +127,10 @@ export function occluderFade(material, { top = 3, r = 2, minY = null } = {}) {
           float dC = min(dDisc, occSeg(cameraPosition, base, head));
           // in the way of a focus (and not beyond it: what stands behind him stays)
           float dm = distance(cameraPosition, mid);
-          float blockA = (1.0 - smoothstep(${(r * 0.85).toFixed(2)}, ${(r * 1.35).toFixed(2)}, dA)) * (1.0 - smoothstep(0.0, 2.0, dm - distance(cameraPosition, uFocusA)));
-          float blockB = (1.0 - smoothstep(${(r * 0.85).toFixed(2)}, ${(r * 1.35).toFixed(2)}, dB)) * (1.0 - smoothstep(0.0, 2.0, dm - distance(cameraPosition, uFocusB)));
-          float lens = 1.0 - smoothstep(1.4, 3.2, dC);
+          // (narrow edges: a prop is either there or gone; the dither shows only in the brief switch)
+          float blockA = (1.0 - smoothstep(${(r * 1.02).toFixed(2)}, ${(r * 1.14).toFixed(2)}, dA)) * (1.0 - smoothstep(0.0, 0.6, dm - distance(cameraPosition, uFocusA)));
+          float blockB = (1.0 - smoothstep(${(r * 1.02).toFixed(2)}, ${(r * 1.14).toFixed(2)}, dB)) * (1.0 - smoothstep(0.0, 0.6, dm - distance(cameraPosition, uFocusB)));
+          float lens = 1.0 - smoothstep(2.6, 3.0, dC);
           vOcclude = max(max(blockA, blockB), lens) * uOccOn;
           ${minY === null ? '' : `vOcclude *= step(${minY.toFixed(2)}, position.y); // (what stands below this stays: the takht people sit on)`}
         }`

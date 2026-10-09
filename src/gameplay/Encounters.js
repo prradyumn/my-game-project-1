@@ -117,7 +117,10 @@ export class Encounters {
         g.ui.toast(c.phase === 1 ? 'Andhaka calls the dark' : 'Andhaka burns with rage', c.phase === 1 ? 'Shades rise to defend him.' : 'Beware the stomp: dodge, it cannot be blocked.', 3.5);
         const P = g.player.position;
         const at = ghatToWorld(c.gh, (c.def.u ?? 40) + (c.phase === 1 ? -10 : 10), PROFILE_LEN - 2);
-        g.asuras.riseFromRiver({ x: at.x, z: at.z, n: c.phase === 1 ? 2 : 3, kind: 'shade', goal: { x: P.x, z: P.z } });
+        // (never more than three shades beside him: the fight is with Andhaka, not a crowd)
+        const alive = g.asuras.list.filter((a) => a.alive && !a.K.boss).length;
+        const n = Math.max(0, Math.min(2, 3 - alive));
+        if (n) g.asuras.riseFromRiver({ x: at.x, z: at.z, n, kind: 'shade', goal: { x: P.x, z: P.z } });
       }
     }
     const alive = g.asuras.list.filter((a) => a.alive).length;

@@ -170,19 +170,49 @@ export class Combat {
   }
 
   setBlock(on, force = false) {
-    if (on && !this.blocking && !this.move && this.canFight()) {
-      this.blocking = true;
-      this.anim.play('parry', { clamp: true, cancelOnMove: false, fadeIn: 0.1, fadeOut: 0.2, noLook: true });
-      this.blockTime = 0;
-      this.blockStart = this.time;
-      this.onEvent('block', {});
+    const pressed = on && !this.guardHeld;
+    this.guardHeld = on;
+    if (on && !this.blocking) {
+      // a strike still winding up gives way to the guard; a blow already on its way plays out
+      // and the guard comes up the instant it's done (a tap on the flare is never lost)
+      if (pressed && this.move) {
+        if (this.moveYields()) this.cancelMove();
+        else this.pendingBlock = this.time + 0.4;
+      }
+      if (!this.move && this.canFight()) this.raiseGuard();
+      else if (pressed && !this.move) this.pendingBlock = this.time + 0.32;
     } else if (!on && this.blocking) {
       // a tap on the guard still holds it long enough for the parry window (tap to parry)
-      if (!force && this.time - this.blockStart < 0.35) return;
+      if (!force && this.time - this.blockStart < 0.46) return;
       this.blocking = false;
       this.anim.stop(0.2);
       this.stance(3);
     }
+  }
+
+  /** A strike gives way to defence while winding up or once its blow has landed (its follow-through). */
+  moveYields() {
+    const mv = this.move;
+    if (!mv) return true;
+    const m = MOVES[mv.name];
+    const ct = mv.t * m.ts;
+    return ct < m.hits[0].t - 0.1 || ct > m.hits[m.hits.length - 1].t + 0.06;
+  }
+
+  cancelMove() {
+    if (!this.move) return;
+    this.move = null;
+    this.lastEnd = this.time;
+    this.anim.stop(0.1);
+  }
+
+  raiseGuard() {
+    this.blocking = true;
+    this.pendingBlock = 0;
+    this.anim.play('parry', { clamp: true, cancelOnMove: false, fadeIn: 0.1, fadeOut: 0.2, noLook: true });
+    this.blockTime = 0;
+    this.blockStart = this.time;
+    this.onEvent('block', {});
   }
 
   // ------------------------------------------------------------ defence
@@ -249,7 +279,7 @@ export class Combat {
     const away = { x: -dx / l, z: -dz / l };
     const facing = Math.abs(wrapAngle(Math.atan2(dx, dz) - p.yaw)) < 1.75;
     if (this.blocking && facing && !a.unblockable) {
-      if (this.time - this.blockStart < 0.28) {
+      if (this.time - this.blockStart < 0.42) {
         // a perfect guard: the blow glances off and the attacker reels
         a.attacker?.parried?.();
         this.flinchHit(away, 0.25);
@@ -328,11 +358,19 @@ export class Combat {
   }
 
   /** Move the capsule by (dx, dz) through the controller; refuses to go off a drop of more than maxDrop. */
-  slide(dx, dz, maxDrop = 0.4) {
+  slide(dx, dz, maxDrop = 0.4, dry = false) {
     const p = this.p;
     if (!dx && !dz) return;
-    const drop = p.feetY - groundHeight(p.position.x + dx * 4, p.position.z + dz * 4);
+    const ahead = groundHeight(p.position.x + dx * 4, p.position.z + dz * 4);
+    const drop = p.feetY - ahead;
     if (drop > maxDrop) return;
+    // (nothing in a fight carries him into the river: a roll, a blow's push, the run-in all
+    // stop where the water would come over his knees, half a metre short of it)
+    if (dry) {
+      const l = Math.hypot(dx, dz) || 1;
+      const far = groundHeight(p.position.x + (dx / l) * 0.6, p.position.z + (dz / l) * 0.6);
+      if (Math.min(ahead, far) < -0.45 && Math.min(ahead, far) < p.feetY - 0.05) return;
+    }
     _v.set(dx, -0.02, dz);
     p.kcc.computeColliderMovement(p.collider, _v, undefined, GROUPS.mover);
     const d = p.kcc.computedMovement();
@@ -444,9 +482,16 @@ export class Combat {
       if (this.time > this.pendingDodge.until) this.pendingDodge = null;
       else if (this.dodge(this.pendingDodge.wish, true)) this.pendingDodge = null;
     }
+    if (this.pendingBlock && !this.blocking) {
+      if (this.time > this.pendingBlock) this.pendingBlock = 0;
+      else if (!this.roll && this.moveYields()) {
+        this.cancelMove();
+        if (this.canFight()) this.raiseGuard();
+      }
+    }
     if (this.dead) {
       this.dead.t += dt;
-      if (this.dead.t < 0.5) this.slide(this.deathPush.x * dt * 1.2, this.deathPush.z * dt * 1.2, 0.6);
+      if (this.dead.t < 0.5) this.slide(this.deathPush.x * dt * 1.2, this.deathPush.z * dt * 1.2, 0.6, true);
       if (this.dead.t > 2.2 && !this.dead.reported) {
         this.dead.reported = true;
         this.onEvent('death', {});
@@ -461,7 +506,7 @@ export class Combat {
       const step = (ease - r.done) * r.dist;
       r.done = ease;
       p.yaw = dampAngle(p.yaw, r.yaw, 18, dt);
-      this.slide(r.dir.x * step, r.dir.z * step, 1.2);
+      this.slide(r.dir.x * step, r.dir.z * step, 1.2, true);
       if (r.t >= r.dur) {
         this.roll = null;
         if (r.clip && this.anim.isPlaying(r.clip)) this.anim.stop(0.18);
@@ -476,7 +521,7 @@ export class Combat {
       const k1 = Math.min(1, r.t / pushDur);
       const e = (x) => 1 - (1 - x) * (1 - x);
       const step = (e(k1) - e(Math.max(0, k0))) * r.dist;
-      this.slide(r.push.x * step, r.push.z * step, 0.6);
+      this.slide(r.push.x * step, r.push.z * step, 0.6, true);
       if (r.kind === 'down' && r.stage === 0 && r.t > 1.2) {
         r.stage = 1;
         if (this.anim.clipActions.getUp) this.anim.play('getUp', { fadeIn: 0.25, fadeOut: 0.3, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: 1.8 });
@@ -521,7 +566,7 @@ export class Combat {
       p.prevPosition.copy(p.position);
       p.prevYaw = p.yaw;
       p.yaw = dampAngle(p.yaw, Math.atan2(dx, dz), 16, dt);
-      this.slide((dx / dl) * step, (dz / dl) * step, this.dropAllow(t));
+      this.slide((dx / dl) * step, (dz / dl) * step, this.dropAllow(t), true);
       p.body.setNextKinematicTranslation(p.position);
       p.velocity.set((dx / dl) * v, 0, (dz / dl) * v);
       p.speed = v;
@@ -574,8 +619,10 @@ export class Combat {
       const dx = wx - p.position.x;
       const dz = wz - p.position.z;
       // never lunge off a step edge (unless the target stands below it)
-      const drop = p.feetY - groundHeight(p.position.x + dx * 4, p.position.z + dz * 4);
-      if (drop < this.dropAllow(mv.tgt) && (dx || dz)) {
+      const aheadY = groundHeight(p.position.x + dx * 4, p.position.z + dz * 4);
+      const drop = p.feetY - aheadY;
+      const wet = aheadY < -0.45 && aheadY < p.feetY - 0.05; // (not into the river)
+      if (drop < this.dropAllow(mv.tgt) && !wet && (dx || dz)) {
         _v.set(dx, 0, dz);
         p.kcc.computeColliderMovement(p.collider, _v, undefined, GROUPS.mover);
         const d = p.kcc.computedMovement();
