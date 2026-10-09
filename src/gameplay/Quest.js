@@ -57,13 +57,14 @@ export class Quest {
     this.glow = new THREE.Points(
       gg,
       new THREE.ShaderMaterial({
-        uniforms: { uMap: { value: softDotTexture() }, uTime: { value: 0 }, uPixelRatio: { value: 1 } },
+        // uReveal: the Third Eye (Powers.js) lets Prady see them from far off, through the haze
+        uniforms: { uMap: { value: softDotTexture() }, uTime: { value: 0 }, uPixelRatio: { value: 1 }, uReveal: { value: 0 } },
         vertexShader: /* glsl */ `
-          attribute float aAlpha; uniform float uTime; uniform float uPixelRatio; varying float vA;
+          attribute float aAlpha; uniform float uTime; uniform float uPixelRatio; uniform float uReveal; varying float vA;
           void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv;
-            float pulse = 0.75 + 0.25 * sin(uTime * 3.0 + position.x);
-            vA = aAlpha * pulse * clamp(1.0 - (-mv.z - 60.0) / 80.0, 0.0, 1.0);
-            gl_PointSize = clamp(0.65 * 600.0 * uPixelRatio / max(-mv.z, 0.5), 3.0, 48.0 * uPixelRatio) * pulse; }`,
+            float pulse = 0.75 + 0.25 * sin(uTime * (3.0 + uReveal * 3.0) + position.x);
+            vA = aAlpha * pulse * clamp(1.0 - (-mv.z - 60.0 - uReveal * 140.0) / 80.0, 0.0, 1.0) * (1.0 + uReveal * 1.5);
+            gl_PointSize = clamp(0.65 * 600.0 * uPixelRatio * (1.0 + uReveal * 2.5) / max(-mv.z, 0.5), 3.0 + uReveal * 5.0, 48.0 * uPixelRatio) * pulse; }`,
         fragmentShader: /* glsl */ `
           uniform sampler2D uMap; varying float vA;
           void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = exp(-d * d * 4.0) * (1.0 - d) * vA; if (a < 0.01) discard; gl_FragColor = vec4(vec3(1.0, 0.58, 0.22) * 2.0 * a, a); }`,
@@ -156,6 +157,7 @@ export class Quest {
     this.glow.geometry.attributes.aAlpha.needsUpdate = true;
     if (silent) return;
     this.audio.play('chime', { at: new THREE.Vector3(b.x, b.y, b.z) });
+    this.onBead?.(this.collected);
     if ([27, 54, 81, 108].includes(this.collected)) {
       const msg = {
         27: 'A quarter of the mala. The beads hum with Shiva’s tears.',

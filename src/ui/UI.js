@@ -1,4 +1,4 @@
-import { QUALITY_PRESETS } from '../config.js';
+import { DIFFICULTY, QUALITY_PRESETS } from '../config.js';
 import { wrapAngle } from '../utils/math.js';
 
 // DOM overlay: loading, title, HUD, toasts, pause/settings, photo mode.
@@ -58,13 +58,19 @@ export class UI {
       race: $('#race', root),
       stroke: $('#stroke', root),
       countdown: $('#countdown', root),
+      shakti: $('#shakti', root),
+      finisher: $('#finisher', root),
+      thirdEye: $('#thirdeye', root),
+      achievement: $('#achievement', root),
+      track: $('#track', root),
     };
+    this.shaktiKey = '';
     this.barPool = [];
     this.healthShown = 0;
     this.padMode = false;
     // arrows / Esc inside the journey and chapter-select lists
     window.addEventListener('keydown', (e) => {
-      if (!this.menuOpen) return;
+      if (!this.menuOpen || this.listening) return;
       const dir = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[e.code];
       if (dir) {
         e.preventDefault();
@@ -82,7 +88,7 @@ export class UI {
     if (text) this.els.loadText.textContent = text;
   }
 
-  showTitle({ hasSave, settings, onBegin, onContinue, onQuality, onIntro, onLoad, onTest }) {
+  showTitle({ hasSave, settings, onBegin, onContinue, onQuality, onIntro, onLoad, onTest, onDifficulty }) {
     this.els.loading.classList.add('hidden');
     const intro = $('#btn-intro', this.root);
     if (intro) intro.onclick = () => onIntro?.();
@@ -97,6 +103,11 @@ export class UI {
       .map(([k, v]) => `<option value="${k}" ${k === settings.quality ? 'selected' : ''}>${v.label}</option>`)
       .join('');
     sel.onchange = () => onQuality(sel.value);
+    const dif = $('#title-difficulty', this.root);
+    dif.innerHTML = Object.entries(DIFFICULTY)
+      .map(([k, v]) => `<option value="${k}" ${k === settings.difficulty ? 'selected' : ''}>${v.label}</option>`)
+      .join('');
+    dif.onchange = () => onDifficulty?.(dif.value);
     this.els.begin.onclick = () => onBegin();
     this.els.cont.onclick = () => onContinue();
   }
@@ -189,7 +200,7 @@ export class UI {
     }
     this.els.water.classList.toggle('on', !!underwater);
     if (prompt) {
-      this.els.prompt.innerHTML = `<kbd>${this.padMode ? 'X' : 'E'}</kbd> ${prompt}`;
+      this.els.prompt.innerHTML = `<kbd>${this.padMode ? 'X' : this.keys?.interact || 'E'}</kbd> ${prompt}`;
       this.els.prompt.classList.remove('hidden');
     } else this.els.prompt.classList.add('hidden');
     if (fps !== undefined) this.els.fps.textContent = fps;
@@ -259,6 +270,108 @@ export class UI {
       el.querySelector('small').textContent = b.title || '';
     }
     el.querySelector('.track i').style.width = `${(Math.max(0, b.frac) * 100).toFixed(1)}%`;
+  }
+
+  /**
+   * The Shakti meter under the prana bar and the powers it pays for:
+   * { frac, show, powers: [{ kind, ready, cost, active }], denied, eye } or null.
+   */
+  setShakti(st) {
+    const el = this.els.shakti;
+    el.classList.toggle('hidden', !st);
+    if (!st) return;
+    el.classList.toggle('off', !st.show);
+    el.classList.toggle('denied', !!st.denied);
+    const need = el.querySelector('.need');
+    need.textContent = st.need ? `Needs ${st.need} Shakti · fight to fill it` : '';
+    el.querySelector('.track i').style.width = `${(st.frac * 100).toFixed(1)}%`;
+    const K = this.keys || {};
+    const keys = { damaru: this.padMode ? 'LT+X' : K.damaru || '1', trishul: this.padMode ? 'LT+Y' : K.trishul || '2', thirdEye: this.padMode ? 'LT+B' : K.thirdEye || '3' };
+    const names = { damaru: 'Damaru', trishul: 'Trishul', thirdEye: 'Third Eye' };
+    const key = st.powers.map((p) => p.kind).join('|') + this.padMode + Object.values(keys).join('');
+    const box = el.querySelector('.powers');
+    if (key !== this.shaktiKey) {
+      this.shaktiKey = key;
+      box.innerHTML = st.powers.map((p) => `<span class="pw ${p.kind}"><kbd>${keys[p.kind]}</kbd>${names[p.kind]}</span>`).join('');
+      // the cost ticks on the bar
+      el.querySelector('.track').querySelectorAll('b').forEach((b) => b.remove());
+      for (const p of st.powers) {
+        const b = document.createElement('b');
+        b.style.left = `${(p.cost * 100).toFixed(1)}%`;
+        el.querySelector('.track').appendChild(b);
+      }
+    }
+    st.powers.forEach((p, i) => {
+      const s = box.children[i];
+      if (!s) return;
+      s.classList.toggle('ready', p.ready);
+      s.classList.toggle('active', p.active);
+    });
+  }
+
+  /** The finisher mark over an enemy that can be ended: { x, y, key } (pixels) or null. */
+  setFinisherMark(pt) {
+    const el = this.els.finisher;
+    el.classList.toggle('hidden', !pt);
+    if (!pt) return;
+    el.style.transform = `translate(${pt.x.toFixed(1)}px, ${pt.y.toFixed(1)}px)`;
+    const k = el.querySelector('kbd');
+    if (k.textContent !== pt.key) k.textContent = pt.key;
+  }
+
+  /** Attacks coming from off-screen: [{ x, y, rot, k }] chevrons at the screen's edge. */
+  setThreats(list) {
+    const box = this.root.querySelector('#threats');
+    this.threatPool = this.threatPool || [];
+    while (this.threatPool.length < list.length) {
+      const el = document.createElement('i');
+      box.appendChild(el);
+      this.threatPool.push(el);
+    }
+    this.threatPool.forEach((el, i) => {
+      const t = list[i];
+      el.style.display = t ? '' : 'none';
+      if (!t) return;
+      el.style.transform = `translate(${t.x.toFixed(0)}px, ${t.y.toFixed(0)}px) rotate(${t.rot.toFixed(2)}rad)`;
+      el.style.opacity = (0.45 + t.k * 0.55).toFixed(2);
+    });
+  }
+
+  setThirdEye(on) {
+    this.els.thirdEye.classList.toggle('on', on);
+  }
+
+  /** An achievement earned: a banner for a few seconds (several in a row wait their turn). */
+  achievement(name, text) {
+    this.achQueue = this.achQueue || [];
+    if (this.achBusy) return void this.achQueue.push([name, text]);
+    this.achBusy = true;
+    setTimeout(() => {
+      this.achBusy = false;
+      const next = this.achQueue.shift();
+      if (next) this.achievement(...next);
+    }, 5600);
+    const el = this.els.achievement;
+    el.querySelector('b').textContent = name;
+    el.querySelector('small:not(.k)').textContent = text;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+  }
+
+  /** What is pinned in the journal: { label, dist } or null. */
+  setTrack(t) {
+    const el = this.els.track;
+    el.classList.toggle('hidden', !t);
+    if (!t) return;
+    const s = `${t.label}${t.dist != null ? ` · ${t.dist} m` : ''}`;
+    if (el.textContent !== s) el.textContent = s;
+  }
+
+  /** Accessibility: caption size, softer flashes. */
+  setAccess({ subtitleSize = 1, reduceFlashes = false }) {
+    this.root.style.setProperty('--sub', subtitleSize);
+    this.root.classList.toggle('softflash', reduceFlashes);
   }
 
   // ------------------------------------------------------------- the boat race
@@ -554,7 +667,7 @@ export class UI {
 
   /** Gamepad / arrow navigation inside whatever screen is open: dir 'up'|'down'|'left'|'right'. */
   navigate(dir) {
-    const screen = [this.els.menu, this.els.pause, this.els.title].find((e) => e && !e.classList.contains('hidden'));
+    const screen = [this.els.menu, document.getElementById('journal'), this.els.pause, this.els.title].find((e) => e && !e.classList.contains('hidden'));
     if (!screen) return;
     const all = [...screen.querySelectorAll('button:not([disabled]):not(.hidden), select, input')].filter((b) => b.offsetParent !== null);
     if (!all.length) return;
@@ -614,8 +727,21 @@ export class UI {
     bind('#set-time', 'timeSpeed');
     bind('#set-weather', 'weather', 'select');
     bind('#set-fps', 'showFps', 'check');
+    const dif = $('#set-difficulty', p);
+    dif.innerHTML = Object.entries(DIFFICULTY)
+      .map(([k, v]) => `<option value="${k}" title="${v.note}" ${k === settings.difficulty ? 'selected' : ''}>${v.label}</option>`)
+      .join('');
+    bind('#set-difficulty', 'difficulty', 'select');
+    bind('#set-shake', 'shake');
+    bind('#set-sub', 'subtitleSize');
+    bind('#set-telegraph', 'telegraph', 'select');
+    bind('#set-guardtoggle', 'guardToggle', 'check');
+    bind('#set-flash', 'reduceFlashes', 'check');
+    bind('#set-rumble', 'rumble', 'check');
     $('#btn-resume', p).onclick = handlers.onResume;
     $('#btn-ptest', p).onclick = () => handlers.onTest?.();
+    $('#btn-controls', p).onclick = () => handlers.onControls?.();
+    $('#btn-journal', p).onclick = () => handlers.onJournal?.();
     for (const b of p.querySelectorAll('.timeofday button')) b.onclick = () => handlers.onTime?.(parseFloat(b.dataset.hour));
     $('#btn-reset', p).onclick = () => {
       if (confirm('Start a new journey? Lit flames and collected rudraksha will be reset.')) handlers.onReset();
@@ -658,10 +784,11 @@ const TEMPLATE = /* html */ `
       <button id="btn-test" type="button" title="Jump to any chapter or activity, no prerequisites">Chapter Select · Test</button>
     </div>
     <label class="inline">Graphics <select id="title-quality"></select></label>
+    <label class="inline">Difficulty <select id="title-difficulty"></select></label>
     <div class="controls">
       <span><kbd>WASD</kbd> move</span><span><kbd>Mouse</kbd> look</span><span><kbd>Shift</kbd> sprint</span>
       <span><kbd>Space</kbd> jump · dive · swim up</span><span><kbd>C</kbd> dive</span><span><kbd>E</kbd> interact · boat</span>
-      <span><kbd>F</kbd> float a diya</span><span><kbd>G</kbd> pranam</span><span><kbd>M</kbd> meditate</span><span><kbd>J</kbd> task</span><span><kbd>LMB</kbd> strike · <kbd>RMB</kbd> kick / heavy cut</span><span><kbd>Q</kbd> guard</span><span><kbd>R</kbd> draw talwar</span><span><kbd>X</kbd> walk</span><span><kbd>N</kbd> night / dawn</span><span><kbd>P</kbd> photo mode</span><span><kbd>F9</kbd> screenshot</span><span><kbd>⌘</kbd> / <kbd>⌥</kbd> free the mouse</span><span><kbd>Esc</kbd> menu</span>
+      <span><kbd>F</kbd> float a diya</span><span><kbd>G</kbd> pranam</span><span><kbd>M</kbd> meditate</span><span><kbd>J</kbd> journal · map · siddhis</span><span><kbd>LMB</kbd> strike · <kbd>RMB</kbd> heavy (hold: charge)</span><span><kbd>Q</kbd> guard</span><span><kbd>E</kbd> finish a reeling Asura</span><span><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> powers</span><span><kbd>R</kbd> draw talwar</span><span><kbd>X</kbd> walk</span><span><kbd>N</kbd> night / dawn</span><span><kbd>P</kbd> photo mode</span><span><kbd>F9</kbd> screenshot</span><span><kbd>⌘</kbd> / <kbd>⌥</kbd> free the mouse</span><span><kbd>Esc</kbd> menu</span>
     </div>
   </div>
 </div>
@@ -681,8 +808,12 @@ const TEMPLATE = /* html */ `
   </div>
   <div id="purity"><label>Ganga Purity <b>0%</b></label><div class="track"><i></i></div></div>
   <div id="health" class="off"><label>Prana</label><div class="track"><u></u><i></i></div></div>
+  <div id="shakti" class="hidden off"><span class="need"></span><div class="track"><i></i></div><div class="powers"></div></div>
+  <div id="threats"></div>
+  <div id="track" class="hidden"></div>
   <div id="enemybars"></div>
   <div id="lockon" class="hidden"><span></span></div>
+  <div id="finisher" class="hidden"><kbd>E</kbd></div>
   <div id="bossbar" class="off"><h5></h5><small></small><div class="track"><i></i></div></div>
   <div id="race" class="hidden"><h4>Nauka Daud</h4><div class="pos"><b>1st</b><span class="of">of 4</span><i class="time">0:00.0</i></div><p class="gate"></p><ol class="board"></ol></div>
   <div id="stroke" class="hidden"><svg viewBox="0 0 60 60"><circle class="bg" cx="30" cy="30" r="24"/><circle class="win" cx="30" cy="30" r="24"/><circle class="fg" cx="30" cy="30" r="24"/></svg><b class="streak"></b><small>Space on the catch</small></div>
@@ -698,7 +829,9 @@ const TEMPLATE = /* html */ `
 </div>
 
 <div id="underwater"></div>
+<div id="thirdeye"></div>
 <div id="hurt"></div>
+<div id="achievement"><i></i><div><small class="k">Achievement</small><b></b><small></small></div></div>
 <div id="chaptercard"><small></small><h2></h2><p></p></div>
 <div id="caption"><b></b><span></span></div>
 <div id="rhythm" class="hidden"><h5></h5><div class="bar"><i class="zone"></i><i class="mark"></i></div><div class="row"><small></small><b class="count"></b></div></div>
@@ -731,6 +864,13 @@ const TEMPLATE = /* html */ `
       <label>Day speed <input type="range" id="set-time" min="0" max="6" step="0.5"></label>
       <label>Weather <select id="set-weather"><option value="auto">Auto (monsoon showers)</option><option value="clear">Clear</option><option value="rain">Monsoon rain</option><option value="storm">Thunderstorm</option></select></label>
       <label class="check"><input type="checkbox" id="set-fps"> Show FPS</label>
+      <label>Difficulty <select id="set-difficulty"></select></label>
+      <label>Camera shake <input type="range" id="set-shake" min="0" max="1" step="0.1"></label>
+      <label>Caption size <input type="range" id="set-sub" min="0.85" max="1.5" step="0.05"></label>
+      <label>Warning flare <select id="set-telegraph"><option value="ember">Ember (default)</option><option value="blue">Blue (colour-blind safe)</option></select></label>
+      <label class="check"><input type="checkbox" id="set-guardtoggle"> Guard toggles (tap Q) instead of hold</label>
+      <label class="check"><input type="checkbox" id="set-flash"> Reduce flashes</label>
+      <label class="check"><input type="checkbox" id="set-rumble"> Gamepad vibration</label>
     </div>
     <div class="timeofday">
       <span>Time of day</span>
@@ -742,6 +882,8 @@ const TEMPLATE = /* html */ `
     </div>
     <div class="buttons">
       <button id="btn-resume" class="primary">Resume</button>
+      <button id="btn-journal">Journal</button>
+      <button id="btn-controls">Controls</button>
       <button id="btn-ptest">Chapter Select · Test</button>
       <button id="btn-reset">New journey</button>
     </div>

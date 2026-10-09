@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { DEFAULT_SETTINGS, FAR_BANK_V, PLAYER, SACRED_FLAMES } from '../config.js';
+import { DEFAULT_SETTINGS, DIFFICULTY, FAR_BANK_V, PLAYER, SACRED_FLAMES, SHAKTI } from '../config.js';
 import { ASSET_MANIFEST, Assets } from './Assets.js';
 import { AudioManager } from './AudioManager.js';
-import { Input } from './Input.js';
+import { ACTIONS, Input, keyName } from './Input.js';
+import { Haptics } from './Haptics.js';
 import { Physics } from './Physics.js';
 import { RenderSystem } from './Renderer.js';
 import { CameraRig } from '../gameplay/CameraRig.js';
@@ -18,8 +19,18 @@ import { AsuraSystem } from '../gameplay/Asuras.js';
 import { Encounters } from '../gameplay/Encounters.js';
 import { BattleMusic } from '../gameplay/BattleMusic.js';
 import { Oars } from '../gameplay/Oars.js';
+import { PhysicsProps, synthBrassClang, synthClayBreak, synthClayKnock, synthWicker } from '../world/PhysicsProps.js';
 import { BoatRace } from '../gameplay/BoatRace.js';
 import { RiverAarti } from '../gameplay/RiverAarti.js';
+import { Siddhis } from '../gameplay/Siddhis.js';
+import { Powers, synthDamaru, synthOm } from '../gameplay/Powers.js';
+import { Finishers } from '../gameplay/Finishers.js';
+import { Cinematics } from '../gameplay/Cinematics.js';
+import { Projectiles, synthFireball } from '../gameplay/Projectiles.js';
+import { Traversal } from '../gameplay/Traversal.js';
+import { WorldEvents } from '../gameplay/WorldEvents.js';
+import { Achievements } from '../gameplay/Achievements.js';
+import { Journal } from '../ui/Journal.js';
 import { Kitchen } from '../world/Kitchen.js';
 import { BhairavTemple } from '../world/BhairavTemple.js';
 import { RamnagarFort } from '../world/Ramnagar.js';
@@ -41,6 +52,7 @@ import { FireSystem } from '../world/Fire.js';
 import { NightScene } from '../world/Night.js';
 import { Birds, FloatingDiyas, GroundPigeons } from '../world/Life.js';
 import { Crowd } from '../world/Crowd.js';
+import { Animals } from '../world/Animals.js';
 import { SkySystem } from '../world/SkySystem.js';
 import { Mist } from '../world/Mist.js';
 import { Wake } from '../world/Wake.js';
@@ -51,7 +63,9 @@ import { Underwater } from '../world/Underwater.js';
 import { Weather, synthRain, synthThunder } from '../world/Weather.js';
 import { Water } from '../world/Water.js';
 import { buildWorld } from '../world/World.js';
-import { GHAT_SEGMENTS, LANDING_1, PROFILE_LEN, bankCoords, ghatById, ghatToWorld, groundHeight, segmentForX } from '../world/WorldLayout.js';
+import { GHAT_SEGMENTS, LANDING_1, PROFILE_LEN, bankCoords, frameAtX, ghatById, ghatToWorld, groundHeight, segmentForX } from '../world/WorldLayout.js';
+
+const frameN = (x) => frameAtX(x).N;
 
 const SAVE_KEY = 'prady-save-v1'; // the single save from before journeys had slots (read once, kept)
 const SLOTS = 3;
@@ -127,6 +141,7 @@ export class Game {
     const pChar = assets.gltfAsync(M.character.model);
     const pClips = Object.fromEntries(Object.entries(M.character.clips).map(([k, url]) => [k, assets.gltfAsync(url)]));
     const pMocap = assets.track(fetch(M.character.mocap).then((r) => (r.ok ? r.json() : null)));
+    const pMoves = M.character.moves ? assets.track(fetch(M.character.moves).then((r) => (r.ok ? r.json() : null))) : null;
     const pBoat = assets.gltfAsync(M.boat);
     const pBoatLod = assets.gltfAsync(M.boatLod);
     const pTex = Object.fromEntries(Object.entries(M.textures).map(([k, url]) => [k, assets.image(url)]));
@@ -198,7 +213,7 @@ export class Game {
     this.heatSources = [];
     this.world.layout.pyres.forEach((p, i) => {
       if (i % 2) return;
-      this.fire.add(new THREE.Vector3(p.x, p.y + 1.2, p.z), 2.4, true);
+      this.fire.add(new THREE.Vector3(p.x, p.y + 1.15, p.z), 1, true, 'pyre');
       this.heatSources.push({ x: p.x, y: p.y + 1.3, z: p.z, h: 3.2, amt: 1 });
     });
     this.wake = new Wake(this.water, this.rs.qualityName === 'low' ? 200 : 360);
@@ -226,6 +241,9 @@ export class Game {
       }
       clips.mocap = true;
     }
+    // the traversal moves (vault, scramble, ladder) from their own file
+    const moves = await pMoves;
+    for (const j of moves?.clips || []) clips[j.name] = THREE.AnimationClip.parse(j);
     for (const [k, p] of Object.entries(pClips)) {
       const g = await p;
       if (!clips[k] && g?.animations?.length) {
@@ -244,9 +262,28 @@ export class Game {
     if (lodGeo !== boatGeo) makeWaterAware(lodGeo.material, { wetness: false, puddles: false });
     this.moored = new MooredBoats(lodGeo, this.world.layout.boats.moored);
     // solid hulls: a swimmer goes round them (or climbs aboard), never through
-    for (const b of this.world.layout.boats.moored) physics.addBox(b.x, -0.06, b.z, 1.7, 0.78, 7.0, b.yaw);
+    // the moored hulls as they are built (measured off the boat model, the same for all): the
+    // bottom boards, the sides to the gunwale, three thwarts and the raised decks at bow and stern.
+    // [x, y, z, w, h, d] in the boat's frame. Walked onto from the steps, he stands on the boards
+    // and steps over the seats; he no longer wades through planking or floats over the bilge.
+    const HULL = [
+      [0, -0.15, 0.2, 1.9, 0.5, 4.1],
+      [-0.99, 0.42, 0.2, 0.14, 0.66, 4.1],
+      [0.99, 0.42, 0.2, 0.14, 0.66, 4.1],
+      [0, 0.4, -1.0, 1.84, 0.6, 0.32],
+      [0, 0.37, 0.5, 1.84, 0.54, 0.32],
+      [0, 0.38, 2.0, 1.84, 0.56, 0.32],
+      [0, 0.4, -2.68, 1.7, 1.0, 1.66],
+      [0, 0.36, 2.92, 1.5, 0.92, 1.36],
+    ];
+    for (const b of this.world.layout.boats.moored) {
+      const c = Math.cos(b.yaw);
+      const s = Math.sin(b.yaw);
+      for (const [x, y, z, w, h, d] of HULL) physics.addBox(b.x + c * x + s * z, y, b.z - s * x + c * z, w, h, d, b.yaw);
+    }
     scene.add(this.moored.mesh);
     this.boat = new PlayerBoat(boatGeo, this.world.layout.boats.player);
+    this.boat.moored = this.moored; // (hull against hull)
     this.boatGeo = boatGeo;
     // the oars (every rowing boat's pair, one instanced mesh)
     this.oars = new Oars(scene);
@@ -263,6 +300,8 @@ export class Game {
     this.camRig = new CameraRig(camera, physics);
     this.camRig.yaw = start.yaw;
     this.fx = this.makeFx();
+    // loose things that tumble, shatter and float (pots, lotas, baskets)
+    this.looseProps = new PhysicsProps(this);
     this.player = new Player({ physics, water: this.water, model: this.character, animator: this.animator, start, fx: this.fx });
     this.camRig.excludeCollider = this.player.collider;
     this.actions = new PradyActions(this.player, {
@@ -299,6 +338,7 @@ export class Game {
       health: this.health,
       onEvent: (type, data) => this.onCombatEvent(type, data),
     });
+    this.combat.props = this.looseProps; // (a strike that meets a pot or a lota moves it)
     this.player.combat = this.combat;
     this.manifestEnemies = M.enemies;
     this.asuras = new AsuraSystem(this);
@@ -309,7 +349,23 @@ export class Game {
     this.audio.synth('ember-hiss', synthEmberHiss);
     this.audio.synth('howl', synthHowl);
     this.lockOn = new LockOn({ targets: this.targets, camRig: this.camRig, player: this.player, combat: this.combat, camera, ui });
-    for (const [n, f] of [['whoosh', synthWhoosh], ['blade-whoosh', synthBladeWhoosh], ['thump', synthThump], ['blade-hit', synthBladeHit], ['blade-draw', synthDraw], ['blade-sheathe', synthSheathe], ['block', synthBlock], ['parry', synthParry], ['hurt', synthBodyHit]]) this.audio.synth(n, f);
+    // what Prady earns and what he can do with it; how he gets over things; what is earned
+    this.haptics = new Haptics(this.input);
+    this.achievements = new Achievements(this);
+    this.siddhis = new Siddhis(this);
+    this.projectiles = new Projectiles(this);
+    this.powers = new Powers(this);
+    this.player.powers = this.powers;
+    this.finishers = new Finishers(this);
+    this.cinematics = new Cinematics(this);
+    this.traversal = new Traversal(this);
+    this.player.traversal = this.traversal;
+    this.player.onHardLanding = (impact, speed) => this.hardLanding(impact, speed);
+    this.tracker = null; // what the journal pins: { label, x, y, z }
+    this.audio.synth('damaru', synthDamaru);
+    this.audio.synth('om', synthOm);
+    this.audio.synth('fireball', synthFireball);
+    for (const [n, f] of [['whoosh', synthWhoosh], ['blade-whoosh', synthBladeWhoosh], ['thump', synthThump], ['blade-hit', synthBladeHit], ['blade-draw', synthDraw], ['blade-sheathe', synthSheathe], ['block', synthBlock], ['parry', synthParry], ['hurt', synthBodyHit], ['clay-knock', synthClayKnock], ['clay-break', synthClayBreak], ['brass-clang', synthBrassClang], ['wicker', synthWicker]]) this.audio.synth(n, f);
     this.player.actions = this.actions;
     this.camRig.waterHeightAt = (x, z) => this.water.heightAt(x, z);
     const rat = this.world.layout.flames.find((f) => f.id === 'ratneshwar');
@@ -317,7 +373,12 @@ export class Game {
 
     // Quest + HUD
     this.quest = new Quest({ scene, layout: this.world.layout, props: this.world.props, fire: this.fire, smoke: this.smoke, water: this.water, audio: this.audio, ui, sky: this.sky });
-    this.quest.onLit = (id, silent) => !silent && this.story?.onEvent('flame', { id });
+    this.quest.onLit = (id, silent) => {
+      if (silent) return;
+      this.story?.onEvent('flame', { id });
+      this.achievements?.event('flames', { n: this.quest.litCount });
+    };
+    this.quest.onBead = (n) => this.achievements?.event('beads', { n });
     this.quest.onComplete = () => {
       this.player.blessing = true;
       ui.setObjectives(this.quest.objectives(), true);
@@ -359,11 +420,19 @@ export class Game {
           manifest: M.people,
           quality: this.settings.quality,
         });
+        this.crowd.audio = this.audio; // (a bumped townsman scuffs his feet)
         console.info(`[crowd] ${this.crowd.stats.slots} people planned (${this.crowd.stats.walkers} strollers, ${this.crowd.stats.groups} conversations)`);
       } catch (e) {
         console.error('[crowd] disabled:', e);
         this.crowd = null;
       }
+    }
+    // the cows and street dogs of the ghats (their bodies stream in like the crowd's)
+    try {
+      this.animals = new Animals(this);
+    } catch (e) {
+      console.error('[animals] disabled:', e);
+      this.animals = null;
     }
     ui.setCompassMarkers([
       ...this.quest.objectives().map((o) => ({ ...o, kind: 'flame' })),
@@ -389,6 +458,9 @@ export class Game {
       // (freed on purpose with Cmd / Option: keep playing, the cursor is the player's)
       if (!locked && this.input.freed) return;
       if (locked) this.input.freed = false;
+      // a lock that lands while a menu is open (a late request from a jump or a resume) would
+      // hide the cursor and send every click to the canvas: give the mouse back
+      if (locked && (this.state === 'journal' || this.state === 'paused' || this.state === 'title')) return this.input.exitLock();
       if (!locked && this.state === 'play' && !this.photo) this.pause();
     };
     this.canvas.addEventListener('click', () => {
@@ -396,12 +468,15 @@ export class Game {
     });
 
     this.missions = new Missions(this, null);
+    this.worldEvents = new WorldEvents(this);
+    this.journal = new Journal(this, this.ui.root);
     this.story = new Story(this);
     this.testMenu = new TestMenu(this);
     this.registerChapterJumps();
     this.registerMissionJumps();
     this.registerFightJumps();
     this.registerRiverJumps();
+    this.registerExtraJumps();
     this.migrateSave();
     const last = loadJSON(LAST_KEY);
     const lastSave = last ? loadJSON(slotKey(last)) : null;
@@ -413,6 +488,7 @@ export class Game {
       onLoad: this.slotList().some(Boolean) ? () => this.openSlots('load') : null,
       onTest: () => this.testMenu.open('title'),
       onQuality: (q) => this.setSetting('quality', q),
+      onDifficulty: (d) => this.setSetting('difficulty', d),
       onIntro: () => playIntro({ force: true }),
     });
     this.state = 'title';
@@ -461,6 +537,7 @@ export class Game {
   savePhoto() {
     this._snap = false;
     this.missions?.emit('photo', {});
+    if (this.photo) this.achievements.event('photo', {});
     const canvas = this.rs.renderer.domElement;
     canvas.toBlob((blob) => {
       if (!blob) return;
@@ -537,6 +614,11 @@ export class Game {
       land(impact = 4) {
         g.audio.play('footstep', { volume: Math.min(1, 0.4 + impact * 0.06), rate: 0.8 });
         if (impact > 6) g.camRig.shake(Math.min(0.55, (impact - 6) / 14));
+      },
+      // wood on wood: one boat knocking another
+      bump(x, z, speed) {
+        g.audio.play('thump', { at: new THREE.Vector3(x, 0.4, z), volume: Math.min(1, 0.3 + speed * 0.25), rate: 0.7 + Math.random() * 0.15, ref: 8 });
+        g.ripples.spawn(x, 0, z, 1.2 + speed * 0.4, 1.4);
       },
       oar(x, z) {
         g.audio.play('oar', { at: new THREE.Vector3(x, 0, z), volume: 0.8, rate: 0.95 + Math.random() * 0.1 });
@@ -622,11 +704,17 @@ export class Game {
       fire: this.audio.loop('fireLoop', { volume: 0, at: new THREE.Vector3(), ref: 4, channel: 'sfx' }),
       swim: this.audio.loop('swim', { volume: 0, channel: 'sfx' }),
       rain: this.audio.loop('rain', { volume: 0 }),
+      crowd: this.audio.loop('crowd', { volume: 0 }),
     };
     // the battle music: fetched once the city is up, decoded off the main thread
     this.after(6, () => this.battleMusic.prefetch());
+    // the mirror on the river skips the small things (Water.renderReflection): props, stalls,
+    // the saris and kites, the ladders, the rooftop tanks
+    this.scene.traverse((o) => /^(props(-\w+)?|stalls|street-life|ladders|tanks)$/.test(o.name) && this.water.skipInReflection(o));
     this.missions.restore(save?.missions);
     this.worldState.restore(save?.world);
+    this.siddhis.restore(save?.siddhis);
+    this.powers.restore(save?.powers);
     this.health.revive(1);
     this.combat.revive();
     this.storySave = save?.story ?? null;
@@ -635,6 +723,7 @@ export class Game {
       if (save.hours !== undefined) this.sky.setHours(save.hours);
       if (save.player) this.player.teleport(save.player.x, save.player.y, save.player.z);
       if (this.quest.complete) this.player.blessing = true;
+      this.siddhis.apply();
       this.ui.setObjectives(this.quest.objectives(), this.quest.complete);
       this.story.restore(save.story, save.quest?.flames || []);
       this.after(1.5, () => this.story.showCard());
@@ -723,6 +812,85 @@ export class Game {
       arm(g);
       await g.encounters.start({ ghat: 'panchganga', u: 62, waves: [{ kind: 'boss', name: 'Andhaka', title: 'the Blind Darkness' }], onWin: win('Andhaka is no more') });
     });
+    // the new kinds, one at a time, then together, then the chapters' champions
+    const one = (label, sub, ghat, u, hours, waves, done, landing = 1) =>
+      this.testMenu.add(F, label, sub, async (g) => {
+        g.testMenu.placeOnGhat(ghat, u, landing, landing === 0 ? 0 : 0.6);
+        g.sky.setHours(hours);
+        arm(g);
+        await g.encounters.start({ ghat, u, waves, onWin: win(done) });
+      });
+    one('Pishachas: fire from afar', 'Two hurl ghost fire and keep their distance (parry it back!)', 'manikarnika', 30, 20.5, [{ n: 2, kind: 'pishacha' }], 'The fire-throwers are ash');
+    one('Kavachas: the shield wall', 'Two behind bronze shields: heavy cuts and kicks break the guard', 'scindia', 30, 20.5, [{ n: 2, kind: 'kavacha' }], 'The shields are broken');
+    one('Vetalas: the leapers', 'Two that bound off the haveli walls and pounce from afar (on the top of the ghat)', 'manmandir', 20, 21, [{ n: 2, kind: 'vetala' }], 'The leapers are down', 0);
+    one('Every kind of the dark', 'A shade, a Rakshasa, a Pishacha, a Kavacha and a Vetala at once', 'darbhanga', 40, 21.5, [{ mix: [{ n: 1, kind: 'shade' }, { n: 1, kind: 'brute' }, { n: 1, kind: 'pishacha' }, { n: 1, kind: 'kavacha' }, { n: 1, kind: 'vetala' }] }], 'The pack is broken');
+    one('Champion: Mahodara', 'Chapter II’s shielded glutton (mini-boss)', 'kedar', 40, 13, [{ kind: 'kavacha', mini: true, name: 'Mahodara', title: 'the Bottomless Belly' }], 'Mahodara is no more');
+    one('Champion: Agnimukha', 'Chapter III’s fire-mouth (mini-boss)', 'dashashwamedh', 42, 19.5, [{ kind: 'pishacha', mini: true, name: 'Agnimukha', title: 'the Fire-Mouth' }], 'Agnimukha is no more');
+    one('Champion: the Corpse-Rider', 'Chapter IV’s Vetala (mini-boss)', 'scindia', 18, 22, [{ kind: 'vetala', mini: true, name: 'Vetala', title: 'the Corpse-Rider of Manikarnika' }], 'The Vetala is no more');
+    one('Finisher practice', 'Three shades: wear one down, break its poise (heavy cuts, a parry) and press E as it reels', 'tulsi', 50, 17, [{ n: 3, kind: 'shade' }], 'Practice done');
+  }
+
+  /** Test menu: the powers and siddhis, the rooftops, the calls for help, the achievements. */
+  registerExtraJumps() {
+    const S = 'Powers & siddhis';
+    const T = this.testMenu;
+    T.add(S, 'Every siddhi, full Shakti', 'All twelve unlocked: 1 Damaru · 2 Trishul · 3 Third Eye, charged heavy, riposte, Fourth Strike', (g) => {
+      g.siddhis.grantAll();
+      g.powers.shakti = SHAKTI.max;
+      g.combat.setHasSword(true);
+      g.combat.armed = true;
+      g.combat.stance(4);
+    });
+    T.add(S, 'Rudraksha and embers to spend', '+40 rudraksha, +150 embers (open the journal: J, Siddhis)', (g) => {
+      for (let i = 0, n = 0; i < g.quest.beads.length && n < 40; i++) if (!g.quest.beads[i].taken) (g.quest.take(i, true), n++);
+      g.siddhis.embers += 150;
+      g.siddhis.embersTotal += 150;
+      g.openJournal('siddhis');
+    });
+    T.add(S, 'Powers against a pack', 'Every siddhi, full Shakti, five shades at night on Assi Ghat', async (g) => {
+      g.siddhis.grantAll();
+      g.powers.shakti = SHAKTI.max;
+      g.combat.setHasSword(true);
+      g.combat.armed = true;
+      g.testMenu.placeOnGhat('assi', 40, 1, 0.6);
+      g.sky.setHours(21);
+      await g.encounters.start({ ghat: 'assi', u: 40, waves: [{ n: 5, kind: 'shade' }], onWin: () => g.ui.toast('The pack is gone', '', 3) });
+    });
+    const R = 'Rooftops & traversal';
+    const ladderAt = (i) => {
+      const L = this.traversal.ladders.filter((x) => !x.roof)[i] || this.traversal.ladders[0];
+      if (!L) return;
+      const f = this.traversal.ladderPoint(L, L.y0, new THREE.Vector3());
+      this.testMenu.place(f.x + L.out.x * 1.3, L.y0, f.z + L.out.z * 1.3, Math.atan2(-L.out.x, -L.out.z));
+    };
+    T.add(R, 'At a ladder to the rooftops', 'Walk into it (or press E); W / S climb, Shift fast, C slides, Space lets go', (g) => {
+      g.sky.setHours(15);
+      ladderAt(3);
+    });
+    T.add(R, 'On the rooftops', 'Up on a haveli roof above Dashashwamedh: vault the parapets, climb the higher roofs, cross the planks', (g) => {
+      g.sky.setHours(16.5);
+      const b = g.world.layout.buildings.filter((x) => x.row === 0 && x.kind === 'haveli').sort((a, c) => Math.abs(a.x - 30) - Math.abs(c.x - 30))[0];
+      g.testMenu.place(b.x, b.baseY + b.h, b.z, Math.atan2(frameN(b.x).x, frameN(b.x).z) + Math.PI / 2);
+    });
+    T.add(R, 'Vaults on the landing', 'Run at a takht or a railing on Dashashwamedh’s first landing', (g) => {
+      g.sky.setHours(10);
+      g.testMenu.placeOnGhat('dashashwamedh', 20, 1, 0);
+    });
+    const W = 'Calls for help';
+    const ev = (kind, label, sub, place, hours) =>
+      T.add(W, label, sub, (g) => {
+        g.sky.setHours(hours);
+        place(g);
+        g.testSession = true;
+        // (calls only come once Chapter I is told: the talwar is his by then, R draws it)
+        g.combat.setHasSword(true);
+        g.after(0.4, () => g.worldEvents.start(kind) || g.ui.toast('Nothing fits here', '', 2));
+      });
+    ev('chor', 'Chor! The pickpocket', 'Catch the thief along the top of the ghats', (g) => g.testMenu.placeOnGhat('dashashwamedh', 30, 0, 0), 11);
+    ev('bachao', 'Bachao! Someone in the river', 'Swim out and tow them back to the steps', (g) => g.testMenu.placeOnGhat('darbhanga', 40, 2, 0), 9);
+    ev('ambush', 'Darkness at the boats', 'Asuras rise beside a boatman at night', (g) => g.testMenu.placeOnGhat('manmandir', 40, 2, 0), 22);
+    ev('patang', 'Pench! A kite duel', 'Climb to the rooftops and cut a rival’s kite string', (g) => g.testMenu.placeOnGhat('dashashwamedh', 40, 0, 0), 15);
+    T.add('World & test tools', 'Achievement banner', 'Show how an achievement looks when earned', (g) => g.ui.achievement('A Postcard from Kashi', 'Take a picture in photo mode.'));
   }
 
   registerRiverJumps() {
@@ -768,6 +936,11 @@ export class Game {
     this.race?.stop();
     this.riverAarti?.stop();
     this.story?.stopForTest?.();
+    this.worldEvents?.stop();
+    this.finishers?.reset();
+    this.powers?.reset();
+    this.traversal?.reset();
+    this.projectiles?.clear();
     this.lockOn.release();
     if (this.health.dead || this.combat.dead) {
       this.combat.revive();
@@ -816,6 +989,12 @@ export class Game {
       onSetting: (k, v) => this.setSetting(k, v),
       onResume: () => this.resume(),
       onTest: () => this.testMenu.open('pause'),
+      onControls: () => this.openControls(),
+      onJournal: () => {
+        this.ui.hidePause();
+        this.state = 'play';
+        this.openJournal('map');
+      },
       onTime: (h) => {
         this.setTimeOfDay(h, 2.5);
         this.resume();
@@ -862,6 +1041,19 @@ export class Game {
     this.sky.timeSpeed = s.timeSpeed;
     this.weather?.setMode(s.weather || 'auto');
     this.ui.setFpsVisible(s.showFps || DEBUG);
+    // difficulty and accessibility
+    const d = DIFFICULTY[s.difficulty] || DIFFICULTY.balanced;
+    if (this.combat) this.combat.parryWindow = d.parryWindow;
+    if (this.health) this.health.regenDiff = d.regen;
+    this.camRig.shakeScale = s.shake ?? 1;
+    this.ui.setAccess({ subtitleSize: s.subtitleSize ?? 1, reduceFlashes: !!s.reduceFlashes });
+    this.asuras?.eyes.setWarnColor(s.telegraph);
+    this.ui.root.classList.toggle('blueflare', s.telegraph === 'blue');
+    if (this.haptics) this.haptics.enabled = s.rumble !== false;
+    this.input.setBindings(s.bindings || {});
+    // (prompts show the keys the player actually presses)
+    const k = (code) => keyName(this.input.keyFor(code));
+    this.ui.keys = { interact: k('KeyE'), damaru: k('Digit1'), trishul: k('Digit2'), thirdEye: k('Digit3') };
   }
 
   save() {
@@ -871,6 +1063,8 @@ export class Game {
       missions: this.missions?.serialize(),
       story: this.story?.serialize?.(),
       world: this.worldState?.serialize?.(),
+      siddhis: this.siddhis?.serialize(),
+      powers: this.powers?.serialize(),
       hours: this.sky.hours,
       player: this.player.state === 'boat' ? null : { x: this.player.position.x, y: this.player.feetY, z: this.player.position.z },
       meta: { when: Date.now(), chapter: this.story?.label?.() || `The Five Flames`, flames: this.quest.litCount, punya: this.missions?.punya ?? 0 },
@@ -909,7 +1103,7 @@ export class Game {
 
   update(dt, warmup = false) {
     const playing = this.state === 'play';
-    const paused = this.state === 'paused';
+    const paused = this.state === 'paused' || this.state === 'journal';
     if (this.slowT > 0) {
       this.slowT -= dt;
       if (this.slowT <= 0) this.timeScale = 1;
@@ -967,7 +1161,7 @@ export class Game {
     // interpolation between the last two steps.
     if (!paused) {
       const controlBoat = this.player.state === 'boat';
-      this.player.inputLocked = !playing || this.photo || controlBoat || !!this.missions?.dialogue || !!this.ui.rh;
+      this.player.inputLocked = !playing || this.photo || controlBoat || !!this.missions?.dialogue || !!this.ui.rh || !!this.travelling || !!this.finishers?.active;
       this.player.readInput(input, this.camRig);
       this.boat.readInput(input, controlBoat && playing && !this.photo && !this.race?.holdInput);
       this.simAcc = (this.simAcc || 0) + simDt;
@@ -976,6 +1170,7 @@ export class Game {
         this.player.fixedUpdate(FIXED_DT);
         this.boat.fixedUpdate(FIXED_DT, this.water, this.fx);
         this.race.fixed(FIXED_DT);
+        this.looseProps.fixed(FIXED_DT);
         this.physics.step(FIXED_DT);
         this.simAcc -= FIXED_DT;
         steps++;
@@ -988,6 +1183,7 @@ export class Game {
     this.oars.update(simDt);
     this.player.lateUpdate(simDt, alpha);
     this.combat?.late(simDt);
+    this.powers?.late();
     if (this.health) {
       const near = this.targets.enemies().some((e) => Math.hypot(e.pos.x - this.player.position.x, e.pos.z - this.player.position.z) < 25 && e.awake !== false);
       this.inCombat = near;
@@ -1010,6 +1206,7 @@ export class Game {
       const boss = this.asuras.list.find((a) => a.K.boss && a.alive && Math.hypot(a.pos.x - this.player.position.x, a.pos.z - this.player.position.z) < 28);
       if (boss && !camOpts.distance) camOpts.distance = this.camRig.targetDistance + 1.3;
       const camFocus = this.player.state === 'swim' || this.player.state === 'dive' ? new THREE.Vector3(this.player.position.x, this.character.position.y + 0.9, this.player.position.z) : this.character.position;
+      this.cinematics?.update(dt);
       this.camRig.update(dt, input, camFocus, camOpts);
     } else {
       const s = this.world.layout.playerStart;
@@ -1047,20 +1244,27 @@ export class Game {
     if (this.fireworks.flash > 0.01) this.sky.hemi.intensity += this.fireworks.flash * 0.6;
     this.night.update(simDt, { night: this.sky.nightFactor, festival: this.quest.complete, camera: this.camera, pixelRatio: pr, moonDir: this.sky.moonDir });
     if (this.missions && this.state === 'play') this.missions.update(simDt);
+    if (!paused) this.worldEvents?.update(simDt);
+    this.journal?.update();
     if (!warmup && (playing || this.state === 'cutscene')) this.story.update(simDt);
     // the Asuras (and the people keeping well away from them)
     if (!paused) this.encounters.update(simDt);
     if (!paused) this.race.update(simDt);
+    if (!paused) this.looseProps.update(simDt);
     if (!paused) this.riverAarti.update(simDt);
     this.battleMusic.update(Math.min(dt, 0.1));
     this.asuras.update(simDt, { pixelRatio: pr, light });
+    this.projectiles.update(simDt, pr);
+    this.powers.update(simDt);
+    this.finishers.update(simDt);
     if (playing || paused) this.asuras.hud(this.camera, this.ui);
     let danger = null;
     if (this.asuras.active) {
       const P = this.player.position;
       danger = { x: P.x, z: P.z, r: 32 };
     }
-    if (!warmup) this.crowd?.update(simDt, { hours: this.sky.hours, aarti: this.quest.aartiLit, festival: this.quest.complete, danger, playerPos: this.player.state === 'boat' ? null : this.character.position });
+    if (!warmup) this.animals?.update(simDt);
+    if (!warmup) this.crowd?.update(simDt, { hours: this.sky.hours, aarti: this.quest.aartiLit, festival: this.quest.complete, danger, playerPos: this.player.state === 'boat' ? null : this.character.position, playerVel: this.player.velocity });
 
     this.updateLightPool(dt);
     {
@@ -1121,6 +1325,7 @@ export class Game {
         fps: this.settings.showFps || DEBUG ? `${this.fpsAcc.fps} fps · ${this.rs.renderer.info.render.calls} draws · ${(this.rs.renderer.info.render.triangles / 1e6).toFixed(2)}M tris · x${this.rs.scale.toFixed(2)}` : undefined,
       });
       for (const m of this.ui.compassMarks) if (m.kind === 'flame') m.hidden = this.quest.flames.find((f) => f.id === m.id)?.lit;
+      this.updateTracker();
       this.ui.updateCompass(this.camRig.yaw, this.player.position);
       this.updateRegion();
       this.saveTimer = (this.saveTimer || 0) + dt;
@@ -1178,12 +1383,17 @@ export class Game {
     const p = this.player;
     // E advances the open dialogue: no other prompt beside it
     if (this.missions?.dialogue) return null;
+    // in a fight, an Asura that can be finished comes first
+    const fin = this.finishers?.interaction();
+    if (fin) return fin;
     const si = this.story?.interaction();
     if (si) return si;
     const mi = this.missions?.interaction();
     if (mi) return mi;
     const ri = this.race?.interaction() || this.riverAarti?.interaction();
     if (ri) return ri;
+    const ev = this.worldEvents?.interaction();
+    if (ev) return ev;
     // (racing: E would only end it; no prompt over the stroke ring)
     if (p.state === 'boat' && (this.race.phase === 'race' || this.race.phase === 'count')) return null;
     if (p.state === 'boat') return { prompt: 'Step off the boat', action: () => this.leaveBoat() };
@@ -1199,6 +1409,8 @@ export class Game {
     if (this.actions.holyDipAvailable()) return { prompt: 'Ganga Snan: take the holy dip', action: () => this.actions.startHolyDip() };
     const sh = this.nearShrine();
     if (sh) return { prompt: 'Offer a pranam at the hidden shrine', action: () => this.offerShrine(sh) };
+    const tr = this.traversal?.interaction();
+    if (tr) return tr;
     const b = this.boat.object.position;
     if (this.boat.distanceTo(p.position) < 4.2 && Math.abs(p.feetY - b.y) < 3) return { prompt: 'Board the boat  (W/S row · A/D steer)', action: () => this.boardBoat() };
     return null;
@@ -1207,19 +1419,50 @@ export class Game {
   // ---------------------------------------------------------------- combat events
   onCombatEvent(type, data) {
     if (type === 'noSword') this.ui.toast('No sword yet', 'The guru of Tulsi Akhara keeps a talwar for those who train.', 3);
+    if (type === 'hit' && data.enemy) {
+      this.powers.gain(SHAKTI.hit * (data.k || 1) * (data.riposte ? 2 : 1));
+      this.haptics.play(data.heavy || data.charged || data.riposte ? 'heavyHit' : 'hit');
+      // the weight of it on screen: a heavy, charged or killing blow jolts the frame
+      if (data.heavy || data.charged || data.riposte || data.killed) this.cinematics?.impact(data.charged || data.riposte ? 0.6 : data.killed ? 0.35 : 0.3, this.player.position);
+      if (data.riposte) {
+        this.slowMo(0.35, 0.3);
+        this.ui.toast('Pratyuttara', '', 1);
+      }
+    }
     if (type === 'hurt') {
       this.ui.hurtFlash(data.heavy ? 1 : 0.6);
+      if (data.heavy) this.cinematics?.impact(0.45);
       this.camRig.shake(data.heavy ? 0.5 : 0.28);
+      this.haptics.play(data.heavy ? 'hurtHeavy' : 'hurt');
+      this.achievements.event('hurt', {});
+      this.powers.interrupt();
     }
-    if (type === 'blocked') this.camRig.shake(data.heavy ? 0.3 : 0.12);
+    if (type === 'blocked') {
+      this.camRig.shake(data.heavy ? 0.3 : 0.12);
+      this.haptics.play('block', data.heavy ? 1.4 : 1);
+    }
     if (type === 'parry') {
       this.slowMo(0.22, 0.42);
       this.camRig.shake(0.22);
-      this.ui.flash();
+      this.cinematics?.impact(0.65, data.at ? { x: data.at.x, y: this.player.position.y + 0.4, z: data.at.z } : null);
+      // steel on claw: a spray of sparks where the blow was turned aside
+      if (data.at) this.asuras.particles.emitEmbers(data.at.x, this.player.position.y + 0.45, data.at.z, 34, null, 1.5);
+      if (!this.settings.reduceFlashes) this.ui.flash();
+      this.haptics.play('parry');
+      this.powers.gain(SHAKTI.parry);
+      this.achievements.event('parry', {});
+    }
+    if (type === 'dodged' && data.roll && this.combat.perks?.windStep) this.powers.gain(SHAKTI.dodge);
+    if (type === 'shielded') this.camRig.shake(0.16);
+    if (type === 'charged') {
+      const h = this.animator.boneWorld('RightHand', new THREE.Vector3());
+      if (h) this.asuras.particles.emitEmbers(h.x, h.y, h.z, 24, null, 0.6);
+      this.haptics.pulse(0.25, 0.6, 120);
     }
     if (type === 'dying') {
       this.slowMo(0.3, 1.1);
       this.lockOn.release();
+      this.finishers.reset();
     }
     if (type === 'death') this.respawn();
     this.missions?.onEvent?.(`combat:${type}`, data);
@@ -1239,6 +1482,9 @@ export class Game {
   }
 
   respawn() {
+    this.powers.reset();
+    this.traversal.reset();
+    this.projectiles.clear();
     this.ui.showRevive(true, 'Mother Ganga lifts you out of the dark…');
     this.after(2.2, () => {
       const r = this.respawnPoint();
@@ -1252,6 +1498,119 @@ export class Game {
       this.story?.onPlayerRevived?.();
       this.after(0.6, () => this.ui.showRevive(false));
     });
+  }
+
+  // ---------------------------------------------------------------- the journal, tracking, travel
+  openJournal(tab = 'map') {
+    if (this.state !== 'play' || this.photo) return;
+    this.state = 'journal';
+    this.input.exitLock();
+    this.journal.openAt(tab);
+  }
+
+  closeJournal() {
+    if (this.state !== 'journal') return;
+    this.journal.close();
+    this.input.pressed.clear(); // (the J that closed it must not open it again next frame)
+    this.state = 'play';
+    this.input.requestLock();
+  }
+
+  /** Pin something (the journal): a marker in the world and on the compass. null clears it. */
+  setTracker(t) {
+    this.tracker = t ? { label: t.label, x: t.x, y: t.y ?? 0, z: t.z } : null;
+    if (t) this.ui.toast('Tracking', t.label, 2);
+  }
+
+  updateTracker() {
+    const T = this.tracker;
+    if (!T) return this.ui.setTrack(null);
+    const P = this.player.position;
+    const d = Math.hypot(T.x - P.x, T.z - P.z);
+    if (d < 5 && Math.abs(T.y - this.player.feetY) < 4) {
+      this.ui.toast('Arrived', T.label, 2);
+      this.tracker = null;
+      return this.ui.setTrack(null);
+    }
+    this.ui.setTrack({ label: T.label, dist: Math.round(d) });
+  }
+
+  /** Travel to a lit flame or an honoured shrine: a fade, the hour passes, he is there. */
+  fastTravel(d) {
+    const why = this.asuras.active ? 'Not while the dark is near.' : this.race?.active ? 'Not in the middle of the race.' : this.missions.dialogue ? 'Finish the conversation first.' : this.story?.cut ? 'Not now.' : null;
+    if (why) return this.ui.toast('You cannot travel now', why, 3);
+    this.closeJournal();
+    this.travelling = true;
+    this.ui.fadeBlack(true);
+    this.after(1.2, () => {
+      if (this.player.state === 'boat') this.player.exitBoat(d.x, d.y ?? 10.5, d.z);
+      // stand on whatever is really there (a platform, a step)
+      const hit = this.physics.castRay({ x: d.x, y: (d.y ?? groundHeight(d.x, d.z)) + 4, z: d.z }, { x: 0, y: -1, z: 0 }, 12, this.player.collider, undefined);
+      const y = hit !== null ? (d.y ?? groundHeight(d.x, d.z)) + 4 - hit : groundHeight(d.x, d.z);
+      this.player.teleport(d.x, y + 0.05, d.z);
+      this.traversal.reset();
+      this.camRig.first = true;
+      this.sky.setHours(this.sky.hours + 0.5);
+      this.after(0.5, () => {
+        this.ui.fadeBlack(false);
+        this.travelling = false;
+        this.ui.showRegion(d.label);
+      });
+    });
+  }
+
+  /** Controls: every action and its key; choose one, then press its new key. */
+  openControls(listening = null) {
+    const b = this.settings.bindings || {};
+    this.ui.openMenu({
+      title: 'Controls',
+      note: 'Choose an action, then press the key you want for it (Esc keeps the old one). Two actions never share a key: the other one takes the old key. Mouse: strike (left), heavy (right, hold to charge), guard (middle). The gamepad layout is fixed.',
+      sections: [
+        { heading: 'Keyboard', items: ACTIONS.map((a) => ({ label: a.label, sub: listening === a.id ? '<b class="listen">Press a key…</b>' : keyName(b[a.id] || a.key), tag: b[a.id] ? 'changed' : '', onClick: () => this.listenFor(a.id) })) },
+        { items: [{ label: 'Reset to defaults', sub: 'Every key back as it began', onClick: () => (this.setSetting('bindings', {}), this.openControls()) }] },
+      ],
+      onClose: () => {
+        this.input.listen = null;
+        this.ui.listening = false;
+      },
+    });
+  }
+
+  listenFor(id) {
+    this.openControls(id);
+    this.ui.listening = true;
+    this.input.listen = (code) => {
+      this.ui.listening = false;
+      if (code === 'Escape' || /^(Meta|Alt|OS)/.test(code)) return this.openControls();
+      const b = { ...(this.settings.bindings || {}) };
+      const cur = (aid) => b[aid] || ACTIONS.find((a) => a.id === aid).key;
+      const mine = cur(id);
+      const other = ACTIONS.find((a) => a.id !== id && cur(a.id) === code);
+      if (other) b[other.id] = mine; // (a swap: the other action takes the old key)
+      b[id] = code;
+      for (const a of ACTIONS) if (b[a.id] === a.key) delete b[a.id];
+      this.setSetting('bindings', b);
+      this.openControls();
+    };
+  }
+
+  /** A long drop: a roll if he lands running from not too high, else it hurts. */
+  hardLanding(impact, speed) {
+    if (this.combat.dead || this.player.state !== 'ground') return;
+    if (speed > 2.2 && impact < 24) {
+      this.animator.play('dodgeRoll', { timeScale: 1.75, fadeIn: 0.06, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true });
+      this.camRig.shake(0.2);
+      this.haptics.play('land');
+      this.achievements.event('rollLanding', {});
+      return;
+    }
+    const dmg = Math.min(60, (impact - 13.5) * 3.2);
+    this.health.damage(dmg, { ignoreGrace: true });
+    this.ui.hurtFlash(0.7);
+    this.camRig.shake(0.45);
+    this.haptics.play('hurtHeavy');
+    this.audio.play('hurt', { volume: 0.8, rate: 0.8 });
+    if (this.health.dead) this.combat.die({ x: 0, z: 0 });
   }
 
   // ---------------------------------------------------------------- hidden shrines (the galis)
@@ -1274,7 +1633,8 @@ export class Game {
     this.ui.setPunya(this.missions.punya);
     this.audio.play('bell', { at: s.center, volume: 0.5, rate: 1.25 });
     this.ui.toast(`Hidden shrine ${n} / ${total}`, n === total ? 'Every hidden shrine of the galis has your pranam. Kashi notices.' : '+5 punya', 3.5);
-    if (n === total) this.health.setMax(this.health.max + 10);
+    if (n === total) this.siddhis.apply(); // (every shrine: +10 prana)
+    this.achievements.event('shrines', { all: n === total });
     void pr;
     this.save();
   }
@@ -1297,8 +1657,15 @@ export class Game {
   /** Gamepad on the title screen, the pause menu and the lists: stick / d-pad move, A chooses, B backs out. */
   pollMenus(input) {
     const ui = this.ui;
-    if (!(ui.menuOpen || this.state === 'title' || this.state === 'paused')) return;
-    for (const [code, dir] of [['Pad12', 'up'], ['Pad13', 'down'], ['Pad14', 'left'], ['Pad15', 'right'], ['Stickup', 'up'], ['Stickdown', 'down'], ['Stickleft', 'left'], ['Stickright', 'right']]) if (input.hit(code)) ui.navigate(dir);
+    if (!(ui.menuOpen || this.state === 'title' || this.state === 'paused' || this.state === 'journal')) return;
+    if (this.state === 'journal' && !ui.menuOpen) {
+      if (input.hit('Pad4')) this.journal.cycle(-1);
+      if (input.hit('Pad5')) this.journal.cycle(1);
+      if (input.hit('Pad1') || input.hit('Pad8') || input.hit('Pad9')) return this.closeJournal();
+    }
+    // (on the journal's map the stick pans the map; the d-pad still moves between the buttons)
+    const mapPans = this.state === 'journal' && this.journal.tab === 'map' && !ui.menuOpen;
+    for (const [code, dir] of [['Pad12', 'up'], ['Pad13', 'down'], ['Pad14', 'left'], ['Pad15', 'right'], ['Stickup', 'up'], ['Stickdown', 'down'], ['Stickleft', 'left'], ['Stickright', 'right']]) if (input.hit(code) && !(mapPans && code.startsWith('Stick'))) ui.navigate(dir);
     if (input.hit('Pad0')) ui.activate();
     if (input.hit('Pad1')) {
       if (ui.menuOpen) ui.els.menu.querySelector('.close').click();
@@ -1317,23 +1684,37 @@ export class Game {
     // gamepad: A jump · B dodge (dive in the water) · X interact · Y draw / sheathe · RB strike ·
     // RT heavy · LB guard · LT or R3 lock-on · L3 sprint · Start pause · Back task · d-pad: up diya,
     // down meditate, left pranam, right photo mode
-    if (input.hit('KeyE') || input.hit('Pad2')) this.interaction?.action();
+    // (LT held: the face buttons are the powers)
+    const lt = input.gpButton(6);
+    if (input.hit('KeyE') || (input.hit('Pad2') && !lt)) this.interaction?.action();
     if (input.hit('KeyF') || input.hit('Pad12')) this.floatDiya();
     if (input.hit('KeyN')) this.toggleNight();
     if (input.hit('KeyG') || input.hit('Pad14')) this.greet();
     if (input.hit('KeyM') || input.hit('Pad13')) this.actions.toggleMeditate();
-    if (input.hit('KeyJ') || input.hit('Pad8')) this.missions?.journal();
+    if (input.hit('KeyJ') || input.hit('Pad8')) return this.openJournal(this.missions?.active ? 'tasks' : 'map');
     if (input.hit('Pad9')) return this.pause();
+    // the powers (Shakti)
+    if (input.hit('Digit1') || (lt && input.hit('Pad2'))) this.powers.press('damaru');
+    if (input.hit('Digit2') || (lt && input.hit('Pad3'))) this.powers.press('trishul');
+    if (input.hit('Digit3') || (lt && input.hit('Pad1'))) this.powers.press('thirdEye');
     // fighting
-    if (input.hit('Mouse0') || input.hit('Pad5')) this.combat.attack();
+    const atk = input.hit('Mouse0') || input.hit('Pad5');
+    const dodge = (input.hit('KeyC') || input.hit('ControlLeft') || (input.hit('Pad1') && !lt)) && this.player.state === 'ground';
+    if (atk) this.combat.attack();
     if (input.hit('Mouse2') || input.hit('Pad7')) this.combat.heavy();
-    if (input.hit('KeyR') || input.hit('Pad3')) this.combat.toggleSword();
-    this.combat.setBlock(input.down('KeyQ') || input.down('Mouse1') || input.gpButton(4));
-    if ((input.hit('KeyC') || input.hit('ControlLeft') || input.hit('Pad1')) && this.player.state === 'ground') {
+    this.combat.heavyHeld = input.down('Mouse2') || input.gpButton(7);
+    if (input.hit('KeyR') || (input.hit('Pad3') && !lt)) this.combat.toggleSword();
+    // the guard: held, or (accessibility) toggled with a tap; a strike or a roll lowers a toggled guard
+    if (this.settings.guardToggle) {
+      if (input.hit('KeyQ')) this.guardOn = !this.guardOn;
+      if (atk || dodge) this.guardOn = false;
+    } else this.guardOn = input.down('KeyQ');
+    this.combat.setBlock(this.guardOn || input.down('Mouse1') || input.gpButton(4));
+    if (dodge) {
       const c = this.player.cmd;
       this.combat.dodge(c.mag > 0.2 ? { x: c.wish.x, z: c.wish.z } : null);
     }
-    if (input.hit('Tab') || input.hit('Pad6') || input.hit('Pad11')) this.lockOn.toggle();
+    if (input.hit('Tab') || input.hit('Pad11')) this.lockOn.toggle();
     if ((input.hit('Space') || input.hit('Pad0')) && this.player.state === 'boat') {
       // in the race, Space is the stroke's catch; otherwise it's over the side
       if (this.race.phase === 'race') this.race.catchStroke();
@@ -1365,14 +1746,15 @@ export class Game {
       if (input.hit('Enter')) this._snap = true;
     }
     if (DEBUG) {
-      if (input.hit('F1') || input.hit('Digit1')) for (const f of SACRED_FLAMES) this.quest.lightFlame(f.id);
-      if (input.hit('F2') || input.hit('Digit2')) this.sky.setHours(this.sky.hours + 1);
-      if (input.hit('F3') || input.hit('Digit3')) {
+      // (F1–F4: the number keys are the powers)
+      if (input.hit('F1')) for (const f of SACRED_FLAMES) this.quest.lightFlame(f.id);
+      if (input.hit('F2')) this.sky.setHours(this.sky.hours + 1);
+      if (input.hit('F3')) {
         this._tp = ((this._tp ?? -1) + 1) % this.quest.flames.length;
         const f = this.quest.flames[this._tp];
         this.player.teleport(f.pos.x + 2.5, groundHeight(f.pos.x + 2.5, f.pos.z) + 0.2, f.pos.z);
       }
-      if (input.hit('F4') || input.hit('Digit4')) this.player.blessing = !this.player.blessing;
+      if (input.hit('F4')) this.player.blessing = !this.player.blessing;
     }
   }
 
@@ -1451,6 +1833,22 @@ export class Game {
       L.fire?.setPosition(best.lamps[best.lamps.length - 1]);
       L.fire?.setVolume(0.7);
     } else L.fire?.setVolume(0);
+    // low prana: his heart in the ears, slower and louder the closer he is to falling
+    const hpK = this.health.hp / this.health.max;
+    this._heartT = (this._heartT ?? 0) - 1 / 60;
+    if (hpK < 0.3 && !this.health.dead && this.state === 'play' && this._heartT <= 0) {
+      this._heartT = 0.85 + hpK * 1.2;
+      this.audio.play('heartbeat', { volume: 0.4 + (0.3 - hpK) * 1.8, rate: 0.95 });
+    }
+    // the crowd's murmur: as many voices as there are people about (hushed while the dark is up)
+    this._crowdT = (this._crowdT ?? 0) - 1 / 60;
+    if (this._crowdT <= 0) {
+      this._crowdT = 0.5;
+      let n = 0;
+      for (const s of this.crowd?.live || []) if (Math.abs(s.x - p.x) < 24 && Math.abs(s.z - p.z) < 24) n++;
+      this._crowdK = Math.min(1, n / 14);
+    }
+    L.crowd?.setVolume(under ? 0 : (this._crowdK || 0) * (this.asuras?.active ? 0.2 : 0.65), 1.2);
     // the odd flutter of pigeons near Dashashwamedh
     this._pigeonT = (this._pigeonT ?? 20) - (1 / 60);
     if (this._pigeonT < 0) {

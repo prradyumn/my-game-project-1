@@ -1,4 +1,42 @@
 // Keyboard + mouse (pointer lock) + gamepad, normalised into one small state object.
+//
+// Rebinding: the game asks for keys by their default codes ('KeyE' is always "interact"). A key
+// the player rebinds is translated on the way in: their key arrives as the action's default code,
+// and the default key itself goes quiet (or does whatever action took it over in a swap).
+
+/** The rebindable actions (keyboard). id, label, default code. */
+export const ACTIONS = [
+  { id: 'forward', label: 'Move forward', key: 'KeyW' },
+  { id: 'back', label: 'Move back', key: 'KeyS' },
+  { id: 'left', label: 'Move left', key: 'KeyA' },
+  { id: 'right', label: 'Move right', key: 'KeyD' },
+  { id: 'jump', label: 'Jump · swim up', key: 'Space' },
+  { id: 'sprint', label: 'Sprint', key: 'ShiftLeft' },
+  { id: 'dodge', label: 'Dodge roll · dive', key: 'KeyC' },
+  { id: 'interact', label: 'Interact · finisher', key: 'KeyE' },
+  { id: 'guard', label: 'Guard · parry', key: 'KeyQ' },
+  { id: 'sword', label: 'Draw / sheathe talwar', key: 'KeyR' },
+  { id: 'lock', label: 'Lock on', key: 'Tab' },
+  { id: 'damaru', label: 'Power: Shiva’s Damaru', key: 'Digit1' },
+  { id: 'trishul', label: 'Power: Trishul', key: 'Digit2' },
+  { id: 'thirdEye', label: 'Power: Third Eye', key: 'Digit3' },
+  { id: 'journal', label: 'Journal · map · siddhis', key: 'KeyJ' },
+  { id: 'diya', label: 'Float a diya', key: 'KeyF' },
+  { id: 'greet', label: 'Pranam (greet)', key: 'KeyG' },
+  { id: 'meditate', label: 'Meditate', key: 'KeyM' },
+  { id: 'walk', label: 'Toggle walk', key: 'KeyX' },
+  { id: 'night', label: 'Night / dawn', key: 'KeyN' },
+  { id: 'photo', label: 'Photo mode', key: 'KeyP' },
+];
+
+/** A readable name for a key code ('KeyE' -> 'E'). */
+export function keyName(code) {
+  if (!code) return '—';
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return `Num ${code.slice(6)}`;
+  return { Space: 'Space', ShiftLeft: 'Shift', ShiftRight: 'R-Shift', ControlLeft: 'Ctrl', ControlRight: 'R-Ctrl', Tab: 'Tab', Enter: 'Enter', Backquote: '`', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backslash: '\\', CapsLock: 'Caps', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' }[code] || code;
+}
 
 export class Input {
   constructor(canvas) {
@@ -12,9 +50,18 @@ export class Input {
     this.enabled = true;
     this.onLockChange = null;
     this.usingPad = false; // the last thing touched was a gamepad (prompts show its buttons)
+    this.remap = new Map(); // physical code -> the default code of the action bound to it
+    this.listen = null; // (code) => void: the next key press goes here (the controls screen)
 
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
+      if (this.listen) {
+        e.preventDefault();
+        const f = this.listen;
+        this.listen = null;
+        f(e.code);
+        return;
+      }
       // Cmd or Option frees the mouse without pausing (the system screenshot tools, another
       // window); a click on the game takes it back. (Keys held with Cmd may never send a keyup
       // on macOS: forget them so nothing sticks down.)
@@ -27,11 +74,17 @@ export class Input {
         return;
       }
       if (['Space', 'ArrowUp', 'ArrowDown', 'Tab', 'F9'].includes(e.code)) e.preventDefault();
-      this.keys.add(e.code);
-      this.pressed.add(e.code);
+      const code = this.translate(e.code);
       this.usingPad = false;
+      if (!code) return;
+      if (code === 'Tab' || code === 'Space') e.preventDefault();
+      this.keys.add(code);
+      this.pressed.add(code);
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => {
+      const code = this.translate(e.code);
+      if (code) this.keys.delete(code);
+    });
     // mouse buttons as keys (Mouse0 left, Mouse2 right) while the pointer is locked: the click
     // that locks it never counts as an attack
     window.addEventListener('mousedown', (e) => {
@@ -61,6 +114,34 @@ export class Input {
       this.locked = document.pointerLockElement === this.canvas;
       this.onLockChange?.(this.locked);
     });
+  }
+
+  /**
+   * Apply the player's bindings ({ action id: code }). Every action's key arrives as its default
+   * code; a default key that now belongs to no action is ignored.
+   */
+  setBindings(bindings = {}) {
+    this.remap.clear();
+    this.keys.clear();
+    const owned = new Set();
+    for (const a of ACTIONS) {
+      const phys = bindings[a.id] || a.key;
+      this.remap.set(phys, a.key);
+      owned.add(phys);
+    }
+    this.quiet = new Set(ACTIONS.map((a) => a.key).filter((k) => !owned.has(k)));
+  }
+
+  translate(code) {
+    const m = this.remap.get(code);
+    if (m) return m;
+    return this.quiet?.has(code) ? null : code;
+  }
+
+  /** The key the player presses for an action (by its default code), for prompts. */
+  keyFor(defaultCode) {
+    for (const [phys, logical] of this.remap) if (logical === defaultCode) return phys;
+    return defaultCode;
   }
 
   requestLock() {

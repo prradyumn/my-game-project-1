@@ -126,14 +126,20 @@ export class Story {
     this.ch = chIndex;
     const c = this.chapter;
     if (!c) return;
-    if (!quiet && step === 0) this.g.ui.chapterCard(ROMAN[c.num], c.title, c.legend);
+    if (!quiet && step === 0) {
+      this.g.ui.chapterCard(ROMAN[c.num], c.title, c.legend);
+      this.g.audio.play('title-shimmer', { volume: 0.7 });
+    }
     this.start(c, step);
   }
 
   /** The chapter's title card (after the opening cinematic, on Continue). */
   showCard() {
     const c = this.chapter;
-    if (c) this.g.ui.chapterCard(ROMAN[c.num], c.title, c.legend);
+    if (c) {
+      this.g.ui.chapterCard(ROMAN[c.num], c.title, c.legend);
+      this.g.audio.play('title-shimmer', { volume: 0.7 });
+    }
     if (c?.voices) this.g.preloadVoices(c.voices);
   }
 

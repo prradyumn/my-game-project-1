@@ -58,6 +58,7 @@ for (let i = 0; i < n; i++) {
   holder.add(m);
   holder.scale.setScalar(scale);
   holder.position.x = x0 + i * gap;
+  holder.rotation.y = +(q.get("rot") || 0); // ?rot=1.57: seen from the side
   scene.add(holder);
   const mx = new THREE.AnimationMixer(m);
   mx.clipAction(clip).play();

@@ -141,7 +141,7 @@ function addShop(B, s, rng) {
   } else if (goods === 'masala') {
     sackRow(['#f2b705', '#c0392b', '#7b3f00', '#e67e22', '#f8f1e0'], 6);
   } else if (goods === 'ghee') {
-    for (let i = 0; i < 7; i++) B.brass.cylinder(-W / 2 + 0.35 + i * 0.36, top + 0.18, 0.5 + (i % 2) * 0.5, 0.15, 0.13, 0.36, 12, C('#d8b24a'));
+    for (let i = 0; i < 7; i++) B.brass.cylinder(-W / 2 + 0.35 + i * 0.36, top, 0.5 + (i % 2) * 0.5, 0.15, 0.13, 0.36, 12, C('#d8b24a')); // (standing on the counter)
     for (let i = 0; i < 3; i++) B.brass.lathe(-0.6 + i * 0.6, top, 1.25, [[0, 0], [0.2, 0], [0.26, 0.2], [0.18, 0.42], [0.12, 0.5], [0.16, 0.55]], 14, C('#c9a227'));
   } else if (goods === 'mithai') {
     for (let i = 0; i < 4; i++) {
@@ -160,7 +160,9 @@ function addShop(B, s, rng) {
   } else if (goods === 'phool') {
     for (let i = 0; i < 14; i++) {
       const x = -W / 2 + 0.3 + (i % 7) * ((W - 0.6) / 6);
-      B.cloth.cylinder(x, 1.2 + Math.floor(i / 7) * 0.8, 0.12, 0.05, 0.05, 1.0, 6, C(i % 3 ? '#ff9800' : '#ffd23f')); // marigold strings hanging
+      const len = 0.95 + ((i * 7) % 5) * 0.09;
+      // (the awning is ~2.9 m up at the wall: the strings hang from it)
+      B.cloth.cylinder(x + (i >= 7 ? 0.12 : 0), 2.9 - len, 0.12 + (i >= 7 ? 0.14 : 0), 0.05, 0.05, len, 6, C(i % 3 ? '#ff9800' : '#ffd23f')); // marigold strings hanging from the awning
     }
     sackRow(['#ff9800', '#ffd23f', '#e53935'], 4);
   }

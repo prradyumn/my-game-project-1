@@ -249,6 +249,7 @@ export class BoatRace {
       // (its hull is drawn by the shared instanced mesh: the boat's own mesh stays hidden)
       const boat = new PlayerBoat({ geometry: g.boatGeo.geometry, material: g.boatGeo.material }, { x: c.x, z: c.z, yaw: 0 });
       boat.object.children[0].visible = false;
+      boat.moored = g.moored; // (they bump the moored boats too)
       boat.yaw = boat.prev.yaw = yaw(c);
       boat.lateUpdate(1);
       g.scene.add(boat.object);
@@ -580,6 +581,9 @@ export class BoatRace {
     g.ui.toast(head, `${fmt(total)}${this.penalty ? ` (with ${this.penalty} s for missed gates)` : ''}${best ? ' · your best' : ` · best ${fmt(this.best)}`} · +${punya} punya`, 6);
     g.ui.setStroke(null);
     g.crowd?.greet?.(g.player.position);
+    // (the margin: to the first boatman home, or at least as long as nobody else is)
+    const next = Math.min(...this.rivals.map((r) => r.done ?? Infinity));
+    g.achievements?.event('race', { won: place === 1, margin: Number.isFinite(next) ? next - total : this.clock - total });
     g.save?.();
   }
 

@@ -31,14 +31,17 @@ Requires Node ≥ 20 and a WebGL2 browser (Chrome, Edge, Safari 17+, Firefox).
 | Shift | Sprint · swim faster · **run on water** (after Ganga's Blessing) |
 | Space | Jump · swim up |
 | C / Ctrl | Dive (under water you swim where the camera looks) |
-| E | Interact: talk · take · light a sacred flame · board / leave the boat · advance dialogue |
-| Mouse left / right | Strike (click again for a 3-hit combo) / heavy strike |
-| Q (hold) or middle mouse | Guard; raise it just before a blow lands to **parry** |
-| C / Ctrl | Dodge roll (with a direction) on land · dive in the water |
+| E | Interact: talk · take · light a sacred flame · board / leave the boat · climb a ladder · **finish** a reeling Asura |
+| Mouse left / right | Strike (click again for a 3-hit combo, 4 with the siddhi) / heavy strike (hold to charge, with the siddhi) |
+| Q (hold) or middle mouse | Guard; raise it just before a blow lands to **parry** (or toggle: Settings) |
+| C / Ctrl | Dodge roll (with a direction) on land · dive in the water · slide down a ladder |
 | Tab | Lock on to an Asura (flick the mouse to switch) |
 | R | Draw / sheathe the talwar |
+| 1 / 2 / 3 | Powers (Shakti): Shiva's Damaru · Trishul (press again to call it back) · Third Eye |
+| Space at a ledge | Climb it (running into a low wall or a parapet vaults it) |
 | Space (boat race) | Power stroke: press it as each oar stroke begins |
-| J / M | Journal · meditate |
+| J | Journal: map (track, fast travel), tasks, siddhis, achievements |
+| M | Meditate |
 | F | Float a diya on the river (Deep Daan) |
 | G | Greet: Prady waves and the people nearby answer |
 | X | Toggle walk |
@@ -49,14 +52,19 @@ Requires Node ≥ 20 and a WebGL2 browser (Chrome, Edge, Safari 17+, Firefox).
 | Esc | Pause / settings |
 | Mouse wheel | Camera distance |
 
-Gamepad works too: left stick move, right stick look, A jump, B dodge / dive, X interact, Y draw
-/ sheathe, RB strike, RT heavy, LB guard, R3 or LT lock on, Start pause. Menus take the d-pad.
+Gamepad works too (with rumble): left stick move, right stick look, A jump, B dodge / dive, X
+interact, Y draw / sheathe, RB strike, RT heavy, LB guard, R3 lock on, LT + X / Y / B powers, Back
+journal (LB / RB change page), Start pause. Menus take the d-pad.
+
+Every key can be rebound (Pause → Controls). Settings also hold the difficulty (Story / Balanced /
+Hard) and accessibility options: guard toggle, camera shake, caption size, a colour-blind-safe
+warning flare, reduced flashes, gamepad vibration.
 
 **Chapter Select · Test** (title screen and pause menu): jump straight into any chapter step, fight,
 side mission or river activity with nothing required first. Test sessions never touch your saves.
 
-**Debug mode:** open `http://localhost:5173/?debug` — `1` lights all flames (finale),
-`2` skips an hour, `3` teleports to the next flame, `4` toggles Ganga's Blessing. FPS/draw-call
+**Debug mode:** open `http://localhost:5173/?debug` — `F1` lights all flames (finale),
+`F2` skips an hour, `F3` teleports to the next flame, `F4` toggles Ganga's Blessing. FPS/draw-call
 counter is always shown in debug.
 
 ## What's in the game
@@ -65,7 +73,13 @@ counter is always shown in debug.
   194 procedural havelis/palaces/a fort, 7,000+ windows (lit at night), balconies, rooftop
   chhatris and water tanks, six Nagara temples (incl. the red-and-white Kedareshwar and a
   golden-spired temple), the half-sunken leaning Ratneshwar temple, the Hazara Deepstambh
-  (thousand-lamp pillar), straw umbrellas and takhts, peepal trees, saffron flags, pigeons and kites.
+  (thousand-lamp pillar), straw umbrellas and takhts, peepal trees, saffron flags, pigeons and kites,
+  sacred cows on the terraces and street dogs (solid: lean on a cow and it moves off lowing; a dog
+  may follow you for a while, and barks at the Asuras), and the murmur of the crowd around you.
+- **Cinematic:** a fight opens on a low shot of the dark rising from the river; the last Asura
+  falls in a slow-motion orbit; parries and heavy blows jolt the frame; slow motion muffles the
+  world; the low sun flares in the lens; real flame (a CC0 flipbook) on the pyres and sacred fires;
+  the talwar is gripped in a closed fist and drawn from the scabbard by hand.
 - **The Ganga:** wave simulation shared by GPU and gameplay, planar reflections of the ghats,
   shoreline foam, depth-based clarity, sun glitter, caustics on the river bed, wet stone at the
   waterline, underwater fog and muffled audio, a river current that pushes swimmers and boats.
@@ -92,6 +106,31 @@ counter is always shown in debug.
 - **River life:** *Nauka Daud*, a boat race against three boatmen through seven marigold gates
   from Dashashwamedh to Panchganga (power strokes on the beat), and the evening **Ganga aarti from
   the water** with lamps set adrift all around. Boats have real oars, the rower's hands on them.
+- **Siddhis:** twelve powers on three paths (the Talwar, the Body, the Spirit), offered for with the
+  rudraksha you find and the embers slain Asuras leave: a fourth combo blow, ripostes after a parry,
+  charged heavy blows, finishers that heal, a longer dodge, more prana, faster swimming, and the
+  divine powers.
+- **Shakti and the powers:** fight well (blows, parries, dodges through a blow, kills) to fill
+  Shakti and spend it on **Shiva's Damaru** (a drumbeat that throws every Asura near you flat), the
+  **Trishul** (thrown, it pins an Asura and flies back to your hand) and the **Third Eye** (the
+  world slows for everyone but Prady; hidden rudraksha shine through walls).
+- **Finishers:** an Asura reeling and nearly spent can be ended with E: a cinematic camera, a
+  motion-captured choreography that cannot miss, the last blow in slow motion. Andhaka gets a final
+  blow of his own.
+- **Readable fights:** a blow or a ball of fire coming from off-screen shows as a chevron at the
+  screen's edge, pointing at it (ember, or blue with the colour-blind option); an Asura brought low
+  reels a moment, and the finisher's E rises over it.
+- **The dark has more faces:** Pishachas hurl ghost fire from afar (parry it back at them),
+  Kavachas fight behind bronze shields (heavy cuts and kicks break the guard), Vetalas bound off
+  walls and pounce. Chapters II–IV each end with a named champion: Mahodara, Agnimukha, the
+  Corpse-Rider of Manikarnika.
+- **Rooftops:** vault parapets and low walls at a run, scramble up ledges, climb bamboo ladders
+  from the lanes onto the havelis, cross plank bridges between the roofs; a long drop is a roll if
+  you land running, and it hurts if you don't.
+- **Calls for help:** between missions Kashi asks: chase down a pickpocket, pull someone out of the
+  current, defend a boatman from the dark at night, cut a rival's kite string on the rooftops.
+- **The journal (J):** a painted map with fast travel to lit flames and honoured shrines and a
+  marker for whatever you track, your tasks, the siddhis, and 28 achievements.
 - **Journeys:** three save slots with autosave and Continue.
 - **Quest:** *The Five Flames of Kashi* (each flame +20% Ganga purity — the river visibly turns
   from murky to clear turquoise), 108 rudraksha beads hidden on ghats, lanes, sand bank and the
@@ -114,7 +153,11 @@ counter is always shown in debug.
   on flats, stairs (up or down) and slopes, with no stalls or stutter.
 - **Physics:** fixed 60 Hz simulation with interpolation, acceleration-based movement, buffered
   and variable-height jumps, Gerstner waves, a river current field, spring-damper buoyancy, a
-  rigid-body boat with keel drag, spring camera with sphere-cast collision.
+  rigid-body boat with keel drag (it bumps and rocks the moored boats), spring camera with
+  sphere-cast collision. Slain Asuras fall as **ragdolls** and tumble down the real steps; clay
+  matkas, brass lotas and marigold baskets on the ghats can be shoved, struck, shattered (a sword
+  through a matka: shards and spilt water) and thrown by Andhaka's stomp, and whatever reaches
+  the Ganga floats, fills, sinks or drifts away; townsfolk stagger when Prady runs into them.
 - **Look:** height fog with sun scattering, time-of-day colour grading, Kashi gains colour as the
   Ganga is purified; Gemini-generated carved sandstone, wood and straw.
 - **Presentation:** a 40-second in-engine gameplay montage plays while the world loads (skippable,

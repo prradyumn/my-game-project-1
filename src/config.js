@@ -125,8 +125,12 @@ export const QUALITY_PRESETS = {
   high: { label: 'High', pixelRatio: 1.0, dprCap: 1.25, shadows: 2048, reflection: 0.5, ao: true, aoMode: 'Low', bloom: true, smaa: true, waterSegments: 220, sharpen: 0.42 },
   // between High and Ultra: sharper than High (more pixels + sharpening) and kept smooth by a
   // lighter ambient-occlusion mode (AO is the most expensive effect at these resolutions)
-  veryhigh: { label: 'Very High', pixelRatio: 1.0, dprCap: 1.4, shadows: 2048, reflection: 0.45, ao: true, aoMode: 'Performance', bloom: true, smaa: true, waterSegments: 240, sharpen: 0.3, minScale: 1 },
-  ultra: { label: 'Ultra', pixelRatio: 1.0, dprCap: 2, shadows: 4096, reflection: 0.75, ao: true, aoMode: 'Low', bloom: true, smaa: true, waterSegments: 260, sharpen: 0.12 },
+  // (Very High: 1.6x on a Retina screen and the AO at full resolution: at 1.4x with half-res AO the
+  // browser's stretch blurred Prady and the AO's blotches, sharpened, read as grain on his skin;
+  // the river's mirror keeps the pixel count it had at 1.4x: 0.45 * 1.4 / 1.6. Under load the
+  // adaptive resolution may ease it back to 1.4x (minScale 0.875), never below: the old picture)
+  veryhigh: { label: 'Very High', pixelRatio: 1.0, dprCap: 1.6, shadows: 2048, reflection: 0.39, ao: true, aoMode: 'Performance', aoHalfRes: false, bloom: true, smaa: true, waterSegments: 240, sharpen: 0.22, minScale: 0.875 },
+  ultra: { label: 'Ultra', pixelRatio: 1.0, dprCap: 2, shadows: 4096, reflection: 0.75, ao: true, aoMode: 'Low', aoHalfRes: false, bloom: true, smaa: true, waterSegments: 260, sharpen: 0.12 },
 };
 
 export const DEFAULT_SETTINGS = {
@@ -140,4 +144,78 @@ export const DEFAULT_SETTINGS = {
   showFps: false,
   timeSpeed: 1,
   weather: 'auto', // auto (the odd monsoon shower) | clear | rain | storm
+  difficulty: 'balanced', // story | balanced | hard (DIFFICULTY)
+  // accessibility
+  guardToggle: false, // Q raises the guard until pressed again (instead of holding it)
+  shake: 1, // camera shake 0..1
+  subtitleSize: 1, // captions, dialogue and subtitles: 0.85 .. 1.5
+  telegraph: 'ember', // the colour of an Asura's warning flare: ember | blue (colour-blind safe)
+  reduceFlashes: false, // softer parry / hurt / finisher flashes
+  rumble: true, // gamepad vibration
+  bindings: {}, // { action: KeyCode } (src/core/Input.js ACTIONS)
+};
+
+// Difficulty: how hard the Asuras hit and how much they take, how often the pack strikes, how
+// forgiving the guard is and how fast prana returns.
+export const DIFFICULTY = {
+  story: { label: 'Story', note: 'For the tale: blows sting, the guard forgives', dmgTaken: 0.5, enemyHp: 0.75, aggression: 0.7, parryWindow: 0.55, regen: 1.6 },
+  balanced: { label: 'Balanced', note: 'The fight as it was meant', dmgTaken: 1, enemyHp: 1, aggression: 1, parryWindow: 0.42, regen: 1 },
+  hard: { label: 'Hard', note: 'Andhaka’s own: they hit harder, wait less, and the parry is tight', dmgTaken: 1.45, enemyHp: 1.3, aggression: 1.35, parryWindow: 0.3, regen: 0.7 },
+};
+
+// Siddhis: the powers a yogi earns. Paid for with rudraksha (found in the world) and embers (what
+// is left of a slain Asura). Three paths of four; each needs the one before it on its path.
+export const SIDDHIS = [
+  { id: 'combo4', path: 'talwar', name: 'Fourth Strike', text: 'The combo gains a fourth blow: a two-handed overhead cut (fists: a roundhouse kick) that staggers.', beads: 3, embers: 5 },
+  { id: 'riposte', path: 'talwar', name: 'Pratyuttara', text: 'Strike within a moment of a parry: a riposte for triple damage.', beads: 6, embers: 12 },
+  { id: 'charged', path: 'talwar', name: 'Gathered Storm', text: 'Hold the heavy strike to charge it. A charged blow breaks any guard and floors a Rakshasa.', beads: 9, embers: 20 },
+  { id: 'mercy', path: 'talwar', name: 'Final Mercy', text: 'Finishers open sooner (half health) and each one restores prana.', beads: 12, embers: 30 },
+  { id: 'prana1', path: 'body', name: 'Deep Breath', text: '+25 prana.', beads: 3, embers: 5 },
+  { id: 'windStep', path: 'body', name: 'Wind Step', text: 'A longer dodge with a longer moment of grace. A dodge on the flare fills Shakti.', beads: 6, embers: 12 },
+  { id: 'river', path: 'body', name: 'Ganga’s Child', text: 'Swim a quarter faster and hold your breath twice as long.', beads: 9, embers: 20 },
+  { id: 'prana2', path: 'body', name: 'Vajra Body', text: '+35 prana, and a heavy blow no longer floors you while guarding.', beads: 12, embers: 30 },
+  { id: 'damaru', path: 'spirit', name: 'Shiva’s Damaru', text: 'Spend Shakti (1): a drumbeat that throws every Asura near you to the ground.', beads: 3, embers: 5 },
+  { id: 'trishul', path: 'spirit', name: 'Trishul', text: 'Spend Shakti (2): hurl a trishul that pins an Asura, then flies back to your hand.', beads: 6, embers: 12 },
+  { id: 'thirdEye', path: 'spirit', name: 'Third Eye', text: 'Spend Shakti (3): the world slows for you alone; hidden rudraksha glow.', beads: 9, embers: 20 },
+  { id: 'kundalini', path: 'spirit', name: 'Kundalini', text: 'Shakti fills 40% faster, and a full meter heals as it rises.', beads: 12, embers: 30 },
+];
+export const SIDDHI_PATHS = {
+  talwar: { name: 'Path of the Talwar', color: '#ffb35a' },
+  body: { name: 'Path of the Body', color: '#7fd4c2' },
+  spirit: { name: 'Path of the Spirit', color: '#c9a7ff' },
+};
+// embers a slain Asura leaves (spent on Siddhis)
+export const EMBERS = { shade: 2, brute: 5, pishacha: 3, kavacha: 4, vetala: 4, mini: 20, boss: 40 };
+
+// Shakti: filled by fighting well, spent on the divine powers.
+// The ghats' animals (src/world/Animals.js): where each lives (a ghat, u along it, and which flat:
+// 0 the top terrace, 1 the umbrella landing, 2 the aarti landing) and how they move.
+export const ANIMALS = {
+  cows: [
+    { ghat: 'assi', u: 30, flat: 0 },
+    { ghat: 'kedar', u: 42, flat: 2 },
+    { ghat: 'darbhanga', u: 22, flat: 1 },
+    { ghat: 'dashashwamedh', u: 64, flat: 0 },
+    { ghat: 'scindia', u: 30, flat: 2 },
+  ],
+  dogs: [
+    { ghat: 'dashashwamedh', u: 38, flat: 0 },
+    { ghat: 'tulsi', u: 50, flat: 0 },
+    { ghat: 'chetsingh', u: 30, flat: 2 },
+    { ghat: 'manmandir', u: 20, flat: 0 },
+    { ghat: 'panchganga', u: 40, flat: 1 },
+  ],
+  cow: { walk: 0.85, flee: 1.4, turn: 1.3, box: [0.72, 1.3, 1.75] }, // m/s, rad/s, collider w h d
+  dog: { walk: 1.1, run: 2.1, turn: 3.6, box: [0.3, 0.55, 0.8], followSecs: [45, 90], adopt: 0.4 },
+  viewDist: 75, // beyond it they are hidden and still
+};
+
+export const SHAKTI = {
+  max: 100,
+  hit: 3, // a blow landed (x the blow's weight)
+  parry: 14,
+  dodge: 6, // a dodge through a blow (with Wind Step)
+  kill: 8,
+  cost: { damaru: 50, trishul: 30, thirdEye: 60 },
+  thirdEyeSecs: 6,
 };

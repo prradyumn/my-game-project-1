@@ -107,6 +107,8 @@ export function buildCity(layout, textures, physics) {
     ]) {
       const p = local(b, lx, lz);
       builder.box(p.x, parY, p.z, w, 0.9, d, b.yaw, color, { tile });
+      // (solid: the roofs are walkable, Traversal.js; a parapet is vaulted, not walked through)
+      physics.addBox(p.x, parY, p.z, w, 0.9, d, b.yaw);
     }
     // Battlements on the fort
     if (b.kind === 'fort') {
@@ -142,6 +144,7 @@ export function buildCity(layout, textures, physics) {
           chhatri(stone, p.x, b.baseY + th + 0.4, p.z, 3.4, b.yaw, color);
         }
         physics.addCylinder(p.x, b.baseY, p.z, 2.6, th);
+        physics.addCylinder(p.x, b.baseY + th, p.z, 2.8, 0.4); // (its capping ring)
       }
       // A row of chhatris along the palace roof
       if (b.kind === 'palace') {
@@ -156,25 +159,33 @@ export function buildCity(layout, textures, physics) {
     if (b.roof.setback) {
       const p = local(b, rng.range(-b.w / 4, b.w / 4), rng.range(-b.d / 4, 0));
       builder.box(p.x, top + 1.3, p.z, Math.min(5, b.w * 0.35), 2.6, Math.min(4.5, b.d * 0.35), b.yaw, color, { tile, uvOffset: uvo });
+      physics.addBox(p.x, top + 1.3, p.z, Math.min(5, b.w * 0.35), 2.6, Math.min(4.5, b.d * 0.35), b.yaw);
     }
     if (b.roof.chhatri) {
       const p = local(b, rng.chance(0.5) ? b.w / 2 - 2 : -b.w / 2 + 2, b.d / 2 - 2);
       chhatri(rng.chance(0.5) ? stone : plaster, p.x, top, p.z, 2.4, b.yaw, rng.chance(0.5) ? color : new THREE.Color(0.95, 0.92, 0.86));
+      // its four pillars (walk in under the dome)
+      const s0 = 2.4 * 0.42;
+      for (const [px, pz] of [[-s0, -s0], [s0, -s0], [-s0, s0], [s0, s0]]) physics.addBox(p.x + px * Math.cos(b.yaw) + pz * Math.sin(b.yaw), top + 1.08, p.z - px * Math.sin(b.yaw) + pz * Math.cos(b.yaw), 0.24, 2.16, 0.24, b.yaw);
     }
     if (b.roof.tank) {
       const p = local(b, rng.range(-b.w / 3, b.w / 3), -b.d / 2 + 1.6);
       _m.compose(_p.set(p.x, top, p.z), _q.identity(), _s.set(1, 1, 1));
       tanks.push(_m.clone());
+      physics.addCylinder(p.x, top, p.z, 0.75, 1.4);
     }
     if (b.roof.shrine) {
       const p = local(b, rng.range(-b.w / 4, b.w / 4), rng.range(-b.d / 4, b.d / 4));
       const sc = new THREE.Color(0.95, 0.62, 0.25);
       plaster.box(p.x, top + 0.6, p.z, 2.2, 1.2, 2.2, b.yaw, sc, { tile });
+      physics.addBox(p.x, top + 0.6, p.z, 2.2, 1.2, 2.2, b.yaw);
       const t = shikhara(plaster, p.x, top + 1.2, p.z, 0.9, 2.6, [0.97, 0.66, 0.28]);
       flags.push(new THREE.Vector3(p.x, t, p.z));
     }
 
     physics.addBox(b.x, b.baseY + b.h / 2, b.z, b.w, b.h, b.d, b.yaw);
+    // the plinth stands out a hand's breadth all round: solid too, or his feet sink into it
+    physics.addBox(b.x, b.baseY + 0.45, b.z, b.w + 0.25, 0.9, b.d + 0.25, b.yaw);
   }
 
   // Temples

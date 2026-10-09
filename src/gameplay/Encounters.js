@@ -5,7 +5,9 @@ import { ghatById, ghatToWorld, PROFILE_LEN } from '../world/WorldLayout.js';
 // phases, and what happens around them (battle music swells, the people flee, the camera
 // knows to frame the enemies). The story stages encounters; the test menu jumps into them.
 //
-//   start({ ghat, u, waves: [{ n, kind }...], boss?, onWin, onLose, title })
+//   start({ ghat, u, waves: [{ n, kind } | { mix: [{ n, kind }...] } | { kind, mini, name, title }...],
+//           onWin, onLose, title })
+// A wave with mini: true is a chapter's named champion (Asuras.js: bigger, a bar of its own).
 //
 // A wave comes when the last one is down (or a few seconds into it, for the bigger ones). The
 // encounter ends when every wave is beaten (onWin) or is abandoned (clear()).
@@ -47,6 +49,8 @@ export class Encounters {
     const at = ghatToWorld(c.gh, u + (Math.random() - 0.5) * 8, PROFILE_LEN - 2);
     const goal = { x: P.x, z: P.z };
     if (w.kind === 'boss') {
+      g.achievements?.event('bossBegin', {});
+      g.audio.play('braam', { volume: 1, rate: 0.85 });
       g.asuras.riseFromRiver({ x: at.x, z: at.z, n: 1, kind: 'boss', goal, opts: { name: w.name || 'Andhaka', scale: 1 } }).then(([b]) => {
         c.boss = b;
         b.title = w.title || 'the Blind Darkness';
@@ -54,10 +58,24 @@ export class Encounters {
         g.audio.play('andhaka-roar', { volume: 1, rate: 0.8 });
         g.camRig.shake(0.5);
       });
+    } else if (w.mini) {
+      // a named champion: it rises alone, roaring
+      g.audio.play('braam', { volume: 0.85 });
+      g.asuras.riseFromRiver({ x: at.x, z: at.z, n: 1, kind: w.kind, goal, opts: { mini: true, name: w.name, title: w.title } }).then(([m]) => {
+        m.enrageAt = 0.5;
+        g.audio.play('andhaka-roar', { volume: 0.8, rate: 1.25 });
+        g.camRig.shake(0.3);
+      });
+      g.ui.showRegion(w.name);
+      g.ui.toast(w.name, w.title ? `${w.title[0].toUpperCase()}${w.title.slice(1)}` : '', 3.5);
+    } else if (w.mix) {
+      for (const m of w.mix) g.asuras.riseFromRiver({ x: at.x + (Math.random() - 0.5) * 6, z: at.z, n: m.n, kind: m.kind, goal });
     } else {
       g.asuras.riseFromRiver({ x: at.x, z: at.z, n: w.n, kind: w.kind || 'shade', goal });
     }
     if (c.wave > 0) g.ui.toast(c.def.waveText?.[c.wave] || 'More rise from the river', '', 2.5);
+    // the first of them: a shot of the dark rising, low over his shoulder (Cinematics.js)
+    else g.cinematics?.intro({ x: at.x, y: 0, z: at.z });
   }
 
   win() {
@@ -65,7 +83,11 @@ export class Encounters {
     if (!c || c.done) return;
     c.done = true;
     const g = this.g;
+    g.achievements?.event('win', {});
     g.slowMo(0.35, 0.9);
+    g.audio.play('victory', { volume: 0.75 });
+    // the last one falls: once round him in slow motion (unless a finisher just filmed it)
+    if (g.cinematics?.lastKill) g.cinematics.killCam(g.cinematics.lastKill);
     g.after(1.4, () => {
       const def = c.def;
       this.cur = null;
@@ -120,8 +142,21 @@ export class Encounters {
         // (never more than three shades beside him: the fight is with Andhaka, not a crowd)
         const alive = g.asuras.list.filter((a) => a.alive && !a.K.boss).length;
         const n = Math.max(0, Math.min(2, 3 - alive));
-        if (n) g.asuras.riseFromRiver({ x: at.x, z: at.z, n, kind: 'shade', goal: { x: P.x, z: P.z } });
+        // (the second call brings one that throws fire)
+        if (n) g.asuras.riseFromRiver({ x: at.x, z: at.z, n: c.phase === 2 ? 1 : n, kind: 'shade', goal: { x: P.x, z: P.z } });
+        if (n > 1 && c.phase === 2) g.asuras.riseFromRiver({ x: at.x + 6, z: at.z, n: 1, kind: 'pishacha', goal: { x: P.x, z: P.z } });
       }
+    }
+    // a champion past half its strength roars and quickens
+    for (const m of g.asuras.list) {
+      if (!m.alive || !m.mini || !m.enrageAt || m.hp / m.maxHp > m.enrageAt) continue;
+      m.enrageAt = 0;
+      m.rage = 0.6;
+      m.K = { ...m.K, speed: m.K.speed * 1.2, run: m.K.run * 1.15 };
+      m.stagger(1.0);
+      g.audio.play('andhaka-roar', { at: m.pos, volume: 0.9, rate: 1.35 });
+      g.camRig.shake(0.35);
+      g.ui.toast(`${m.name} rages`, '', 2.2);
     }
     const alive = g.asuras.list.filter((a) => a.alive).length;
     const loading = c.waveT < 1.5;

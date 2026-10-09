@@ -40,6 +40,9 @@ export class Player {
     // stairs are ramps for the capsule (Ghats.js), so stepping is only for curbs: low enough that a
     // 0.5 m takht is a clean obstacle (jump onto it) rather than a half-climb that stalls
     kcc.enableAutostep(0.35, 0.15, false);
+    // he shoves what's loose (a pot, a lota) out of his way instead of stopping dead at it
+    kcc.setApplyImpulsesToDynamicBodies(true);
+    kcc.setCharacterMass(72);
     kcc.enableSnapToGround(0.45);
     kcc.setMaxSlopeClimbAngle((52 * Math.PI) / 180);
     kcc.setMinSlopeSlideAngle((60 * Math.PI) / 180);
@@ -85,6 +88,9 @@ export class Player {
     this.cmd = { mag: 0, mv: { x: 0, y: 0 }, wish: new THREE.Vector3(), sprint: false, jumpHeld: false, up: false, down: false };
     this.camYaw = 0;
     this.camPitch = 0;
+    this.swimMul = 1; // Ganga's Child siddhi
+    this.traversal = null; // Traversal.js (vaults, ledges, ladders)
+    this.powers = null; // Powers.js (casting the damaru, the trishul)
     if (animator.loco?.ok) animator.loco.onFootstep = (side) => this.onFootstep(side);
   }
 
@@ -145,6 +151,10 @@ export class Player {
     if (this.state === 'boat') return;
     this.prevPosition.copy(this.position);
     this.prevYaw = this.yaw;
+    // whatever owns the body this step: a vault or a ladder, a power being cast, an action, a fight
+    if (this.traversal?.fixed(dt)) return;
+    if (this.state === 'climb') this.state = 'ground'; // (a move that ended without saying where)
+    if (this.powers?.fixed(dt)) return;
     if (this.actions?.fixed(dt)) return;
     if (this.combat?.fixed(dt)) return;
     const c = this.cmd;
@@ -187,6 +197,11 @@ export class Player {
 
       if (this.state === 'ground') {
         if (this.grounded) this.coyote = M.coyote;
+        // Space facing a ledge climbs it
+        if (this.jumpBuffer > 0 && this.grounded && this.traversal?.tryJump()) {
+          this.jumpBuffer = 0;
+          return;
+        }
         // Space at the water's edge dives instead of jumping (when the arc lands in deep water)
         if (this.jumpBuffer > 0 && this.grounded && this.actions?.tryDive()) {
           this.jumpBuffer = 0;
@@ -208,7 +223,7 @@ export class Player {
         }
       }
     } else if (this.state === 'swim') {
-      const sp = (c.sprint ? PLAYER.swimSprintSpeed : PLAYER.swimSpeed) * c.mag;
+      const sp = (c.sprint ? PLAYER.swimSprintSpeed : PLAYER.swimSpeed) * c.mag * this.swimMul;
       // Drag pulls the swimmer's velocity toward (stroke + current): the river carries you.
       const k = 1 - Math.exp(-M.waterDrag * dt);
       vel.x += (c.wish.x * sp + current.x - vel.x) * k;
@@ -221,7 +236,7 @@ export class Player {
       vel.y = clamp(vel.y, -3, 4);
       if (c.down) this.state = 'dive';
     } else if (this.state === 'dive') {
-      const sp = (c.sprint ? PLAYER.swimSprintSpeed : PLAYER.swimSpeed) * c.mag;
+      const sp = (c.sprint ? PLAYER.swimSprintSpeed : PLAYER.swimSpeed) * c.mag * this.swimMul;
       const cp = Math.cos(this.camPitch);
       const lx = Math.sin(this.camYaw) * cp;
       const ly = -Math.sin(this.camPitch);
@@ -286,7 +301,8 @@ export class Player {
     this.body.setNextKinematicTranslation(this.position);
     const wasGrounded = this.grounded;
     this.grounded = this.kcc.computedGrounded();
-    if (this.state === 'ground') this.actions?.checkClimb(dt);
+    if (this.state === 'ground' && !this.traversal?.check(dt)) this.actions?.checkClimb(dt);
+    if (this.state === 'climb') return;
 
     if (this.state === 'ground' || this.state === 'air') {
       // Walls eat the part of the velocity that pushes into them (no invisible build-up while
@@ -337,6 +353,8 @@ export class Player {
       if (!wasGrounded) {
         this.fx.land?.(impact);
         if (impact > 7) this.landTimer = 0.22;
+        // a long drop (off a roof): a roll if he lands running, else it hurts (Game)
+        if (impact > 13.5) this.onHardLanding?.(impact, Math.hypot(vel.x, vel.z));
       }
     }
     if (this.grounded && vel.y < 0 && this.state === 'ground') vel.y = -2;
@@ -384,15 +402,17 @@ export class Player {
     const bankT = run ? clamp(-this.yawRate * this.speed * 0.028, -0.2, 0.2) : 0;
     this.bank = damp(this.bank, bankT, 7, dt);
 
-    const animState = this.state === 'waterrun' ? 'ground' : this.state;
-    const animSpeed = this.state === 'waterrun' ? PLAYER.runSpeed * 1.25 : this.speed;
+    const climbing = this.state === 'climb';
+    const animState = this.state === 'waterrun' || climbing ? 'ground' : this.state;
+    const animSpeed = this.state === 'waterrun' ? PLAYER.runSpeed * 1.25 : climbing ? 0 : this.speed;
     this.animator.update(dt, animState, animSpeed, {
-      lean: this.lean,
-      lookYaw: wrapAngle(this.camYaw - yaw),
+      lean: climbing ? 0 : this.lean,
+      lookYaw: climbing ? 0 : wrapAngle(this.camYaw - yaw),
       groundY: this.model.position.y,
       rayDown: this.state === 'ground' ? (x, y, z) => this.rayDown(x, y, z) : null,
     });
     this.actions?.late(dt);
+    this.traversal?.late(dt);
   }
 
   rayDown(x, y, z) {
@@ -426,6 +446,16 @@ export class Player {
     else if (this.state === 'waterrun') {
       pitchTarget = 0.12;
       feetTarget = surface;
+    } else if (this.state === 'climb') {
+      // a vault, a ledge, a ladder: the move places the body exactly
+      this.pitch = 0;
+      this.bank = 0;
+      _e.set(0, yaw, 0);
+      m.quaternion.setFromEuler(_e);
+      this.visualY = feetY;
+      this.visualVel.y = 0;
+      m.position.set(p.x, feetY, p.z);
+      return;
     }
     this.pitch = damp(this.pitch, pitchTarget, this.diving ? 9 : 6, dt);
     _e.set(this.pitch, yaw, this.state === 'swim' || this.state === 'dive' ? 0 : this.bank);

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RNG } from '../utils/math.js';
 import { LANDING_2, ghatById, ghatToWorld } from './WorldLayout.js';
-import { WORLD_UNIFORMS } from './materials.js';
+import { OCCLUDE, WORLD_UNIFORMS } from './materials.js';
 
 // The cloth and colour of a living city, all in one merged mesh that moves in the wind:
 //   * marigold torans swagged under the first sunshade of the river-front havelis
@@ -396,8 +396,36 @@ export function buildStreetLife(layout, physics) {
     shader.uniforms.uTime = WORLD_UNIFORMS.uTime;
     shader.uniforms.uWind = { value: WIND };
     shader.uniforms.uKites = kitesUp;
+    // cloth between the camera and Prady (or the enemy he's locked on to) dithers out, and cloth
+    // right at the lens: a sari on the line beside a fight never blinds the view (the umbrellas'
+    // occluder fade, per pixel, since the cloth is one merged mesh)
+    shader.uniforms.uFocusA = OCCLUDE.uFocusA;
+    shader.uniforms.uFocusB = OCCLUDE.uFocusB;
+    shader.uniforms.uOccOn = OCCLUDE.uOccOn;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uFocusA;\nuniform vec3 uFocusB;\nuniform float uOccOn;\nvarying vec3 vClothW;')
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+        {
+          float fade = 1.0 - smoothstep(0.8, 1.4, distance(vClothW, cameraPosition));
+          // (sight lines to the chest and to the hips: the whole body, not just the head)
+          for (int i = 0; i < 4; i++) {
+            vec3 f = i < 2 ? uFocusA : uFocusB;
+            if (f.y < -900.0) continue;
+            f.y -= float(i - (i / 2) * 2) * 0.8;
+            vec3 d = f - cameraPosition;
+            float t = clamp(dot(vClothW - cameraPosition, d) / max(dot(d, d), 1e-4), 0.0, 1.0);
+            float off = distance(vClothW, cameraPosition + d * t);
+            fade = max(fade, (1.0 - smoothstep(0.45, 0.85, off)) * (1.0 - smoothstep(0.82, 0.95, t)));
+          }
+          float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+          if (ign < fade * uOccOn) discard;
+        }`
+      );
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform vec3 uWind;\nuniform float uKites;\nattribute vec3 aSway;\nattribute vec3 aHome;')
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform vec3 uWind;\nuniform float uKites;\nattribute vec3 aSway;\nattribute vec3 aHome;\nvarying vec3 vClothW;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\n  vClothW = (modelMatrix * vec4(transformed, 1.0)).xyz;')
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>

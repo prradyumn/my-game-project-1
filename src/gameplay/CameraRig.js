@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { GROUPS } from '../core/Physics.js';
 import { clamp, damp, dampAngle, smoothDamp } from '../utils/math.js';
 
+const _q = new THREE.Quaternion();
+
 // Third-person orbit camera: mouse/stick look, wheel zoom, collision so it never clips into
 // walls, plus a scripted cinematic mode for the opening shot. With a lock-on target (lockAt) the
 // view turns to keep the enemy framed beside the hero; the mouse then only flicks between targets.
@@ -31,11 +33,13 @@ export class CameraRig {
     this.lockH = 1.75; // its height: a giant needs the camera further back and higher
     this.lockW = 0;
     this.lift = 0;
+    this.override = null; // (dt, camera) => void: a shot that owns the camera (a finisher)
+    this.shakeScale = 1; // Settings: camera shake 0..1
   }
 
   // Camera shake: trauma in [0,1] decays; offset grows with trauma^2 (feels right at any size).
   shake(amount) {
-    this.trauma = Math.min(1, this.trauma + amount);
+    this.trauma = Math.min(1, this.trauma + amount * this.shakeScale);
   }
 
   get forward() {
@@ -59,6 +63,11 @@ export class CameraRig {
     };
   }
 
+  /** Ease out of the shot on screen now: for `secs` the follow camera is blended in from it. */
+  blendFrom(secs = 0.7) {
+    this.blend = { pos: this.camera.position.clone(), q: this.camera.quaternion.clone(), t: 0, dur: secs };
+  }
+
   skipCinematic() {
     if (!this.cinematic) return;
     const done = this.cinematic.onDone;
@@ -68,6 +77,15 @@ export class CameraRig {
   }
 
   update(dt, input, focus, opts = {}) {
+    if (this.override) {
+      this.override(dt, this.camera);
+      // (the shake still plays over a scripted shot)
+      this.trauma = Math.max(0, this.trauma - dt * 1.6);
+      this.shakeT += dt * 30;
+      const sh = this.trauma * this.trauma * 0.12;
+      if (sh > 1e-4) this.camera.position.set(this.camera.position.x + Math.sin(this.shakeT * 1.1) * sh, this.camera.position.y + Math.sin(this.shakeT * 1.7 + 1.3) * sh, this.camera.position.z + Math.sin(this.shakeT * 1.3 + 2.1) * sh);
+      return;
+    }
     if (this.cinematic) {
       const c = this.cinematic;
       c.t += dt;
@@ -120,7 +138,10 @@ export class CameraRig {
     const pivot = this.smoothedTarget.clone().addScaledVector(right, this.shoulder * Math.min(1, this.distance / 4));
     if (this.lockAt && this.lockW > 0.01) {
       // frame both: the point we orbit slides a third of the way toward the enemy, and up a bit
-      const k = this.lockW * 0.32;
+      // (less as the lens is pulled in against a wall or a canopy: a short boom must never carry
+      // the pivot past him, the camera ending up in front of him looking at the pack)
+      const room = clamp(((this.currentDist ?? this.distance) - 1.3) / 2.4, 0, 1);
+      const k = this.lockW * 0.32 * room;
       pivot.x += (this.lockAt.x - pivot.x) * k;
       pivot.z += (this.lockAt.z - pivot.z) * k;
       pivot.y += this.lockW * 0.25 + Math.max(0, this.lockAt.y - pivot.y) * k * 0.6;
@@ -159,5 +180,15 @@ export class CameraRig {
       cam.z += Math.sin(this.shakeT * 1.3 + 2.1) * sh;
     }
     this.camera.lookAt(pivot.x, pivot.y + 0.05, pivot.z);
+    if (this.blend) {
+      const b = this.blend;
+      b.t += dt;
+      const k = Math.min(1, b.t / b.dur);
+      const e = k * k * (3 - 2 * k);
+      cam.lerpVectors(b.pos, cam, e);
+      _q.copy(this.camera.quaternion);
+      this.camera.quaternion.copy(b.q).slerp(_q, e);
+      if (k >= 1) this.blend = null;
+    }
   }
 }

@@ -74,9 +74,21 @@ const PACK_ASURA = [
   { name: 'asuraDeath', cmu: '90_16', start: 2.3, end: 4.6, fps: 30 }, // falling onto the face
   { name: 'asuraRoar', cmu: '55_23', start: 45.6, end: 49.0, fps: 30 }, // rearing up, claws high
 ];
+// More for the Asuras (a second pack beside the first, so the shipped one is never rewritten):
+// thrown flat by Shiva's Damaru and up again, the Vetala's leap, the Kavacha's guard.
+const PACK_ASURA2 = [
+  { name: 'asuraFall', cmu: '90_18', start: 0.6, end: 1.7, fps: 30 }, // knocked flat on the back
+  { name: 'asuraGetUp', cmu: '140_08', start: 2.0, end: 5.6, fps: 30, restHipY: 14.5 }, // up from lying on the back
+  { name: 'asuraLeap', cmu: '141_08', start: 0.9, end: 2.1, fps: 30 }, // a running leap, knees tucked
+  { name: 'asuraBlock', cmu: '135_10', start: 4.75, end: 5.45, fps: 30 }, // a forearm block (behind the shield)
+];
+// Extra motion for grown men of the crowd (the pickpocket's sprint through the lanes).
+const PACK_ADULT_EXTRA = [{ name: 'run', clip: 'run' }];
 export const PACKS = {
   m: { avatar: 'Male_Adult_15', motions: PACK_ADULT },
   f: { avatar: 'Female_Adult_06', motions: PACK_ADULT },
   c: { avatar: 'Male_Child_01', motions: PACK_CHILD },
   asura: { avatar: 'Male_Adult_11', motions: PACK_ASURA },
+  asura2: { avatar: 'Male_Adult_11', motions: PACK_ASURA2 },
+  mx: { avatar: 'Male_Adult_15', motions: PACK_ADULT_EXTRA },
 };

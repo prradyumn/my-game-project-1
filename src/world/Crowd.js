@@ -202,7 +202,9 @@ class Body {
   setShadow(on) {
     if (on === this.shadow) return;
     this.shadow = on;
-    for (const o of this.meshes) o.castShadow = on;
+    // (the cut-out cards, lashes and hair, add a draw call each to the shadow pass for a shadow
+    // no one can see: only the body casts)
+    for (const o of this.meshes) o.castShadow = on && !/opacity/i.test(o.material?.name || '');
   }
 
   restore() {
@@ -353,6 +355,13 @@ export class Crowd {
     for (const c of g.animations) av.clips.set(c.name, c);
     const pack = this.packs?.[av.def.role === 'child' ? 'c' : av.def.sex];
     for (const c of pack || []) if (!av.clips.has(c.name)) av.clips.set(c.name, c);
+    if (av.def.role !== 'child' && av.def.sex === 'm') for (const c of this.packs?.mx || []) if (!av.clips.has(c.name)) av.clips.set(c.name, c);
+    if (!av.clips.has('run') && av.clips.has('walk')) {
+      // (no sprint of their own: a brisk walk stands in, its own copy for the same reason as below)
+      const run = av.clips.get('walk').clone();
+      run.name = 'run';
+      av.clips.set('run', run);
+    }
     const ud = g.scene.children[0]?.userData || g.scene.userData || {};
     av.walkSpeed = ud.walkSpeed || 1.5;
     av.height = ud.height || 1.75;
@@ -856,7 +865,9 @@ export class Crowd {
     if (s.gesture) return { [s.gesture.name]: 1 };
     if (s.actor && s.actor.speed > 0.02) {
       const k = smoothstep(0.08, 0.5, s.actor.speed);
-      return { walk: k, [s.clip]: 1 - k };
+      // (a sprint: the run takes over from the walk above a brisk pace)
+      const r = s.actor.run ? smoothstep(2.2, 3.4, s.actor.speed) : 0;
+      return { walk: k * (1 - r), run: k * r, [s.clip]: 1 - k };
     }
     if (s.walker) {
       const w = s.walker;
@@ -904,8 +915,19 @@ export class Crowd {
         continue;
       }
       body.setOpacity(s.fade);
+      this._bumped(s, dt, ctx);
       this._think(s, dt, ctx);
       this._place(s, dt);
+      // a stumble from Prady's shoulder: carried a step, then back to their spot
+      if (s.bump) {
+        const b = s.bump;
+        const e = Math.min(1, b.t / 0.28);
+        const push = (e * e * (3 - 2 * e) - Math.max(0, (b.t - 0.5) / 1.4)) * 0.38 * b.k;
+        if (push > 0) {
+          body.holder.position.x += b.dir.x * push;
+          body.holder.position.z += b.dir.z * push;
+        }
+      }
       const p = body.holder.position;
       s.dist = p.distanceTo(cam);
       _sphere.center.set(p.x, p.y + 0.9, p.z);
@@ -927,17 +949,19 @@ export class Crowd {
       if (s.walker || s.actor) {
         const sp = s.walker ? s.walker.speed : s.actor.speed;
         body.actions.walk.timeScale = Math.max(0.4, sp / (body.avatar.walkSpeed || 1.5));
+        if (s.actor?.run && body.actions.run) body.actions.run.timeScale = Math.min(1.5, Math.max(0.8, sp / 3.6));
       }
       body.mixer.update(adt);
       body.save();
       const ik = s.seat && s.dist < 30;
       const row = s.ride?.boat.oarHands && s.dist < 90;
       const look = row ? 0 : this._lookWeight(s, adt, ctx);
-      if (ik || look > 0.01 || s.kind === 'priest' || row) {
+      if (ik || look > 0.01 || s.kind === 'priest' || row || s.bump) {
         body.holder.updateMatrixWorld(true);
         if (ik) this._plantFeet(s, body);
         if (s.kind === 'priest') this._aartiArms(s, body);
         if (row) this._rowArms(s, body);
+        if (s.bump) this._bumpLean(s, body);
         if (look > 0.01) this._look(s, body, look);
       }
     }
@@ -1279,6 +1303,38 @@ export class Crowd {
   }
 
   // The aarti: a big brass lamp circled in slow vertical loops, a bell in the other hand.
+  // Prady running into someone: they're knocked a step, lean away, and shake their head at him.
+  _bumped(s, dt, ctx) {
+    if (s.bump) {
+      s.bump.t += dt;
+      if (s.bump.t > 2) s.bump = null;
+    }
+    const P = ctx.playerPos;
+    const V = ctx.playerVel;
+    if (!P || !V || s.bump || s.seat || s.low || s.ride || s.actor || s.kind === 'priest' || s.kind === 'boatSit' || s.dip || s.fade < 0.6) return;
+    const dx = s.x - P.x;
+    const dz = s.z - P.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 0.8 || d < 1e-3) return;
+    const toward = (V.x * dx + V.z * dz) / d;
+    if (toward < 1.8) return;
+    const k = Math.min(1, toward / 4.5);
+    s.bump = { t: 0, dir: { x: dx / d, z: dz / d }, k };
+    this.audio?.play('footstep', { at: new THREE.Vector3(s.x, (s.y ?? 0) + 0.2, s.z), volume: 0.5, rate: 0.75 });
+    s.pending = { at: this.time + 0.5, name: 'headShake', dur: 1.7, face: Math.atan2(P.x - s.x, P.z - s.z) };
+  }
+
+  _bumpLean(s, body) {
+    const b = s.bump;
+    const t = b.t;
+    // snaps away from the blow, sways back past upright, settles
+    const a = (t < 0.1 ? t / 0.1 : Math.exp(-(t - 0.1) * 5) * Math.cos((t - 0.1) * 9)) * 0.32 * b.k;
+    if (Math.abs(a) < 0.003) return;
+    const axis = _v3.set(b.dir.z, 0, -b.dir.x); // bends the chest away along dir
+    if (body.b.spine1) rotateBoneAxis(body.b.spine1, axis, a);
+    if (body.b.neck) rotateBoneAxis(body.b.neck, axis, a * 0.5);
+  }
+
   // A boatman at his oars: lean with the drive, hands on the grips (Oars.js), elbows out and down.
   _rowArms(s, body) {
     const b = body.b;

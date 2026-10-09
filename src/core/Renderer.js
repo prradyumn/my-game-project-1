@@ -5,6 +5,7 @@ import { QUALITY_PRESETS } from '../config.js';
 import { clamp } from '../utils/math.js';
 import { ColorGradeEffect } from './Grading.js';
 import { HeatShimmerEffect } from './HeatShimmer.js';
+import { ImpactEffect } from './Impact.js';
 import { SharpenEffect } from './Sharpen.js';
 
 // Renderer + post stack (pmndrs/postprocessing): optional N8AO ambient occlusion, bloom for
@@ -71,6 +72,13 @@ export class RenderSystem {
       ao.configuration.denoiseSamples = 8;
       ao.configuration.denoiseRadius = 10;
       if (q.aoMode === 'Performance') ao.configuration.aoSamples = 12;
+      // full resolution where the preset can afford it: no blotches to blur away on a face, and
+      // so a light denoise is enough (the thorough one above is for the half-resolution AO)
+      ao.configuration.halfRes = q.aoHalfRes ?? true;
+      if (!ao.configuration.halfRes) {
+        ao.configuration.denoiseSamples = 4;
+        ao.configuration.denoiseRadius = 6;
+      }
       composer.addPass(ao);
       this.ao = ao;
     } else this.ao = null;
@@ -108,6 +116,12 @@ export class RenderSystem {
     effects.push(this.grade);
     effects.push(new VignetteEffect({ offset: 0.32, darkness: 0.42 }));
     if (q.smaa) effects.push(new SMAAEffect({ preset: this.qualityName === 'medium' ? SMAAPreset.MEDIUM : SMAAPreset.HIGH }));
+    // the jolt of a blow (its own pass: it reads neighbouring pixels; off unless a blow just
+    // landed, and never the last pass, so switching it off can't leave the screen unpainted)
+    this.impact = new ImpactEffect();
+    this.impactPass = new EffectPass(camera, this.impact);
+    this.impactPass.enabled = false;
+    composer.addPass(this.impactPass);
     composer.addPass(new EffectPass(camera, ...effects));
     // last: restore the detail lost to upscaling (its own pass: it reads neighbouring pixels)
     if (q.sharpen > 0) composer.addPass(new EffectPass(camera, new SharpenEffect(q.sharpen)));
@@ -195,6 +209,14 @@ export class RenderSystem {
     this.godRays.godRaysMaterial.exposure = 0.78 * amount;
     this.godRays.blendMode.opacity.value = amount > 0.01 ? 1 : 0;
     this.godRaysPass.enabled = amount > 0.01;
+  }
+
+  /** chroma: the colour split, blur: the streak toward (cx, cy) (screen uv); 0, 0 switches it off. */
+  setImpact(chroma, blur, cx = 0.5, cy = 0.5) {
+    if (!this.impact) return;
+    const on = chroma > 0.0004 || blur > 0.0004;
+    this.impactPass.enabled = on;
+    if (on) this.impact.set(chroma, blur, cx, cy);
   }
 
   /** level 0 off, 1 soft, 2 strong; target: world point to keep sharp. */

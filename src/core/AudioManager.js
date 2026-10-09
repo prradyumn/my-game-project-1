@@ -16,11 +16,12 @@ export class AudioManager {
   }
 
   // A sound made in code (rain, thunder…): fn(ctx) -> AudioBuffer, built when audio unlocks.
+  // A recorded file of the same name wins; the synth is then only its fallback.
   synth(name, fn) {
     this.synths = this.synths || {};
     this.synths[name] = fn;
     const ctx = this.ctx || (this._prep && this._ctx);
-    if (ctx) this.buffers[name] = fn(ctx);
+    if (ctx && !this.buffers[name] && !this.raw[name]) this.buffers[name] = fn(ctx);
   }
 
   setRaw(name, arrayBuffer) {
@@ -56,6 +57,7 @@ export class AudioManager {
         })
       );
       for (const [name, fn] of Object.entries(this.synths || {})) {
+        if (this.buffers[name]) continue; // (decoded from a recording)
         try {
           this.buffers[name] = fn(ctx);
         } catch (e) {
@@ -151,8 +153,21 @@ export class AudioManager {
   }
 
   setUnderwater(on) {
+    this.under = on;
+    this.applyFilter(0.12);
+  }
+
+  /** Slow motion's hush: 0 clear .. 1 heavily muffled (combined with being under water). */
+  setMuffle(k) {
+    if (Math.abs((this.muffle || 0) - k) < 0.01) return;
+    this.muffle = k;
+    this.applyFilter(0.08);
+  }
+
+  applyFilter(tc) {
     if (!this.ctx) return;
-    this.filter.frequency.setTargetAtTime(on ? 650 : 20000, this.ctx.currentTime, 0.12);
+    const f = this.under ? 650 : 20000 * Math.pow(1100 / 20000, this.muffle || 0);
+    this.filter.frequency.setTargetAtTime(f, this.ctx.currentTime, tc);
   }
 
   updateListener(camera) {

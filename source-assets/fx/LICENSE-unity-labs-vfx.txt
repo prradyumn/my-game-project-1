@@ -1,0 +1,5 @@
+SmallFlame01_16x4 flipbook (fire, 16 x 4 frames of 128 x 256)
+From the Unity Labs "Free VFX image sequences & flipbooks" release (2016), CC0 1.0 Universal:
+https://unity.com/blog/engine-platform/free-vfx-image-sequences-flipbooks
+https://creativecommons.org/publicdomain/zero/1.0/
+Used in the game as public/assets/textures/fx/flame-16x4.webp (re-encoded, no other change).

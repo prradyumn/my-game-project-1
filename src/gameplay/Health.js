@@ -12,6 +12,7 @@ export class Health {
     this.dead = false;
     this.invincible = false; // test menu: "Invincible"
     this.regenMul = 1; // Annapurna's prasad heals faster
+    this.regenDiff = 1; // the difficulty (Story heals faster, Hard slower)
     this.onDeath = null;
     this.onChange = null;
   }
@@ -63,6 +64,6 @@ export class Health {
     this.grace = Math.max(0, this.grace - dt);
     if (this.dead || this.hp >= this.max) return;
     const since = this.time - this.lastHurt;
-    if (since > (inCombat ? 6 : 3)) this.heal((inCombat ? 2.5 : 14) * this.regenMul * dt);
+    if (since > (inCombat ? 6 : 3)) this.heal((inCombat ? 2.5 : 14) * this.regenMul * this.regenDiff * dt);
   }
 }

@@ -92,6 +92,8 @@ export class BhairavTemple {
     plaster.box(0, H + 0.1, -0.3, W + 0.2, 0.2, 0.8, 0, vermilion);
     plaster.box(-W / 2 + 0.3, H + 0.1, -D / 2, 0.8, 0.2, D, 0, vermilion);
     plaster.box(W / 2 - 0.3, H + 0.1, -D / 2, 0.8, 0.2, D, 0, vermilion);
+    // (the coping is solid with the wall under it: up on the wall, his feet stand on it)
+    solid.push([0, H + 0.1, -0.3, W + 0.2, 0.2, 0.8], [-W / 2 + 0.3, H + 0.1, -D / 2, 0.8, 0.2, D], [W / 2 - 0.3, H + 0.1, -D / 2, 0.8, 0.2, D]);
     // ---- the gate: two thick pillars, a lintel with a little shikhara over it, bells
     for (const sx of [-1, 1]) {
       stone.box(sx * (gateW / 2 + 0.35), 2.6, -0.3, 0.7, 5.2, 0.9, 0, C('#d9c19a'), { tile: 1.5 });
@@ -107,7 +109,10 @@ export class BhairavTemple {
     const plH = 0.75;
     stone.box(0, plH / 2, (mz0 + mz1) / 2 - 1.2, mW + 1, plH, mz0 - mz1 + 3.4, 0, C('#cdb48c'), { tile: 1.6 });
     solid.push([0, plH / 2, (mz0 + mz1) / 2 - 1.2, mW + 1, plH, mz0 - mz1 + 3.4]);
-    for (let i = 0; i < 3; i++) stone.box(0, (plH / 3) * (i + 0.5), mz0 + 0.45 + (2 - i) * 0.32, 3, (plH / 3) * (i + 1), 0.32, 0, C('#c8ad84'));
+    for (let i = 0; i < 3; i++) {
+      stone.box(0, (plH / 3) * (i + 0.5), mz0 + 0.45 + (2 - i) * 0.32, 3, (plH / 3) * (i + 1), 0.32, 0, C('#c8ad84'));
+      solid.push([0, (plH / 3) * (i + 0.5), mz0 + 0.45 + (2 - i) * 0.32, 3, (plH / 3) * (i + 1), 0.32]); // (steps he climbs, not wades)
+    }
     this.pillars = [];
     for (let i = 0; i < 4; i++) {
       for (let j = 0; j < 4; j++) {
@@ -115,7 +120,9 @@ export class BhairavTemple {
         const pz = mz0 - 0.6 - j * ((mz0 - mz1 - 1.2) / 3);
         // a carved column: square base, octagonal shaft, a bracket capital
         stone.box(px, plH + 0.25, pz, 0.55, 0.5, 0.55, 0, C('#d4bb93'));
-        stone.cylinder(px, plH + 0.5 + 1.45, pz, 0.2, 0.18, 2.9, 8, C('#dcc39c'));
+        // (MeshBuilder.cylinder takes its BASE height: the shaft stands on the base block and
+        // meets the capital: plH + 0.5 .. plH + 3.4)
+        stone.cylinder(px, plH + 0.5, pz, 0.2, 0.18, 2.9, 8, C('#dcc39c'));
         stone.box(px, plH + 3.55, pz, 0.6, 0.3, 0.6, 0, C('#c9ad82'));
         for (const b of [0.85, 2.2]) stone.box(px, plH + 0.5 + b, pz, 0.46, 0.08, 0.46, 0, vermilion);
         solid.push([px, plH + 2, pz, 0.45, 4, 0.45]);
@@ -146,6 +153,7 @@ export class BhairavTemple {
     // the pedestal, stepped and dark with oil
     stone.box(0, plH + 0.12, dz, 1.5, 0.24, 1.1, 0, C('#3e332c'));
     stone.box(0, plH + 0.36, dz, 1.25, 0.24, 0.95, 0, C('#4a3d33'));
+    solid.push([0, plH + 0.12, dz, 1.5, 0.24, 1.1], [0, plH + 0.36, dz, 1.25, 0.24, 0.95]);
     // the niche behind him, black with a century of lamp soot
     plaster.box(0, plH + sH / 2, sz - 1.17, sW - 1.25, sH, 0.06, 0, C('#1a1210'));
     this.faceAt = L(0, dY + 1.48, dz + 0.02);
@@ -157,18 +165,18 @@ export class BhairavTemple {
     for (let i = 0; i < 5; i++) {
       const bx = -2 + i;
       const bz = mz0 - 1.4 - (i % 2) * 0.8;
-      brass.cylinder(bx, roofY - 0.45, bz, 0.01, 0.01, 0.9, 4, C('#3a2a1a'));
+      brass.cylinder(bx, roofY - 0.86, bz, 0.01, 0.01, 0.86, 4, C('#3a2a1a')); // the rope, ceiling down to the bell
       brass.lathe(bx, roofY - 1.15, bz, [[0, 0.3], [0.05, 0.28], [0.1, 0.12], [0.16, 0], [0.15, -0.02]], 14, C('#d1a24a'));
       this.bells.push(L(bx, roofY - 1.1, bz));
     }
     this.lamps = [];
     for (const [lx, lz] of [[-1.6, sz + 2.8], [1.6, sz + 2.8], [-0.5, dz + 0.6], [0.5, dz + 0.6]]) {
-      brass.cylinder(lx, plH + 0.45, lz, 0.05, 0.08, 0.9, 8, C('#c9962f'));
+      brass.cylinder(lx, plH, lz, 0.08, 0.05, 0.9, 8, C('#c9962f')); // the stand, on the floor up to its dish
       brass.lathe(lx, plH + 0.9, lz, [[0, 0], [0.12, 0.02], [0.13, 0.05]], 12, C('#d9a441'));
       this.lamps.push(L(lx, plH + 0.98, lz));
     }
     // a peepal sapling's platform in the courtyard, with threads tied round it
-    stone.cylinder(-W / 2 + 2.6, 0.3, -2.4, 1.2, 1.25, 0.6, 16, C('#cbb38d'));
+    stone.cylinder(-W / 2 + 2.6, 0, -2.4, 1.25, 1.2, 0.6, 16, C('#cbb38d'));
     solid.push([-W / 2 + 2.6, 0.3, -2.4, 2.2, 0.6, 2.2]);
     // materials + meshes
     const matsOf = [

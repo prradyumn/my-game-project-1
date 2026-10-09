@@ -32,8 +32,9 @@ export const ASSET_MANIFEST = {
       { id: 'Female_Child_01', role: 'child', sex: 'f' },
       { id: 'Female_Child_02', role: 'child', sex: 'f' },
     ],
-    // shared motion packs (skeleton + clips) by body type: adult male / adult female / child
-    packs: { m: 'motions-m', f: 'motions-f', c: 'motions-c' },
+    // shared motion packs (skeleton + clips) by body type: adult male / adult female / child;
+    // mx: more for the grown men (a sprint)
+    packs: { m: 'motions-m', f: 'motions-f', c: 'motions-c', mx: 'motions-mx' },
   },
   // The Asuras (src/gameplay/Asuras.js): a person's body re-skinned as darkness, driven by an
   // enemy motion pack (tools/people.js "asura" pack: CMU + Mixamo mocap on the same skeleton).
@@ -42,6 +43,8 @@ export const ASSET_MANIFEST = {
     body: `${A}/people/Male_Adult_11.glb`,
     packBase: `${A}/people/motions-m.glb`,
     pack: `${A}/people/motions-asura.glb`,
+    // thrown flat and up again (Shiva's Damaru), the Vetala's leap, the Kavacha's guard
+    pack2: `${A}/people/motions-asura2.glb`,
     bossBody: null,
     // ('-name': the clip played backwards)
     roles: {
@@ -57,6 +60,10 @@ export const ASSET_MANIFEST = {
       stagger: ['asuraStagger'],
       death: ['asuraDeath'],
       roar: ['asuraRoar'],
+      fall: ['asuraFall'],
+      getUp: ['asuraGetUp'],
+      leap: ['asuraLeap'],
+      block: ['asuraBlock'],
     },
   },
   character: {
@@ -66,6 +73,8 @@ export const ASSET_MANIFEST = {
     // Motion-capture idle/walk/run (Mixamo, from the three.js examples) retargeted onto Prady's
     // skeleton by tools/retarget.html (src/gameplay/Retarget.js). Preferred over the clips below.
     mocap: `${A}/characters/prady-mocap.json`,
+    // + traversal (CMU, tools/retarget.js ?set=moves): the vault, the scramble up a ledge, a ladder
+    moves: `${A}/characters/prady-moves.json`,
     // + CMU motion capture: the greeting wave (G) and idle breaks
     mocapClips: {
       idle: 'idle', walk: 'walk', run: 'run', swim: 'swimCrawl',
@@ -90,6 +99,24 @@ export const ASSET_MANIFEST = {
   },
   boat: `${A}/models/boat-game-1k.glb`, // the boat you ride (1K textures, 23.7k tris)
   boatLod: `${A}/models/boat-lod.glb`, // moored boats (simplified to 3.5k tris)
+  // the ghats' animals: Genex models, quadruped-rigged, one walk clip each (in place, 2.6 s);
+  // baked to 1K WebP textures + meshopt from /source-assets/animals. front: the yaw that turns
+  // the model's nose to +Z; scale: metres per model unit; stride: model units per second the
+  // hooves travel at clip speed 1 (the walk is played at speed / (stride * scale))
+  animals: {
+    // rig: the bones that matter, read off each auto-rig's tree and skin weights (Tripo's names
+    // don't say what a bone moves). pitch: the neck from the withers to the head, each bone's
+    // share of a nod or a lowered head; look: the share of a turn of the head; then the tail and
+    // the back. (The cow's neck runs tripoSpine_3..5 to tripoHead_1; the dog's head hangs off its
+    // shoulder chain at bone_17/18; its tail is tripoTail_*.)
+    cow: { url: `${A}/animals/cow.glb`, front: Math.PI, scale: 1.75, stride: 0.62, rig: { pitch: [['tripoSpine_3', 0.14], ['tripoSpine_4', 0.28], ['tripoSpine_5', 0.3], ['tripoHead_1', 0.28]], look: [['tripoSpine_5', 0.45], ['tripoHead_1', 0.55]], tail: ['bone_38', 'bone_39', 'bone_40'], spine: ['tripoSpine_1', 'tripoSpine_2'] } },
+    dog: { url: `${A}/animals/dog.glb`, front: -Math.PI / 2, scale: 0.85, stride: 0.52, rig: { pitch: [['bone_17', 0.3], ['bone_18', 0.32], ['tripoHead_0', 0.2], ['tripoHead_1', 0.18]], look: [['bone_18', 0.45], ['tripoHead_1', 0.55]], tail: ['tripoTail_0', 'tripoTail_1', 'tripoTail_2', 'tripoTail_3', 'bone_40'], spine: ['tripoSpine_1'] } },
+  },
+  // fire: a CC0 flipbook of real simulated flame (Unity Labs, 16 x 4 frames; see
+  // /source-assets/fx/LICENSE-unity-labs-vfx.txt) for the big fires (Fire.js)
+  fx: {
+    flame: `${A}/textures/fx/flame-16x4.webp`,
+  },
   textures: {
     stone: `${A}/textures/seamless-tileable-texture-straight-top-d-cmuyhilb.png`,
     plaster: `${A}/textures/seamless-tileable-texture-flat-front-on-cmuyhin9.png`,
@@ -133,6 +160,31 @@ export const ASSET_MANIFEST = {
     'asura-attack': `${A}/audio/sfx/asura-attack.mp3`,
     'asura-death': `${A}/audio/sfx/asura-death.mp3`,
     'andhaka-roar': `${A}/audio/sfx/andhaka-roar.mp3`,
+    // the fight, recorded (Genex sfx, levelled and trimmed from /source-assets/sfx): these
+    // replace the synthesized blade, guard and body sounds of the same names (AudioManager)
+    'blade-hit': `${A}/audio/sfx/blade-hit.mp3`,
+    'blade-whoosh': `${A}/audio/sfx/blade-whoosh.mp3`,
+    'heavy-whoosh': `${A}/audio/sfx/heavy-whoosh.mp3`,
+    parry: `${A}/audio/sfx/parry-clang.mp3`,
+    block: `${A}/audio/sfx/block-impact.mp3`,
+    hurt: `${A}/audio/sfx/body-hit.mp3`,
+    'heavy-hit': `${A}/audio/sfx/heavy-hit.mp3`,
+    'shield-clang': `${A}/audio/sfx/shield-clang.mp3`,
+    // cinematic beats: the finisher's slow motion in and its last blow
+    'slowmo-swell': `${A}/audio/sfx/slowmo-swell.mp3`,
+    'slowmo-boom': `${A}/audio/sfx/slowmo-boom.mp3`,
+    // stingers: a champion's or Andhaka's coming, the Third Eye opening, a fight won, the heart
+    // at low prana, a chapter's title
+    braam: `${A}/audio/sfx/braam.mp3`,
+    riser: `${A}/audio/sfx/riser.mp3`,
+    victory: `${A}/audio/sfx/victory.mp3`,
+    heartbeat: `${A}/audio/sfx/heartbeat.mp3`,
+    'title-shimmer': `${A}/audio/sfx/title-shimmer.mp3`,
+    // the ghats' life: the crowd's murmur (a loop), the cows and the street dogs
+    crowd: `${A}/audio/sfx/crowd-murmur.mp3`,
+    'cow-moo': `${A}/audio/sfx/cow-moo.mp3`,
+    'dog-bark': `${A}/audio/sfx/dog-bark.mp3`,
+    'dog-yelp': `${A}/audio/sfx/dog-yelp.mp3`,
   },
 };
 

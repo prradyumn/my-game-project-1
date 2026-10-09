@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ASSET_MANIFEST } from '../core/Assets.js';
 
 // Real-looking fire, all of it in two draw calls.
 //
@@ -6,6 +7,9 @@ import * as THREE from 'three';
 //          by a flame shader: teardrop silhouette eaten away by rising turbulence (fbm noise),
 //          a temperature field hottest at the core and base, a blackbody colour ramp
 //          (deep red -> orange -> yellow -> white), a blue root on oil lamps, a flickering tip.
+//  books   the big fires (pyres, the sacred bowls, torches, aarti lamps): real flame, a CC0
+//          flipbook of simulated fire (64 frames, cross-faded), each tongue at its own frame and
+//          pace; the little lamps keep the shaded teardrop (a wick's flame is calm).
 //  halos   a soft glow billboard around every flame (feeds the bloom).
 //  embers  sparks that rise, drift and wink out above the bigger fires.
 //
@@ -31,7 +35,7 @@ const flameVert = /* glsl */ `
     float flick = 0.86 + 0.09 * sin(uTime * 11.0 + aSeed * 40.0) + 0.05 * sin(uTime * 23.0 + aSeed * 13.0);
     vFlick = flick;
     vec3 p;
-    if (aKind < 0.5) {
+    if (aKind < 0.5 || aKind > 1.5) {
       // upright billboard: faces the camera around the vertical axis only
       vec3 toCam = cameraPosition - aOrigin;
       vec3 right = normalize(vec3(toCam.z, 0.0, -toCam.x) + vec3(1e-5, 0.0, 0.0));
@@ -51,6 +55,9 @@ const flameFrag = /* glsl */ `
   uniform float uTime;
   uniform float uIntensity;
   uniform float uHalo;
+  uniform sampler2D uBook;
+  uniform float uBookReady;
+  uniform float uBookIntensity;
   varying vec2 vUv;
   varying float vSeed;
   varying float vLit;
@@ -74,7 +81,25 @@ const flameFrag = /* glsl */ `
   }
 
   void main() {
-    if (vKind > 0.5) {
+    if (vKind > 1.5 && uBookReady > 0.5) {
+      // flipbook fire: 16 x 4 frames (frame 0 top-left), the next frame cross-faded in
+      float fps = 26.0 * (0.8 + fract(vSeed * 7.31) * 0.4);
+      float f = uTime * fps + vSeed * 64.0;
+      float i0 = mod(floor(f), 64.0);
+      float i1 = mod(i0 + 1.0, 64.0);
+      vec2 cell = vec2(1.0 / 16.0, 1.0 / 4.0);
+      vec2 uv = vec2(fract(vSeed * 3.17) > 0.5 ? vUv.x : 1.0 - vUv.x, vUv.y); // (half of them mirrored)
+      vec2 uv0 = (vec2(mod(i0, 16.0), 3.0 - floor(i0 / 16.0)) + uv) * cell;
+      vec2 uv1 = (vec2(mod(i1, 16.0), 3.0 - floor(i1 / 16.0)) + uv) * cell;
+      vec3 c = mix(texture2D(uBook, uv0).rgb, texture2D(uBook, uv1).rgb, fract(f));
+      // the hottest parts run past white into the bloom; the edges stay deep orange
+      float lum = dot(c, vec3(0.35, 0.5, 0.15));
+      c *= 1.0 + lum * lum * 2.5;
+      float a = clamp(lum * 1.8, 0.0, 1.0) * vLit * vFlick;
+      gl_FragColor = vec4(c * uBookIntensity * vLit * vFlick, a);
+      return;
+    }
+    if (vKind > 0.5 && vKind < 1.5) {
       float d = length(vUv - 0.5) * 2.0;
       float a = exp(-d * d * 4.5) * (1.0 - smoothstep(0.7, 1.0, d)) * vLit * vFlick;
       gl_FragColor = vec4(vec3(1.0, 0.5, 0.15) * a * uHalo, a);
@@ -160,7 +185,7 @@ export class FireSystem {
     geo.instanceCount = 0;
     this.geo = geo;
     this.material = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 }, uIntensity: { value: 3.4 }, uHalo: { value: 0.5 } },
+      uniforms: { uTime: { value: 0 }, uIntensity: { value: 3.4 }, uHalo: { value: 0.5 }, uBook: { value: null }, uBookReady: { value: 0 }, uBookIntensity: { value: 1.7 } },
       vertexShader: flameVert,
       fragmentShader: flameFrag,
       transparent: true,
@@ -171,6 +196,13 @@ export class FireSystem {
     this.mesh = new THREE.Mesh(geo, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 5;
+    // the flipbook: until it has loaded the big fires burn with the shaded teardrop
+    new THREE.TextureLoader().load(ASSET_MANIFEST.fx.flame, (t) => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 4;
+      this.material.uniforms.uBook.value = t;
+      this.material.uniforms.uBookReady.value = 1;
+    });
 
     // embers
     const m = maxEmberFires * EMBERS_PER_FIRE;
@@ -207,7 +239,7 @@ export class FireSystem {
 
   /**
    * pos: Vector3 (base of the flame). scale: ~1 = a 24 cm lamp flame.
-   * kind: 'flame' (flame + halo) or 'glow' (halo only, for electric lamps).
+   * kind: 'flame' (flame + halo), 'pyre' (a woodpile's fire) or 'glow' (halo only, electric lamps).
    */
   slot(pos, dx, dy, dz, w, h, kind, seed, lit) {
     const i = this.used++;
@@ -228,23 +260,46 @@ export class FireSystem {
     const slots = [];
     if (kind === 'glow') {
       slots.push(this.slot(pos, 0, 0, 0, 0.9 * scale, 0.15 * scale, 1, seed, lit));
+    } else if (kind === 'pyre') {
+      // a cremation pyre: fire along the whole woodpile, a tall centre and lower tongues out
+      // to its corners, each its own frame and pace (scale ~1: a 1.8 m pile)
+      const bh = 1.9 * scale;
+      slots.push(this.slot(pos, 0, -0.05, 0, bh * 0.62, bh, 2, seed, lit));
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * Math.PI * 2 + seed * 6 + 0.4;
+        const r = 0.5 * scale;
+        const s = 0.55 + Math.random() * 0.25;
+        slots.push(this.slot(pos, Math.cos(a) * r, -0.08, Math.sin(a) * r, bh * 0.62 * s, bh * s, 2, Math.random(), lit));
+      }
+      slots.push(this.slot(pos, 0, 0, 0, bh * 1.7, bh * 0.7, 1, seed, lit));
     } else if (scale >= 2) {
-      // a bowl fire: a ring of tongues around a tall centre, one wide halo
-      slots.push(this.slot(pos, 0, 0, 0, w * 1.15, h, 0, seed, lit));
-      for (let k = 0; k < 5; k++) {
-        const a = (k / 5) * Math.PI * 2 + seed * 6;
-        const r = w * 0.45;
-        const s = 0.55 + Math.random() * 0.3;
-        slots.push(this.slot(pos, Math.cos(a) * r, 0, Math.sin(a) * r, w * s * 1.1, h * s, 0, Math.random(), lit));
+      // a bowl fire, a pyre: three tongues of real flame (each its own frame and pace, crossed
+      // so the fire has a body from any side), the low roots of the shaded flame under them,
+      // one wide halo
+      const bh = h * 2.1;
+      slots.push(this.slot(pos, 0, -bh * 0.04, 0, bh * 0.62, bh, 2, seed, lit));
+      for (let k = 0; k < 2; k++) {
+        const a = seed * 6 + k * Math.PI;
+        const s = 0.72 + Math.random() * 0.15;
+        slots.push(this.slot(pos, Math.cos(a) * w * 0.4, -bh * 0.04, Math.sin(a) * w * 0.4, bh * 0.62 * s, bh * s, 2, Math.random(), lit));
+      }
+      for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * Math.PI * 2 + seed * 6;
+        slots.push(this.slot(pos, Math.cos(a) * w * 0.35, 0, Math.sin(a) * w * 0.35, w * 0.7, h * 0.45, 0, Math.random(), lit));
       }
       slots.push(this.slot(pos, 0, 0, 0, h * 2.4, h, 1, seed, lit));
+    } else if (scale >= 0.9 && kind === 'flame') {
+      // a torch, a stove, an aarti lamp's wicks: one tongue of real flame and its glow
+      const bh = h * 1.7;
+      slots.push(this.slot(pos, 0, -bh * 0.04, 0, bh * 0.6, bh, 2, seed, lit));
+      slots.push(this.slot(pos, 0, 0, 0, Math.max(h * 2.3, 0.46), h, 1, seed, lit));
     } else {
       slots.push(this.slot(pos, 0, 0, 0, w, h, 0, seed, lit));
       // small lamps get a generous glow so rows of diyas read as lines of light from afar
       slots.push(this.slot(pos, 0, 0, 0, Math.max(h * 2.3, 0.46), h, 1, seed, lit));
     }
     let ember = -1;
-    if (kind === 'flame' && scale >= 2 && this.emberCount < this.maxEmberFires) {
+    if ((kind === 'pyre' || (kind === 'flame' && scale >= 2)) && this.emberCount < this.maxEmberFires) {
       ember = this.emberCount++;
       for (let i = 0; i < EMBERS_PER_FIRE; i++) {
         const k = ember * EMBERS_PER_FIRE + i;

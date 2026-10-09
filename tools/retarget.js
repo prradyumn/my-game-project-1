@@ -67,6 +67,18 @@ const CMU = [
   { name: 'getUp', file: '140_08', start: 2.0, end: 5.6, restHipY: 14.5 }, // (its first frame lies: standing hips from 6.5 s)
 ];
 
+// Prady's second file of moves (public/assets/characters/prady-moves.json, beside the first so
+// it is never rewritten): traversal over the ghats and the rooftops. ?set=moves bakes these.
+const MOVES = [
+  // a running leap over a railing or a takht: take-off, knees tucked, landing on the other foot
+  { name: 'vault', file: '141_08', start: 0.9, end: 2.1, lockY: true },
+  // scrambling up onto a high ledge on hands and feet (a playground climb)
+  { name: 'scramble', file: '01_02', start: 4.6, end: 7.6, lockY: true },
+  // climbing a ladder: one rung after the other, hands reaching up (a loop; the game lifts him)
+  { name: 'ladder', file: '13_33', start: 2.6, end: 4.7, lockY: true, loopBlend: 0.35 },
+];
+const SET = new URLSearchParams(location.search).get('set');
+
 const loader = new GLTFLoader();
 const prady = (await loader.loadAsync(ASSET_MANIFEST.character.model)).scene;
 prady.updateMatrixWorld(true); // fresh load = rest pose
@@ -86,7 +98,7 @@ const facing = (root) => {
 const pFacing = facing(prady);
 
 const baked = [];
-for (const src of SOURCES) {
+for (const src of SET === 'moves' ? [] : SOURCES) {
   const g = await loader.loadAsync(src.url);
   const root = g.scene;
   if (facing(root) !== pFacing) root.rotation.y = Math.PI;
@@ -99,7 +111,7 @@ for (const src of SOURCES) {
   }
 }
 const bvh = new BVHLoader();
-for (const m of CMU) {
+for (const m of SET === 'moves' ? MOVES : CMU) {
   const res = bvh.parse(await (await fetch(`/source-assets/cmu/${m.file}.bvh`)).text());
   const root = new THREE.Group();
   root.add(res.skeleton.bones[0]);

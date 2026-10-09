@@ -144,6 +144,13 @@ export function buildTemple(builders, matrix, S, styleName = 'sandstone') {
     footprint: [
       { x: 0, y: 0.5, z: 0.2 * S, w: 1.7 * S, h: 1.0, d: 2.4 * S },
       { x: 0, y: 1.0 + 0.45 * S, z: sanctumZ, w: S, h: 0.9 * S, d: S },
+      // the front steps (each a riser he can step up: 0.34 m), the mandapa's four pillars and
+      // its roof slab: without them he walked through the steps and the columns
+      ...[0, 1, 2].map((i) => ({ x: 0, y: (0.34 * (i + 1)) / 2, z: 1.4 * S + 0.36 * (2 - i) + 0.18, w: 0.6 * S, h: 0.34 * (i + 1), d: 0.36 })),
+      ...[[-0.42, -0.36], [0.42, -0.36], [-0.42, 0.36], [0.42, 0.36]].map(([dx, dz]) => ({ x: dx * S, y: 1.0 + ph / 2, z: mz + dz * S, w: 0.15 * S, h: ph, d: 0.15 * S })),
+      { x: 0, y: 1.0 + ph + 0.06 * S, z: mz, w: 1.05 * S, h: 0.12 * S, d: 0.95 * S },
+      // (and the stepped pyramid on it, tier by tier: on the roof he stands on the steps of it)
+      ...[0, 1, 2, 3].map((i) => ({ x: 0, y: 1.0 + ph + 0.12 * S + (i + 0.5) * 0.1 * S, z: mz, w: 0.95 * S * (1 - i * 0.2), h: 0.1 * S, d: 0.85 * S * (1 - i * 0.2) })),
     ],
     height: kTop,
   };

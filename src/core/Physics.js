@@ -12,20 +12,28 @@ const PEOPLE = 0x0002;
 const TREAD = 0x0004;
 const RAMP = 0x0008;
 const CAMONLY = 0x0010; // things only the camera bumps into (umbrella canopies: walk under, never look through)
+const PROP = 0x0020; // loose things that tumble (pots, lotas, baskets)
+const RAGDOLL = 0x0040; // the limbs of a fallen Asura
 const g = (member, filter) => ((member << 16) | filter) >>> 0;
 export const GROUPS = {
   people: g(PEOPLE, 0xffff),
   tread: g(TREAD, 0xffff),
   ramp: g(RAMP, 0xffff),
-  mover: g(0xffff, 0xffff & ~TREAD & ~CAMONLY), // the character controller: ramps, not treads
-  feet: g(0xffff, 0xffff & ~RAMP & ~CAMONLY), // rays that look for the real ground
-  ignorePeople: g(0xffff, 0xffff & ~PEOPLE & ~RAMP), // the camera
-  climb: g(0xffff, 0xffff & ~PEOPLE & ~RAMP & ~TREAD & ~CAMONLY), // ledges Prady can climb onto
+  mover: g(0xffff, 0xffff & ~TREAD & ~CAMONLY & ~RAGDOLL), // the character controller: ramps, not treads (and he walks through a falling body)
+  feet: g(0xffff, 0xffff & ~RAMP & ~CAMONLY & ~PROP & ~RAGDOLL), // rays that look for the real ground
+  ignorePeople: g(0xffff, 0xffff & ~PEOPLE & ~RAMP & ~PROP & ~RAGDOLL), // the camera
+  climb: g(0xffff, 0xffff & ~PEOPLE & ~RAMP & ~TREAD & ~CAMONLY & ~PROP & ~RAGDOLL), // ledges Prady can climb onto
   cameraOnly: g(CAMONLY, 0xffff),
+  // loose props and ragdolls: on the real treads (they tumble down steps), never the smooth ramps
+  prop: g(PROP, 0xffff & ~RAMP & ~CAMONLY),
+  ragdoll: g(RAGDOLL, 0xffff & ~RAMP & ~CAMONLY & ~PEOPLE & ~RAGDOLL),
   // the Asuras: walk on the ramps like Prady, but pass each other and the townsfolk (they
   // steer apart instead: a controller stepping onto another capsule stacks them up)
-  enemyMover: g(0xffff, 0xffff & ~TREAD & ~PEOPLE & ~CAMONLY),
-  enemyFeet: g(0xffff, 0xffff & ~RAMP & ~PEOPLE & ~CAMONLY),
+  enemyMover: g(0xffff, 0xffff & ~TREAD & ~PEOPLE & ~CAMONLY & ~RAGDOLL),
+  enemyFeet: g(0xffff, 0xffff & ~RAMP & ~PEOPLE & ~CAMONLY & ~PROP & ~RAGDOLL),
+  // thrown things (the trishul, a Pishacha's fire): stone, wood and walls, never the people
+  // (those are tested against their own shapes) or the camera's umbrella discs
+  missile: g(0xffff, 0xffff & ~PEOPLE & ~RAMP & ~CAMONLY & ~PROP & ~RAGDOLL),
 };
 
 export class Physics {
@@ -71,6 +79,23 @@ export class Physics {
     const desc = this.RAPIER.ColliderDesc.cylinder(height / 2, radius).setTranslation(cx, cy, cz).setCollisionGroups(GROUPS.cameraOnly);
     this.colliderCount++;
     return this.world.createCollider(desc, this.fixedBody);
+  }
+
+  /**
+   * A box the game moves itself (an animal on the ghats): a kinematic body, full sizes (w,h,d)
+   * centred at (cx,cy,cz). Move it every frame with setMover(); Prady walks into it like a wall.
+   */
+  addMover(cx, cy, cz, w, h, d, groups = GROUPS.people) {
+    const R = this.RAPIER;
+    const body = this.world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(cx, cy, cz));
+    const collider = this.world.createCollider(R.ColliderDesc.cuboid(w / 2, h / 2, d / 2).setCollisionGroups(groups), body);
+    this.colliderCount++;
+    return { body, collider };
+  }
+
+  setMover(m, x, y, z, yaw) {
+    m.body.setNextKinematicTranslation({ x, y, z });
+    m.body.setNextKinematicRotation(this._rot(yaw));
   }
 
   addTrimesh(vertices, indices) {

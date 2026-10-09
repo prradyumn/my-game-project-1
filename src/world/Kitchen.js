@@ -48,7 +48,7 @@ export class Kitchen {
     for (let i = 0; i < 4; i++) clay.box(1.7 + (i % 2 ? 0.5 : -0.5), 0.2, -0.2 + (i < 2 ? 0.3 : -0.3), 0.08, 0.4, 0.08, 0, C('#4a2c16'));
     for (let i = 0; i < 12; i++) cloth.cylinder(1.6, 0.46 + i * 0.012, -0.2, 0.22, 0.22, 0.01, 16, C(i % 2 ? '#3f7a2c' : '#4f8f36')); // banana-leaf plates
     // a tarp roof on bamboo poles
-    for (const [x, z] of [[-2.2, -1.1], [2.4, -1.1], [-2.2, 1.4], [2.4, 1.4]]) clay.cylinder(x, 1.35, z, 0.05, 0.05, 2.7, 6, C('#b39662'));
+    for (const [x, z] of [[-2.2, -1.1], [2.4, -1.1], [-2.2, 1.4], [2.4, 1.4]]) clay.cylinder(x, 0, z, 0.05, 0.05, z < 0 ? 2.78 : 2.48, 6, C('#b39662')); // ground to the sloping tarp
     cloth.quad([-2.4, 2.75, -1.25], [2.6, 2.75, -1.25], [2.6, 2.45, 1.55], [-2.4, 2.45, 1.55], [0, 0.99, 0.1], [[0, 0], [1, 0], [1, 1], [0, 1]], C('#1e5aa8'), C('#2a6fc0'));
     const mats = [
       [clay, makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }))],

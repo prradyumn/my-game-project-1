@@ -127,6 +127,7 @@ export class Missions {
     if (this.perks.breath) g.player.breathMax = 35 * 1.8;
     if (this.perks.purity) g.quest.purityBonus = 0.06;
     g.combat?.setHasSword(!!this.perks.sword);
+    g.siddhis?.apply(); // (the breath, with Ganga's Child)
   }
 
   available(def) {
@@ -214,6 +215,7 @@ export class Missions {
     this.applyPerks();
     this.g.ui.setPunya(this.punya);
     this.g.story?.onEvent('mission:done', { id: def.id });
+    this.g.achievements?.event('mission', { all: this.defs.every((d) => this.done.has(d.id)) });
     const finish = () => {
       this.cleanup(run);
       this.g.ui.toast(`${def.title} · complete`, `+${def.reward.punya} punya${def.reward.note ? ` · ${def.reward.note}` : ''}`, 5);
@@ -313,6 +315,10 @@ export class Missions {
     // the story's signs too (one marker pass for everything)
     for (const mk of this.g.story?.run?.marks || []) this.markers.add(mk.kind, mk.kind === 'giver' ? _v.set(mk.pos.x, (mk.pos.y ?? 0) + 2.35, mk.pos.z) : mk.pos, 1, 0.3);
     for (const mk of this.g.race?.marks || []) this.markers.add(mk.kind, mk.pos, 1, 0.5);
+    // a call for help nearby, and whatever the journal tracks
+    for (const mk of this.g.worldEvents?.marks || []) this.markers.add('objective', _v.set(mk.pos.x, (mk.pos.y ?? 0) + 2.3, mk.pos.z), 1, 0.7);
+    const T = this.g.tracker;
+    if (T) this.markers.add('objective', _v.set(T.x, T.y + 2.6, T.z), 1, 0.9);
     this.markers.end(dt);
     this.updateCompass();
   }
@@ -329,15 +335,20 @@ export class Missions {
         if (a && this.available(def)) list.push({ id: def.id, name: def.giver.name, kind: 'giver', pos: a });
       }
     }
+    for (const [i, mk] of (this.g.worldEvents?.marks || []).entries()) list.push({ id: `ev${i}`, name: 'A call for help', kind: 'event', pos: mk.pos });
+    if (this.g.tracker) list.push({ id: `track${this.g.tracker.label}`, name: this.g.tracker.label, kind: 'track', pos: this.g.tracker });
     // rebuild the compass marks only when the set changes; positions are live objects
     const key = list.map((m) => m.id + m.kind).join('|') + (run ? run.def.id : '');
-    const base = ui.compassMarks.filter((m) => m.kind !== 'mission' && m.kind !== 'giver');
+    const base = ui.compassMarks.filter((m) => m.kind !== 'mission' && m.kind !== 'giver' && m.kind !== 'event' && m.kind !== 'track');
     if (key !== this._compassKey) {
       this._compassKey = key;
       ui.setCompassMarkers([...base.map(({ el, ...m }) => m), ...list]);
     } else {
       const live = ui.compassMarks.filter((m) => m.kind === 'mission');
       live.forEach((m, i) => (m.pos = list[i]?.pos || m.pos));
+      const evs = ui.compassMarks.filter((m) => m.kind === 'event');
+      const lev = list.filter((m) => m.kind === 'event');
+      evs.forEach((m, i) => (m.pos = lev[i]?.pos || m.pos));
     }
   }
 }

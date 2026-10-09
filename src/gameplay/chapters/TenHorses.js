@@ -219,7 +219,7 @@ export default function tenHorses(game) {
           acharya(s);
           game.quest.forceAarti = true;
           game.checkpoint = spot('dashashwamedh', W * 0.5 + 6, 1, 0);
-          game.encounters.start({ ghat: 'dashashwamedh', u: W * 0.5, title: 'Dashashwamedh Ghat', waves: [{ n: 3, kind: 'shade' }, { n: 2, kind: 'shade' }, { n: 1, kind: 'brute' }], onWin: () => s.next() });
+          game.encounters.start({ ghat: 'dashashwamedh', u: W * 0.5, title: 'Dashashwamedh Ghat', waves: [{ n: 3, kind: 'shade' }, { mix: [{ n: 2, kind: 'shade' }, { n: 1, kind: 'pishacha' }] }, { kind: 'pishacha', mini: true, name: 'Agnimukha', title: 'the Fire-Mouth' }], onWin: () => s.next() });
         },
         update(s) {
           if (game.player.state === 'boat') s.state.text = 'Row back to the steps and fight! (E to step off the boat)';

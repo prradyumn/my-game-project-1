@@ -97,6 +97,7 @@ export function buildProps(layout, textures, physics, extraFlags = []) {
     wood.setTransform(null);
     gold.setTransform(null);
     physics.addBox(a.x, a.y + 0.45, a.z, 2.8, 0.9, 2.8, a.yaw);
+    physics.addCylinder(a.x, a.y + 0.95, a.z, 0.24, 1.5); // the brass lamp stand
     if (a.central) out.flameSites.dashashwamedh = { pos: new THREE.Vector3(a.x, a.y, a.z), lamps };
     else out.aartiLamps.push(...lamps);
     out.smokeSites.push({ pos: new THREE.Vector3(a.x, a.y + 1.2, a.z), kind: 'incense', aarti: true });
@@ -114,7 +115,9 @@ export function buildProps(layout, textures, physics, extraFlags = []) {
     gold.lathe(0, 3.21, 0, [[0.08, 0], [0.42, 0.12], [0.48, 0.22]], 16, new THREE.Color(1, 1, 1), { tile: 1 });
     stone.setTransform(null);
     gold.setTransform(null);
-    physics.addCylinder(f.x, f.y, f.z, 0.7, 3.4);
+    // the square base (a round collider left its corners for his feet to sink into), the column
+    physics.addBox(f.x, f.y + 0.3, f.z, 1.4, 0.6, 1.4, f.yaw);
+    physics.addCylinder(f.x, f.y + 0.6, f.z, 0.4, 2.8);
     out.flameSites[f.id] = { pos: new THREE.Vector3(f.x, f.y, f.z), lamps: [new THREE.Vector3(f.x, f.y + 3.36, f.z)] };
   }
 
@@ -140,7 +143,9 @@ export function buildProps(layout, textures, physics, extraFlags = []) {
     }
     gold.lathe(f.x, f.y + 1 + H, f.z, [[0.2, 0], [0.7, 0.2], [0.75, 0.35]], 16, new THREE.Color(1, 1, 1), { tile: 1 });
     lamps.push(new THREE.Vector3(f.x, f.y + H + 1.22, f.z));
-    physics.addCylinder(f.x, f.y, f.z, 1.6, H + 1);
+    // the square base, then the column with its rings of lamp ledges
+    physics.addBox(f.x, f.y + 0.5, f.z, 3.2, 1.0, 3.2, f.yaw);
+    physics.addCylinder(f.x, f.y + 1.0, f.z, 1.3, H);
     out.flameSites.panchganga = { pos: new THREE.Vector3(f.x, f.y, f.z), lamps };
   }
 

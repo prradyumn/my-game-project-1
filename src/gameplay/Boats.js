@@ -239,6 +239,47 @@ export class PlayerBoat {
         this.yawRate *= 0.7;
       }
     }
+    // --- the moored boats: hull against hull (three circles down each keel); the one struck rocks
+    if (this.moored) {
+      const mine = [-2.5, 0, 2.5].map((k) => ({ x: nx + f.x * k, z: nz + f.z * k }));
+      for (const sp of this.moored.spots) {
+        if (Math.abs(sp.x - nx) > 9 || Math.abs(sp.z - nz) > 9) continue;
+        const sf = { x: Math.sin(sp.yaw), z: Math.cos(sp.yaw) };
+        let px = 0;
+        let pz = 0;
+        let hits = 0;
+        for (const a of mine) {
+          for (const k of [-2.4, 0, 2.4]) {
+            const dx = a.x - (sp.x + sf.x * k);
+            const dz = a.z - (sp.z + sf.z * k);
+            const d = Math.hypot(dx, dz);
+            if (d < 2.0 && d > 1e-4) {
+              px += (dx / d) * (2.0 - d);
+              pz += (dz / d) * (2.0 - d);
+              hits++;
+            }
+          }
+        }
+        if (!hits) continue;
+        px /= hits;
+        pz /= hits;
+        const l = Math.hypot(px, pz) || 1;
+        nx += px;
+        nz += pz;
+        const vn = this.vx * (px / l) + this.vz * (pz / l);
+        if (vn < 0) {
+          this.vx -= 1.3 * vn * (px / l);
+          this.vz -= 1.3 * vn * (pz / l);
+          this.yawRate *= 0.6;
+          // the moored boat takes the knock: it rolls and heaves on its rope
+          const side = Math.sign((px / l) * sf.z - (pz / l) * sf.x) || 1;
+          sp.dyn.rollV += side * Math.min(0.9, -vn * 0.45);
+          sp.dyn.yV -= Math.min(0.35, -vn * 0.1);
+          this.dyn.rollV -= side * Math.min(0.4, -vn * 0.15);
+          if (-vn > 0.6) fx.bump?.(nx - px * 2, nz - pz * 2, -vn);
+        }
+      }
+    }
     this.x = clamp(nx, WORLD.xMin + 5, WORLD.xMax - 5);
     this.z = clamp(nz, WORLD.zMin, WORLD.zMax - 5);
 

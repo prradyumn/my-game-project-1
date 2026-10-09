@@ -36,6 +36,10 @@ export function asuraMaterial(src, uniforms, { scale = 1 } = {}) {
   });
   if (m.normalMap) m.normalScale.set(1.2, 1.2);
   m.userData.asura = true;
+  // (the vein colour is per body: ember for the shades, sea-fire for a Pishacha, bronze for a
+  // Kavacha, bone-blue for a Vetala; one program for all of them)
+  if (!uniforms.uVein) uniforms.uVein = { value: VEIN.clone() };
+  if (!uniforms.uSkin) uniforms.uSkin = { value: new THREE.Color(0.045, 0.03, 0.035) };
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.uniforms.uVeinScale = { value: 3.2 / scale };
@@ -46,7 +50,7 @@ export function asuraMaterial(src, uniforms, { scale = 1 } = {}) {
       .replace(
         '#include <common>',
         `#include <common>
-uniform float uDissolve; uniform float uHurt; uniform float uRage; uniform float uTime; uniform float uVeinScale; uniform float uFeetY; uniform float uHeadY; uniform float uGhost;
+uniform float uDissolve; uniform float uHurt; uniform float uRage; uniform float uTime; uniform float uVeinScale; uniform float uFeetY; uniform float uHeadY; uniform float uGhost; uniform vec3 uVein; uniform vec3 uSkin;
 varying vec3 vAPos; varying float vAY;
 ${noiseGLSL}`
       )
@@ -65,7 +69,7 @@ if (uGhost > 0.001 && fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711
         `#include <map_fragment>
 // keep the shape of the clothes / muscles, lose their colours
 float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-diffuseColor.rgb = vec3(0.045, 0.03, 0.035) * (0.6 + 0.8 * lum);`
+diffuseColor.rgb = uSkin * (0.6 + 0.8 * lum);`
       )
       .replace(
         '#include <emissivemap_fragment>',
@@ -79,8 +83,8 @@ diffuseColor.rgb = vec3(0.045, 0.03, 0.035) * (0.6 + 0.8 * lum);`
   float hot = 1.0 - smoothstep(0.0, 0.008, abs(n - 0.5));
   float breath = 0.6 + 0.4 * sin(uTime * 2.1 + n * 9.0);
   float v = (crack * mask + hot * mask * 1.5) * breath * (0.75 + uRage * 1.5);
-  totalEmissiveRadiance += vec3(${VEIN.r.toFixed(3)}, ${VEIN.g.toFixed(3)}, ${VEIN.b.toFixed(3)}) * v * (2.0 + uHurt * 7.0);
-  totalEmissiveRadiance += vec3(1.0, 0.85, 0.6) * uHurt * 0.35;
+  totalEmissiveRadiance += uVein * v * (2.0 + uHurt * 7.0);
+  totalEmissiveRadiance += vec3(1.0, 0.85, 0.6) * uHurt * uHurt * 0.2;
   // the dissolving edge glows
   if (uDissolve > 0.001) totalEmissiveRadiance += vec3(1.0, 0.45, 0.1) * (1.0 - smoothstep(0.0, 0.09, edge)) * 6.0;
 }`
@@ -162,8 +166,9 @@ export class AsuraParticles {
             vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv;
             float t = 1.0 - aLife / max(aMax, 0.001);
             vK = aKind;
-            vA = aLife > 0.0 ? (aKind < 0.5 ? smoothstep(0.0, 0.15, t) * (1.0 - t) * 0.55 : (1.0 - t)) : 0.0;
-            float s = aKind < 0.5 ? aSize * (0.6 + t * 1.6) : aSize;
+            // 0 smoke, 1 ember, 2 dust (kicked up off the stone: pale, quick, it spreads and settles)
+            vA = aLife > 0.0 ? (aKind < 0.5 ? smoothstep(0.0, 0.15, t) * (1.0 - t) * 0.55 : aKind > 1.5 ? smoothstep(0.0, 0.08, t) * pow(1.0 - t, 1.6) * 0.42 : (1.0 - t)) : 0.0;
+            float s = aKind < 0.5 ? aSize * (0.6 + t * 1.6) : aKind > 1.5 ? aSize * (0.5 + sqrt(t) * 1.8) : aSize;
             gl_PointSize = aLife > 0.0 ? clamp(s * 520.0 * uPixelRatio / max(-mv.z, 0.4), 1.0, 220.0 * uPixelRatio) : 0.0;
           }`,
         fragmentShader: /* glsl */ `
@@ -172,6 +177,7 @@ export class AsuraParticles {
             float d = length(gl_PointCoord - 0.5) * 2.0;
             float a = texture2D(uMap, gl_PointCoord).a * vA;
             if (vK < 0.5) { a *= smoothstep(1.0, 0.2, d); if (a < 0.01) discard; gl_FragColor = vec4(vec3(0.05, 0.03, 0.04) * uLight, a); }
+            else if (vK > 1.5) { a *= smoothstep(1.0, 0.15, d); if (a < 0.01) discard; gl_FragColor = vec4(vec3(0.62, 0.53, 0.42) * uLight, a); }
             else { float c = exp(-d * d * 5.0); if (c * vA < 0.02) discard; gl_FragColor = vec4(vec3(2.6, 0.9, 0.25) * c * vA, c * vA); }
           }`,
         transparent: true,
@@ -199,6 +205,15 @@ export class AsuraParticles {
     this._spawn(x + (Math.random() - 0.5) * 0.4 * scale, y, z + (Math.random() - 0.5) * 0.4 * scale, (Math.random() - 0.5) * 0.25, 0.55 + Math.random() * 0.4, (Math.random() - 0.5) * 0.25, 1.4 + Math.random(), 0, (0.22 + Math.random() * 0.2) * scale);
   }
 
+  /** Dust off the stone (a body hitting the ground, a pot landing): a low ring that spreads. */
+  emitDust(x, y, z, scale = 1, n = 6) {
+    for (let k = 0; k < n; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = (0.5 + Math.random() * 0.9) * scale;
+      this._spawn(x + Math.cos(a) * 0.15 * scale, y + 0.05, z + Math.sin(a) * 0.15 * scale, Math.cos(a) * s, 0.25 + Math.random() * 0.35, Math.sin(a) * s, 0.9 + Math.random() * 0.6, 2, (0.18 + Math.random() * 0.14) * scale);
+    }
+  }
+
   /** A spray of embers (a blow landing, a body burning away). */
   emitEmbers(x, y, z, n, dir = null, power = 1) {
     for (let k = 0; k < n; k++) {
@@ -222,7 +237,13 @@ export class AsuraParticles {
       alive++;
       const k = this.kind[i];
       const j = i * 3;
-      if (k > 0.5) this.vel[j + 1] -= 7.5 * dt; // embers fall
+      if (k > 1.5) {
+        // dust: spreads fast, slows at once, hangs and settles
+        const f = 1 - Math.min(1, dt * 3.2);
+        this.vel[j] *= f;
+        this.vel[j + 1] *= f;
+        this.vel[j + 2] *= f;
+      } else if (k > 0.5) this.vel[j + 1] -= 7.5 * dt; // embers fall
       else {
         this.vel[j] *= 1 - dt * 0.5;
         this.vel[j + 2] *= 1 - dt * 0.5;
@@ -247,17 +268,25 @@ export class AsuraEyes {
     const g = new THREE.BufferGeometry();
     this.pos = new Float32Array(n * 3);
     this.glow = new Float32Array(n);
+    this.warn = new Float32Array(n); // 0..1: the flare before a blow (its colour: uWarnColor)
+    this.tint = new Float32Array(n * 3).fill(1);
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('aGlow', new THREE.BufferAttribute(this.glow, 1).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aWarn', new THREE.BufferAttribute(this.warn, 1).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aTint', new THREE.BufferAttribute(this.tint, 3).setUsage(THREE.DynamicDrawUsage));
+    // the warning flare: ember-white, or (accessibility) an electric blue that no colour
+    // blindness confuses with the coal-red eyes
+    this.uniforms = { uPixelRatio: { value: 1 }, uWarnColor: { value: new THREE.Color(3.0, 1.6, 0.6) } };
     this.points = new THREE.Points(
       g,
       new THREE.ShaderMaterial({
-        uniforms: { uPixelRatio: { value: 1 } },
-        vertexShader: /* glsl */ `attribute float aGlow; uniform float uPixelRatio; varying float vG;
-          void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; vG = aGlow;
+        uniforms: this.uniforms,
+        vertexShader: /* glsl */ `attribute float aGlow; attribute float aWarn; attribute vec3 aTint; uniform float uPixelRatio; varying float vG; varying float vW; varying vec3 vT;
+          void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; vG = aGlow; vW = aWarn; vT = aTint;
             gl_PointSize = aGlow > 0.0 ? clamp(aGlow * 0.09 * 600.0 * uPixelRatio / max(-mv.z, 0.4), 2.0, 40.0 * uPixelRatio) : 0.0; }`,
-        fragmentShader: /* glsl */ `varying float vG; void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = exp(-d * d * 6.0) * min(vG, 1.5); if (a < 0.02) discard;
-          gl_FragColor = vec4(vec3(3.0, 0.9, 0.3) * a + vec3(1.0) * pow(a, 4.0), a); }`,
+        fragmentShader: /* glsl */ `uniform vec3 uWarnColor; varying float vG; varying float vW; varying vec3 vT; void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = exp(-d * d * 6.0) * min(vG, 1.5); if (a < 0.02) discard;
+          vec3 base = vec3(3.0, 0.9, 0.3) * vT;
+          gl_FragColor = vec4(mix(base, uWarnColor, vW) * a + vec3(1.0) * pow(a, 4.0), a); }`,
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
@@ -272,10 +301,19 @@ export class AsuraEyes {
     this.count = 0;
   }
 
-  add(p, glow) {
+  add(p, glow, warn = 0, tint = null) {
     if (this.count >= this.n) return;
-    this.pos.set([p.x, p.y, p.z], this.count * 3);
-    this.glow[this.count++] = glow;
+    const i = this.count++;
+    this.pos.set([p.x, p.y, p.z], i * 3);
+    this.glow[i] = glow;
+    this.warn[i] = warn;
+    if (tint) this.tint.set(tint, i * 3);
+    else this.tint.fill(1, i * 3, i * 3 + 3);
+  }
+
+  /** 'ember' | 'blue' (Settings: the warning flare's colour). */
+  setWarnColor(kind) {
+    this.uniforms.uWarnColor.value.set(...(kind === 'blue' ? [0.5, 1.6, 3.4] : [3.0, 1.6, 0.6]));
   }
 
   end(pixelRatio) {
@@ -283,6 +321,8 @@ export class AsuraEyes {
     this.points.material.uniforms.uPixelRatio.value = pixelRatio;
     this.points.geometry.attributes.position.needsUpdate = true;
     this.points.geometry.attributes.aGlow.needsUpdate = true;
+    this.points.geometry.attributes.aWarn.needsUpdate = true;
+    this.points.geometry.attributes.aTint.needsUpdate = true;
     this.points.visible = this.count > 0;
   }
 }

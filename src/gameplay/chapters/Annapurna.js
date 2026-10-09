@@ -3,6 +3,7 @@ import { NAMED_SHOPS } from '../../world/Galis.js';
 import { ledge } from '../missions/places.js';
 import { lines } from './lines.js';
 import { faceTo, fromRiver, ghatById, place, spot, twoShot } from './kit.js';
+import { bankCoords } from '../../world/WorldLayout.js';
 
 // Chapter II · Annapurna's Kitchen (Kedar Ghat). Kashi is Annapurna's city, and the bhandara
 // at Kedar has gone cold since the flame went dark. Amma sends Prady up into the galis for rice,
@@ -265,6 +266,42 @@ export default function annapurna(game) {
         },
         stop() {
           carry(false);
+        },
+      },
+      {
+        // the hunger that is never fed: a shielded champion of the dark rises to the smell of the
+        // khichdi (Asuras.js mini-boss: break its guard with a heavy cut or a kick, or go round it)
+        id: 'hunger',
+        title: 'The hunger that is never fed',
+        text: 'Something rises out of the river to the smell of the khichdi. Defend Amma’s kitchen!',
+        prep(g) {
+          g.kitchen.setCooking(true);
+          g.sky.setHours(13);
+          g.combat.setHasSword(true);
+          g.missions.perks.sword = true;
+          place(g, nearKitchen(), K().pos);
+        },
+        start(s) {
+          amma(s);
+          K().setCooking(true);
+          game.checkpoint = { ...nearKitchen() };
+          const u = bankCoords(K().pos.x, K().pos.z).u;
+          game.ui.subtitle('Amma: “Beta… the river. Something is coming up the steps.”', 4);
+          game.after(2.5, () =>
+            game.encounters.start({
+              ghat: 'kedar',
+              u,
+              title: 'Kedar Ghat',
+              waves: [{ n: 2, kind: 'shade' }, { kind: 'kavacha', mini: true, name: 'Mahodara', title: 'the Bottomless Belly' }],
+              onWin: () => {
+                game.ui.subtitle('Amma: “Go, beta. Light Kedareshwar’s flame. No hunger crosses a lit ghat.”', 4.5);
+                s.next();
+              },
+            })
+          );
+        },
+        stop() {
+          if (game.encounters.cur?.def.ghat === 'kedar') game.encounters.clear();
         },
       },
       {

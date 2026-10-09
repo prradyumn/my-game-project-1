@@ -226,6 +226,7 @@ export class Water {
     this.textureMatrix = new THREE.Matrix4();
     this.virtualCamera = new THREE.PerspectiveCamera();
     this.reflectionRT = null;
+    this.noReflect = []; // objects the mirror skips (skipInReflection)
 
     const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog]);
     Object.assign(uniforms, {
@@ -491,6 +492,12 @@ export class Water {
 
     this.near.visible = false;
     this.far.visible = false;
+    // (the small things never read in a quarter-resolution mirror under ripples: props, stalls,
+    // the saris and kites, ladders, the animals. Skipping them halves the pass's draw calls)
+    for (const o of this.noReflect) {
+      o.userData.rv = o.visible;
+      o.visible = false;
+    }
     const prevTarget = r.getRenderTarget();
     const prevShadow = r.shadowMap.autoUpdate;
     r.shadowMap.autoUpdate = false;
@@ -501,6 +508,12 @@ export class Water {
     r.shadowMap.autoUpdate = prevShadow;
     this.near.visible = true;
     this.far.visible = true;
+    for (const o of this.noReflect) o.visible = o.userData.rv;
+  }
+
+  /** Leave these out of the mirror (small things: they cost draw calls and never read in it). */
+  skipInReflection(...objs) {
+    for (const o of objs) if (o && !this.noReflect.includes(o)) this.noReflect.push(o);
   }
 }
 

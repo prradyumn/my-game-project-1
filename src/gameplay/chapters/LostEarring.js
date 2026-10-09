@@ -171,7 +171,7 @@ export default function lostEarring(game) {
             s.state.begun = true;
             game.voice('ch4/ambush');
             game.ui.subtitle('Kallu: “They followed you up out of the water! Fight, boy! The fires are with you!”', 4.5);
-            game.encounters.start({ ghat: 'scindia', u: 16, title: 'Scindia Ghat', waves: [{ n: 3, kind: 'shade' }, { n: 1, kind: 'brute' }, { n: 2, kind: 'shade' }], onWin: () => s.next() });
+            game.encounters.start({ ghat: 'scindia', u: 16, title: 'Scindia Ghat', waves: [{ n: 3, kind: 'shade' }, { mix: [{ n: 1, kind: 'kavacha' }, { n: 1, kind: 'shade' }] }, { kind: 'vetala', mini: true, name: 'Vetala', title: 'the Corpse-Rider of Manikarnika' }], onWin: () => s.next() });
           }
         },
         stop() {
