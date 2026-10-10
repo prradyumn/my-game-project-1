@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GROUPS } from '../core/Physics.js';
 import { RNG } from '../utils/math.js';
 import { GHAT_SEGMENTS, LANDING_2, ghatToWorld } from './WorldLayout.js';
-import { makeWaterAware } from './materials.js';
+import { makeWaterAware, shiny } from './materials.js';
 
 // Loose things on the ghats that obey physics: clay matkas beside the takhts, brass lotas on
 // them, flower sellers' baskets of marigolds. Prady (and an Asura) walking or rolling into one
@@ -86,7 +86,7 @@ export class PhysicsProps {
     this.props = [];
     this.place();
     const mat = makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }), { puddles: false });
-    const brass = makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.85 }), { puddles: false });
+    const brass = shiny(makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.85 }), { puddles: false }));
     const geos = { matka: matkaGeometry(), lota: lotaGeometry(), basket: basketGeometry() };
     this.meshes = {};
     for (const k of Object.keys(KINDS)) {

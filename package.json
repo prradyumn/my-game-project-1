@@ -10,6 +10,7 @@
     "@dimforge/rapier3d-compat": "^0.21.0",
     "n8ao": "^2.0.1",
     "postprocessing": "^6.39.5",
+    "recast-navigation": "0.43.1",
     "three": "^0.186.1"
   },
   "type": "module",
@@ -21,6 +22,7 @@
     "bake:mocap": "node tools/bake-mocap.mjs",
     "texture": "node tools/gemini-image.mjs",
     "bake:people": "node tools/bake-people.mjs",
-    "video:intro": "node tools/intro-video.mjs"
+    "video:intro": "node tools/intro-video.mjs",
+    "bake:nav": "node tools/bake-navmesh.mjs"
   }
 }

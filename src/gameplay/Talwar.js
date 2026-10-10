@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { shiny } from '../world/materials.js';
 
 // Prady's talwar: a curved Indian sabre with the disc pommel and the short langets of the
 // classic hilt, in a red velvet scabbard at his left hip. Built in code (a few hundred
@@ -70,7 +71,7 @@ export function makeTalwar() {
     colored(new THREE.SphereGeometry(0.013, 8, 6).translate(-0.078, 0.005, 0), gold),
     colored(new THREE.BoxGeometry(0.012, 0.05, 0.03).translate(0, 0.035, 0.004), gold), // langets on the blade
   ];
-  const sword = new THREE.Mesh(mergeGeometries([steel, ...hilt]), new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.95, roughness: 0.22, envMapIntensity: 1.3 }));
+  const sword = new THREE.Mesh(mergeGeometries([steel, ...hilt]), shiny(new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.95, roughness: 0.22 })));
   sword.castShadow = true;
   sword.name = 'talwar';
 

@@ -79,6 +79,15 @@ float wCaustic(vec2 p, float t) {
 // Occluders that step aside for the camera: a prop (a straw umbrella) that sits right at the
 // lens, or between the lens and Prady (or the enemy he's locked on to), dithers almost away,
 // a whole instance at a time. Its shadow stays. Game feeds the focus points every frame.
+// Metals (brass lamps, the gold kalash, the talwar's steel) see the sky's reflection at their own
+// strength: the scene's environment is kept dim for stone and skin, which left brass reading as
+// yellow plastic. SkySystem gives every material registered here the sky's map, ~3x as strong.
+export const METALS = new Set();
+export function shiny(material) {
+  METALS.add(material);
+  return material;
+}
+
 export const OCCLUDE = {
   uFocusA: { value: new THREE.Vector3(0, -999, 0) },
   uFocusB: { value: new THREE.Vector3(0, -999, 0) },
@@ -198,6 +207,19 @@ export function makeWaterAware(material, { caustics = true, wetness = true, pudd
         roughnessFactor = mix(roughnessFactor, 0.04, wPuddle);`
       )
       .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+        // specular anti-aliasing (geometric, after Tokuyoshi & Kaplanyan): where the surface's
+        // normal turns faster than a pixel can show (fine relief at a distance, a step's edge, a
+        // wet puddle's rim) the highlight is widened instead of sparkling from frame to frame
+        {
+          vec3 ndu = dFdx(normal);
+          vec3 ndv = dFdy(normal);
+          float kernel = min(0.5 * (dot(ndu, ndu) + dot(ndv, ndv)), 0.2);
+          roughnessFactor = sqrt(clamp(roughnessFactor * roughnessFactor + kernel, 0.0, 1.0));
+        }`
+      )
+      .replace(
         '#include <opaque_fragment>',
         `// warm light from the diyas and lamps (baked map, falls off with height above the lamps)
         if (uNightLight > 0.001) {
@@ -229,6 +251,7 @@ export function surfaceMaterial(set, { tint = 0xffffff, normalScale = 1, roughne
     map: set.map,
     normalMap: set.normalMap,
     roughnessMap: set.roughnessMap,
+    aoMap: set.aoMap || null, // (a real set's own crevices)
     normalScale: new THREE.Vector2(normalScale, normalScale),
     roughness,
     metalness,

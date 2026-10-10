@@ -1,0 +1,33 @@
+{
+ "signature": "2236:-6832665",
+ "config": {
+  "cs": 0.25,
+  "ch": 0.05,
+  "tileSize": 64,
+  "walkableSlopeAngle": 50,
+  "walkableHeight": 34,
+  "walkableClimb": 8,
+  "walkableRadius": 2,
+  "maxEdgeLen": 48,
+  "maxSimplificationError": 1.3,
+  "minRegionArea": 16,
+  "mergeRegionArea": 40,
+  "maxVertsPerPoly": 6,
+  "detailSampleDist": 6,
+  "detailSampleMaxError": 1
+ },
+ "bounds": [
+  [
+   -465,
+   -0.5,
+   -175
+  ],
+  [
+   465,
+   16,
+   60
+  ]
+ ],
+ "dry": 0.25,
+ "baked": "2026-10-09T15:41:26.591Z"
+}

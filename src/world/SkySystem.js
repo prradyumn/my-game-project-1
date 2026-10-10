@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { METALS } from './materials.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { TIME } from '../config.js';
 import { lerp, smoothstep } from '../utils/math.js';
@@ -111,7 +112,9 @@ export class SkySystem {
       fragmentShader: /* glsl */ `
         uniform float uOpacity; varying float vTw;
         void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.0, d);
-          gl_FragColor = vec4(vec3(1.0, 0.97, 0.9) * 2.0, a * uOpacity * vTw); }`,
+          gl_FragColor = vec4(vec3(1.0, 0.97, 0.9) * 0.85, a * uOpacity * vTw); }`,
+      // (0.85, under the bloom's threshold: at 2.0 every star bloomed into a soft disc and the
+      // night sky read as falling snow)
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -247,6 +250,16 @@ export class SkySystem {
       this.envRT = this.pmrem.fromScene(this.envScene, 0, 0.1, 100);
       this.scene.environment = this.envRT.texture;
       if (old) old.dispose();
+    }
+    // the metals: the same sky, reflected as metal reflects it (materials.js METALS)
+    const env = this.scene.environment;
+    const metalK = this.scene.environmentIntensity * 3.3;
+    for (const m of METALS) {
+      if (m.envMap !== env) {
+        if (!m.envMap) m.needsUpdate = true; // (first time: the shader gains its envmap)
+        m.envMap = env;
+      }
+      m.envMapIntensity = metalK;
     }
   }
 

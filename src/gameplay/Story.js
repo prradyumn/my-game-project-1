@@ -127,7 +127,9 @@ export class Story {
     const c = this.chapter;
     if (!c) return;
     if (!quiet && step === 0) {
-      this.g.ui.chapterCard(ROMAN[c.num], c.title, c.legend);
+      // a new chapter opens on its place (from the river, the score swelling), or on its card
+      const at = c.num > 1 && this.g.quest.flames.find((f) => f.id === c.flame)?.pos;
+      if (!at || !this.g.establishing?.chapter(at, `Chapter ${ROMAN[c.num]}`, c.title, c.legend)) this.g.ui.chapterCard(ROMAN[c.num], c.title, c.legend);
       this.g.audio.play('title-shimmer', { volume: 0.7 });
     }
     this.start(c, step);

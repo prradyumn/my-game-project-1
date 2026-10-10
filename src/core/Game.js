@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DEFAULT_SETTINGS, DIFFICULTY, FAR_BANK_V, PLAYER, SACRED_FLAMES, SHAKTI } from '../config.js';
+import { DEFAULT_SETTINGS, DIFFICULTY, FAR_BANK_V, GHATS, PLAYER, SACRED_FLAMES, SHAKTI } from '../config.js';
 import { ASSET_MANIFEST, Assets } from './Assets.js';
 import { AudioManager } from './AudioManager.js';
 import { ACTIONS, Input, keyName } from './Input.js';
@@ -18,6 +18,8 @@ import { Health } from '../gameplay/Health.js';
 import { AsuraSystem } from '../gameplay/Asuras.js';
 import { Encounters } from '../gameplay/Encounters.js';
 import { BattleMusic } from '../gameplay/BattleMusic.js';
+import { Score } from '../gameplay/Score.js';
+import { Establishing } from '../gameplay/Establishing.js';
 import { Oars } from '../gameplay/Oars.js';
 import { PhysicsProps, synthBrassClang, synthClayBreak, synthClayKnock, synthWicker } from '../world/PhysicsProps.js';
 import { BoatRace } from '../gameplay/BoatRace.js';
@@ -41,7 +43,7 @@ import { TestMenu } from '../gameplay/TestMenu.js';
 import { Story } from '../gameplay/Story.js';
 import { Quest } from '../gameplay/Quest.js';
 import { UI } from '../ui/UI.js';
-import { makeSurfaceSet, proceduralSurface } from '../utils/textures.js';
+import { makeSurfaceSet, pbrSet, proceduralSurface } from '../utils/textures.js';
 import { lerp } from '../utils/math.js';
 import { PHOTO_FILTERS, applyGrade } from './Grading.js';
 import { playIntro } from '../ui/IntroVideo.js';
@@ -53,6 +55,8 @@ import { NightScene } from '../world/Night.js';
 import { Birds, FloatingDiyas, GroundPigeons } from '../world/Life.js';
 import { Crowd } from '../world/Crowd.js';
 import { Animals } from '../world/Animals.js';
+import { Navigation } from '../world/NavMesh.js';
+import { Barks } from '../world/Barks.js';
 import { SkySystem } from '../world/SkySystem.js';
 import { Mist } from '../world/Mist.js';
 import { Wake } from '../world/Wake.js';
@@ -107,11 +111,12 @@ export class Game {
     this.worldState = {
       shrines: new Set(),
       serialize() {
-        return { shrines: [...this.shrines], raceBest: game.race?.serialize() ?? null };
+        return { shrines: [...this.shrines], raceBest: game.race?.serialize() ?? null, places: game.establishing?.serialize() };
       },
       restore(d) {
         this.shrines = new Set(d?.shrines || []);
         game.race?.restore(d?.raceBest);
+        game.establishing?.restore(d?.places);
       },
     };
     this.timeScale = 1; // slow motion (a perfect parry, a fall)
@@ -142,9 +147,11 @@ export class Game {
     const pClips = Object.fromEntries(Object.entries(M.character.clips).map(([k, url]) => [k, assets.gltfAsync(url)]));
     const pMocap = assets.track(fetch(M.character.mocap).then((r) => (r.ok ? r.json() : null)));
     const pMoves = M.character.moves ? assets.track(fetch(M.character.moves).then((r) => (r.ok ? r.json() : null))) : null;
+    const pMoves2 = M.character.moves2 ? assets.track(fetch(M.character.moves2).then((r) => (r.ok ? r.json() : null))) : null;
     const pBoat = assets.gltfAsync(M.boat);
     const pBoatLod = assets.gltfAsync(M.boatLod);
     const pTex = Object.fromEntries(Object.entries(M.textures).map(([k, url]) => [k, assets.image(url)]));
+    const pPbr = Object.fromEntries(Object.entries(M.pbr || {}).map(([k, s]) => [k, Promise.all([assets.image(s.map), assets.image(s.normal), assets.image(s.arm)])]));
     this.audio = new AudioManager();
     const pAudio = Object.entries(M.audio).map(([k, url]) => assets.audioBuffer(url).then((ab) => this.audio.setRaw(k, ab)));
     const physics = await Physics.create();
@@ -170,7 +177,10 @@ export class Game {
       const img = await p;
       ui.setLoading(0.78, 'Weathering the sandstone…');
       const strength = { sand: 4, carving: 6, wood: 3.5, straw: 3.5 }[k] ?? 3;
-      textures[k] = img ? makeSurfaceSet(img, { normalStrength: strength, roughness: k === 'plaster' ? [0.8, 0.98] : [0.7, 0.95] }) : proceduralSurface(k);
+      // a real PBR set where there is one (Poly Haven), else the photo made into a set
+      const pbr = pPbr[k] ? await pPbr[k] : null;
+      if (pbr && pbr.every(Boolean)) textures[k] = pbrSet(pbr, M.pbr[k]);
+      else textures[k] = img ? makeSurfaceSet(img, { normalStrength: strength, roughness: k === 'plaster' ? [0.8, 0.98] : [0.7, 0.95] }) : proceduralSurface(k);
       for (const t of Object.values(textures[k])) t.anisotropy = renderer.capabilities.getMaxAnisotropy();
     }
 
@@ -179,6 +189,7 @@ export class Game {
     this.sky = new SkySystem(renderer, scene, this.rs.quality);
     this.sky.timeSpeed = this.settings.timeSpeed;
     this.world = buildWorld(scene, textures, physics);
+    this.nav = new Navigation();
     this.water = new Water(renderer, scene, this.rs.quality);
 
     ui.setLoading(0.88, 'Lighting the lamps…');
@@ -244,6 +255,8 @@ export class Game {
     // the traversal moves (vault, scramble, ladder) from their own file
     const moves = await pMoves;
     for (const j of moves?.clips || []) clips[j.name] = THREE.AnimationClip.parse(j);
+    const moves2 = await pMoves2;
+    for (const j of moves2?.clips || []) clips[j.name] = THREE.AnimationClip.parse(j);
     for (const [k, p] of Object.entries(pClips)) {
       const g = await p;
       if (!clips[k] && g?.animations?.length) {
@@ -344,6 +357,9 @@ export class Game {
     this.asuras = new AsuraSystem(this);
     this.encounters = new Encounters(this);
     this.battleMusic = new BattleMusic(this);
+    this.score = new Score(this);
+    this.barks = new Barks(this);
+    this.establishing = new Establishing(this);
     this.race = new BoatRace(this);
     this.riverAarti = new RiverAarti(this);
     this.audio.synth('ember-hiss', synthEmberHiss);
@@ -494,6 +510,8 @@ export class Game {
     this.state = 'title';
     this.loop();
     this.crowd?.load(assets.gltf);
+    // where things can walk: once every static collider exists (the navmesh is checked against them)
+    this.nav.load(this.physics);
   }
 
   buildCharacter(gltf, clips) {
@@ -697,7 +715,6 @@ export class Game {
     this.ui.hideTitle();
     this.rs.rest(150); // the first seconds stream in shaders and textures: not a reason to drop resolution
     this.loops = {
-      music: this.audio.loop('music', { channel: 'music', volume: 1 }),
       river: this.audio.loop('river', { volume: 0.5 }),
       aarti: this.audio.loop('aartiAmbience', { volume: 0, at: this.quest.flames.find((f) => f.id === 'dashashwamedh').pos, ref: 25 }),
       underwater: this.audio.loop('underwater', { volume: 0 }),
@@ -706,7 +723,10 @@ export class Game {
       rain: this.audio.loop('rain', { volume: 0 }),
       crowd: this.audio.loop('crowd', { volume: 0 }),
     };
-    // the battle music: fetched once the city is up, decoded off the main thread
+    // the score (the hours' ragas, the tension, the reveal) and the battle music: fetched once the
+    // city is up, decoded off the main thread
+    this.after(3, () => this.score.prefetch());
+    this.after(5, () => this.barks.load());
     this.after(6, () => this.battleMusic.prefetch());
     // the mirror on the river skips the small things (Water.renderReflection): props, stalls,
     // the saris and kites, the ladders, the rooftop tanks
@@ -875,6 +895,22 @@ export class Game {
     T.add(R, 'Vaults on the landing', 'Run at a takht or a railing on Dashashwamedh’s first landing', (g) => {
       g.sky.setHours(10);
       g.testMenu.placeOnGhat('dashashwamedh', 20, 1, 0);
+    });
+    const E = 'Establishing shots';
+    for (const name of ['Dashashwamedh Ghat', 'Manikarnika Ghat', 'Assi Ghat', 'Panchganga Ghat', 'Mother Ganga', 'The Lanes of Kashi']) {
+      T.add(E, name, 'The first-visit shot of this place (played once per journey in a real game)', (g) => {
+        g.sky.setHours(name === 'Mother Ganga' ? 17.5 : 7.5);
+        const seg = GHATS.find((x) => x.name === name);
+        if (seg) g.testMenu.placeOnGhat(seg.id, 30, 1, 0);
+        else if (name === 'The Lanes of Kashi') g.testMenu.place(42, 10.6, -62, 0);
+        g.after(1.2, () => g.establishing.play(name));
+      });
+    }
+    T.add(R, 'Wall run to a ledge', 'Kaal Bhairav’s compound wall: Shift + W at it, Space to run up; A / D shimmy, W climbs over, S lets go', (g) => {
+      g.sky.setHours(10);
+      const P = g.bhairav.L(4.5, 0, 5);
+      const W = g.bhairav.L(4.5, 0, 0);
+      g.testMenu.place(P.x, P.y, P.z, Math.atan2(W.x - P.x, W.z - P.z));
     });
     const W = 'Calls for help';
     const ev = (kind, label, sub, place, hours) =>
@@ -1252,6 +1288,9 @@ export class Game {
     if (!paused) this.race.update(simDt);
     if (!paused) this.looseProps.update(simDt);
     if (!paused) this.riverAarti.update(simDt);
+    this.score.update(Math.min(dt, 0.1));
+    if (!paused) this.barks.update(simDt);
+    if (!paused && !this.testSession) this.establishing.update(simDt);
     this.battleMusic.update(Math.min(dt, 0.1));
     this.asuras.update(simDt, { pixelRatio: pr, light });
     this.projectiles.update(simDt, pr);
@@ -1418,6 +1457,7 @@ export class Game {
 
   // ---------------------------------------------------------------- combat events
   onCombatEvent(type, data) {
+    if ((type === 'hit' && data.enemy) || type === 'hurt') this.score.hitAt = this.health.time;
     if (type === 'noSword') this.ui.toast('No sword yet', 'The guru of Tulsi Akhara keeps a talwar for those who train.', 3);
     if (type === 'hit' && data.enemy) {
       this.powers.gain(SHAKTI.hit * (data.k || 1) * (data.riposte ? 2 : 1));
@@ -1805,6 +1845,8 @@ export class Game {
     else if (v > -6 && seg) name = seg.name;
     else if (v < -10) name = 'The Lanes of Kashi';
     if (name && !this.race?.active) this.ui.showRegion(name);
+    this.score.region(name);
+    if (!this.testSession) this.establishing.arrive(name);
   }
 
   updateAmbience(under) {

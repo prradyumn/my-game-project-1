@@ -5,7 +5,7 @@ import { ASSET_MANIFEST } from '../core/Assets.js';
 // few seconds after the game begins (not needed at the title), start from their first bar each
 // fight, and are stopped once they have faded out so the next fight starts on the downbeat.
 //
-//   Encounters.music (0..1) says how much fight there is; this mixes it.
+//   Score.fight (0..1: an Asura on him) says how much fight there is; this mixes it.
 
 const FIGHT_VOL = 0.95;
 const BOSS_VOL = 1.0;
@@ -41,7 +41,7 @@ export class BattleMusic {
     const g = this.g;
     if (!g.audio.ctx) return;
     // a fight, or the boat race (the dhol and sitar suit a race down the river too)
-    const level = Math.max(g.encounters.music, g.race?.music ?? 0);
+    const level = Math.max(g.score ? g.score.fight : g.encounters.music, g.race?.music ?? 0);
     const bossUp = g.asuras.list.some((a) => a.alive && a.kind === 'boss');
     this.boss += ((bossUp ? 1 : 0) - this.boss) * Math.min(1, dt * (bossUp ? 0.8 : 0.4));
     const want = { fight: level * (1 - this.boss) * FIGHT_VOL, boss: level * this.boss * BOSS_VOL };
@@ -51,8 +51,6 @@ export class BattleMusic {
       else if (!g.audio.buffers[`battle-${k}`] && want[k] > 0) this.prefetch();
       h?.setVolume(want[k], 0.25);
     }
-    // the calm river music steps back while there is fighting
-    g.loops?.music?.setVolume(1 - 0.92 * level, 0.3);
     // once both have been silent a while, stop them (the next fight starts from the top)
     this.quiet = want.fight + want.boss < 0.01 ? this.quiet + dt : 0;
     if (this.quiet > 2.5 && (this.h.fight || this.h.boss)) this.stopAll(0.2);

@@ -1,0 +1,6 @@
+Poly Haven textures (CC0 1.0 — public domain, no attribution required; credited with thanks):
+  sandstone_blocks_08      Rob Tuytel        https://polyhaven.com/a/sandstone_blocks_08
+  white_rough_plaster      (see page)        https://polyhaven.com/a/white_rough_plaster
+  weathered_brown_planks   (see page)        https://polyhaven.com/a/weathered_brown_planks
+Used at 1K (diff, nor_gl, arm) in public/assets/textures/pbr/.
+https://polyhaven.com/license

@@ -124,6 +124,40 @@ function makePose(clip, phase, name) {
   return new THREE.AnimationClip(name, 1, tracks);
 }
 
+/**
+ * A held pose that breathes: the clip's pose at phase a eased to its pose at phase b and back over
+ * `period` seconds. A stance cut from a few tenths of a second of motion capture (a fighter's pause
+ * before the first blow) jiggles when looped as it is: the actor never stands still, so the loop
+ * replays his twitch twice a second. Two poses a moment apart, blended slowly, read as breath.
+ */
+function makeBreath(clip, a, b, period, name) {
+  const N = 12;
+  const tracks = [];
+  for (const t of clip.tracks) {
+    const interp = t.createInterpolant();
+    const at = (ph) => Array.from(interp.evaluate(t.times[0] + (t.times[t.times.length - 1] - t.times[0]) * ph));
+    const va = at(a);
+    const vb = at(b);
+    const times = [];
+    const values = [];
+    const quat = t.ValueTypeName === 'quaternion';
+    for (let i = 0; i <= N; i++) {
+      const k = (1 - Math.cos((i / N) * Math.PI * 2)) / 2;
+      let v = va.map((x, j) => x + (vb[j] - x) * k);
+      if (quat) {
+        const l = Math.hypot(...v) || 1;
+        v = v.map((x) => x / l);
+      }
+      times.push((i / N) * period);
+      values.push(...v);
+    }
+    tracks.push(new t.constructor(t.name, times, values));
+  }
+  return new THREE.AnimationClip(name, period, tracks);
+}
+// the short-sliced holds: [from phase, to phase, seconds a breath]
+const BREATHE = { swordStance: [0.35, 0.6, 3.6], guard: [0.3, 0.6, 3.2], pranam: [0.3, 0.7, 4.5], meditate: [0.3, 0.7, 5] };
+
 export class CharacterAnimator {
   /**
    * @param root   the character's scene root (contains the SkinnedMesh); must already be a
@@ -164,9 +198,11 @@ export class CharacterAnimator {
     // sitting down to meditate, stepping up, the dive take-off. One plays at a time; switching
     // crossfades. See play() / stop().
     this.clipActions = {};
-    for (const k of ['wave', 'stretch', 'lookAround', 'pranam', 'meditate', 'sitToStand', 'crouchReach', 'stepUp', 'diveTakeoff', 'guard', 'oneTwo', 'bodyShot', 'frontKick', 'roundKick', 'thrust', 'parry', 'swordStance', 'slashA', 'slashB', 'heavyCut', 'dodgeRoll', 'dodgeBack', 'knockdown', 'getUp', 'death', 'hitLight', 'hitHeavy', 'vault', 'scramble', 'ladder']) {
-      if (clips[k]) this.clipActions[k] = this.mixer.clipAction(clips[k]);
+    for (const k of ['wave', 'stretch', 'lookAround', 'pranam', 'meditate', 'sitToStand', 'crouchReach', 'stepUp', 'diveTakeoff', 'guard', 'oneTwo', 'bodyShot', 'frontKick', 'roundKick', 'thrust', 'parry', 'swordStance', 'slashA', 'slashB', 'heavyCut', 'dodgeRoll', 'dodgeBack', 'knockdown', 'getUp', 'death', 'hitLight', 'hitHeavy', 'vault', 'scramble', 'ladder', 'hang']) {
+      if (clips[k]) this.clipActions[k] = this.mixer.clipAction(BREATHE[k] ? makeBreath(clips[k], ...BREATHE[k], k) : clips[k]);
     }
+    // up a wall at a run: the run cycle itself, its own action (Traversal leans the body back)
+    if (run) this.clipActions.wallRun = this.mixer.clipAction(Object.assign(run.clone(), { name: 'wallRun' }));
     this.cur = null;
     this.fading = [];
     this.actW = 0;

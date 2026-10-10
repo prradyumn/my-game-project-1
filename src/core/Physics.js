@@ -14,6 +14,8 @@ const RAMP = 0x0008;
 const CAMONLY = 0x0010; // things only the camera bumps into (umbrella canopies: walk under, never look through)
 const PROP = 0x0020; // loose things that tumble (pots, lotas, baskets)
 const RAGDOLL = 0x0040; // the limbs of a fallen Asura
+const LEDGE = 0x0080; // thin climbable ledges (chhajja sunshades): stood on and hung from, but the camera looks past them
+const DECOR = 0x0100; // facade clutter (wooden balconies): stops his body, never climbed, the camera looks past it
 const g = (member, filter) => ((member << 16) | filter) >>> 0;
 export const GROUPS = {
   people: g(PEOPLE, 0xffff),
@@ -21,9 +23,11 @@ export const GROUPS = {
   ramp: g(RAMP, 0xffff),
   mover: g(0xffff, 0xffff & ~TREAD & ~CAMONLY & ~RAGDOLL), // the character controller: ramps, not treads (and he walks through a falling body)
   feet: g(0xffff, 0xffff & ~RAMP & ~CAMONLY & ~PROP & ~RAGDOLL), // rays that look for the real ground
-  ignorePeople: g(0xffff, 0xffff & ~PEOPLE & ~RAMP & ~PROP & ~RAGDOLL), // the camera
-  climb: g(0xffff, 0xffff & ~PEOPLE & ~RAMP & ~TREAD & ~CAMONLY & ~PROP & ~RAGDOLL), // ledges Prady can climb onto
+  ignorePeople: g(0xffff, 0xffff & ~PEOPLE & ~RAMP & ~PROP & ~RAGDOLL & ~LEDGE & ~DECOR), // the camera
+  climb: g(0xffff, 0xffff & ~PEOPLE & ~RAMP & ~TREAD & ~CAMONLY & ~PROP & ~RAGDOLL & ~DECOR), // ledges Prady can climb onto
   cameraOnly: g(CAMONLY, 0xffff),
+  ledge: g(LEDGE, 0xffff),
+  decor: g(DECOR, 0xffff),
   // loose props and ragdolls: on the real treads (they tumble down steps), never the smooth ramps
   prop: g(PROP, 0xffff & ~RAMP & ~CAMONLY),
   ragdoll: g(RAGDOLL, 0xffff & ~RAMP & ~CAMONLY & ~PEOPLE & ~RAGDOLL),
@@ -55,8 +59,9 @@ export class Physics {
   }
 
   // Box centred at (cx,cy,cz) with full sizes (w,h,d), rotated by yaw about +Y.
-  addBox(cx, cy, cz, w, h, d, yaw = 0) {
+  addBox(cx, cy, cz, w, h, d, yaw = 0, groups) {
     const desc = this.RAPIER.ColliderDesc.cuboid(w / 2, h / 2, d / 2).setTranslation(cx, cy, cz).setRotation(this._rot(yaw));
+    if (groups !== undefined) desc.setCollisionGroups(groups);
     this.colliderCount++;
     return this.world.createCollider(desc, this.fixedBody);
   }
@@ -124,6 +129,17 @@ export class Physics {
     this._ball = this._ball && this._ballR === radius ? this._ball : new R.Ball(radius);
     this._ballR = radius;
     const hit = this.world.castShape(origin, { x: 0, y: 0, z: 0, w: 1 }, dir, this._ball, 0, maxDist, true, undefined, groups, excludeCollider);
+    return hit ? hit.time_of_impact : null;
+  }
+
+  // Sweep a sphere against one kind of collider only (a GROUPS entry: its membership, e.g. the
+  // balconies); every default collider is a member of every group, so a filter cannot do this.
+  sphereCastOnly(origin, dir, radius, maxDist, groups, excludeCollider) {
+    const R = this.RAPIER;
+    this._ball = this._ball && this._ballR === radius ? this._ball : new R.Ball(radius);
+    this._ballR = radius;
+    const member = groups >>> 16;
+    const hit = this.world.castShape(origin, { x: 0, y: 0, z: 0, w: 1 }, dir, this._ball, 0, maxDist, true, undefined, undefined, excludeCollider, undefined, (c) => c.collisionGroups() >>> 16 === member);
     return hit ? hit.time_of_impact : null;
   }
 

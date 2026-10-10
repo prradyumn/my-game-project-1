@@ -126,8 +126,10 @@ export class Combat {
     scene.add(this.sword, this.scabbard);
     this.trail = new BladeTrail();
     scene.add(this.trail.mesh);
-    // where the scabbard hangs, in the body frame (Prady faces +Z, his left is +X)
-    this.hang = { pos: new THREE.Vector3(0.16, -0.06, 0.05), rot: new THREE.Euler(-2.78, 0.2, 0.1) };
+    // where the scabbard hangs, in the body frame (Prady faces +Z, his left is +X): off the hip,
+    // its tip 40 degrees back, as a sword hangs from a sash (nearer upright, the thigh went
+    // through it at every stride of a walk)
+    this.hang = { pos: new THREE.Vector3(0.2, -0.06, 0.05), rot: new THREE.Euler(-2.44, 0.2, 0.16) };
     this.hipRef = null; // the hips' own turn in a relaxed stance (so the scabbard rides the hips)
     this.wristTilt = 0.55;
     this.bones = null;

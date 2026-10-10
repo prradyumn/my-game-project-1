@@ -75,6 +75,8 @@ export const ASSET_MANIFEST = {
     mocap: `${A}/characters/prady-mocap.json`,
     // + traversal (CMU, tools/retarget.js ?set=moves): the vault, the scramble up a ledge, a ladder
     moves: `${A}/characters/prady-moves.json`,
+    // + hanging from a ledge (CMU 01_12, tools/retarget.js ?set=moves2)
+    moves2: `${A}/characters/prady-moves2.json`,
     // + CMU motion capture: the greeting wave (G) and idle breaks
     mocapClips: {
       idle: 'idle', walk: 'walk', run: 'run', swim: 'swimCrawl',
@@ -117,6 +119,23 @@ export const ASSET_MANIFEST = {
   fx: {
     flame: `${A}/textures/fx/flame-16x4.webp`,
   },
+  // Where things can walk (world/NavMesh.js): a Recast navmesh baked from the world's colliders
+  // by `npm run bake:nav`, and the signature of the world it fits.
+  nav: {
+    mesh: `${A}/nav/kashi.navmesh.bin`,
+    meta: `${A}/nav/kashi.navmesh.json`,
+  },
+  // Real PBR sets (Poly Haven, CC0; /source-assets/textures/polyhaven/LICENSE.txt): colour,
+  // OpenGL normal and arm (R ambient occlusion, G roughness, B metal). Where a key has a set it
+  // replaces the photo-derived set of the same name below; repeat: texture repeats per UV unit
+  // (the UVs are metres / tile), scaled to each surface's real size.
+  pbr: {
+    // (the ghats keep their own worn Chunar stone: Poly Haven's sandstone_blocks_08, also here,
+    // read too clean and cold side by side; the plaster's flaking is kept at a third of its
+    // contrast so a haveli is old, not blotchy)
+    plaster: { map: `${A}/textures/pbr/white_rough_plaster_diff_1k.jpg`, normal: `${A}/textures/pbr/white_rough_plaster_nor_gl_1k.jpg`, arm: `${A}/textures/pbr/white_rough_plaster_arm_1k.jpg`, repeat: 1.5, contrast: 0.35, level: 0.86 },
+    wood: { map: `${A}/textures/pbr/weathered_brown_planks_diff_1k.jpg`, normal: `${A}/textures/pbr/weathered_brown_planks_nor_gl_1k.jpg`, arm: `${A}/textures/pbr/weathered_brown_planks_arm_1k.jpg`, repeat: 1 },
+  },
   textures: {
     stone: `${A}/textures/seamless-tileable-texture-straight-top-d-cmuyhilb.png`,
     plaster: `${A}/textures/seamless-tileable-texture-flat-front-on-cmuyhin9.png`,
@@ -134,6 +153,35 @@ export const ASSET_MANIFEST = {
   // battle music, fetched once the game has begun (Lyria 3.5 via tools/gemini-music.mjs; 48 s
   // seamless loops cut on the bar, padded 0.5 s either side with their own wrapped audio: `loop`
   // is [loopStart, loopEnd] in seconds)
+  // the score (gameplay/Score.js; Lyria 3.5 via tools/gemini-music.mjs, masters in
+  // source-assets/music): a raga for each part of the day, played as cues; the tension before a
+  // fight; the swell under an establishing shot
+  score: {
+    dawn: `${A}/audio/score/dawn.mp3`,
+    day: `${A}/audio/score/day.mp3`,
+    evening: `${A}/audio/score/evening.mp3`,
+    night: `${A}/audio/score/night.mp3`,
+    tension: `${A}/audio/score/tension.mp3`,
+    reveal: `${A}/audio/score/reveal.mp3`,
+  },
+  // the crowd's voices (world/Barks.js; Gemini 2.5 Pro TTS via tools/gemini-tts.mjs): an id ends
+  // -m / -f for a man's or a woman's line
+  barks: {
+    url: (id) => `${A}/audio/barks/${id}.mp3`,
+    groups: {
+      vendor: ['chai-m1', 'chai-m2', 'kachori-m', 'phool-f1', 'phool-f2', 'idhar-m'],
+      pilgrim: ['harhar-m1', 'harhar-m2', 'harhar-f', 'ganga-f1', 'ganga-f2', 'bhole-m', 'sadhu-m'],
+      boatman: ['naav-m1', 'naav-m2'],
+      priest: ['om-priest'],
+      dusk: ['aarti-f'],
+      work: ['dhobi-m'],
+      bumped: ['dhyan-m', 'dhyan-f', 'dekh-m'],
+      climb: ['climb-m', 'climb-f'],
+      sword: ['sword-m'],
+      fear: ['asur-m', 'bachao-f', 'raksha-m'],
+      cheer: ['jai-m1', 'jai-m2', 'jai-f'],
+    },
+  },
   battleMusic: {
     fight: { url: `${A}/audio/battle-ghats-loop.mp3`, loop: [0.5, 48.5015] },
     boss: { url: `${A}/audio/battle-andhaka-loop.mp3`, loop: [0.5, 48.5015] },
@@ -161,10 +209,12 @@ export const ASSET_MANIFEST = {
     'asura-death': `${A}/audio/sfx/asura-death.mp3`,
     'andhaka-roar': `${A}/audio/sfx/andhaka-roar.mp3`,
     // the fight, recorded (Genex sfx, levelled and trimmed from /source-assets/sfx): these
-    // replace the synthesized blade, guard and body sounds of the same names (AudioManager)
-    'blade-hit': `${A}/audio/sfx/blade-hit.mp3`,
-    'blade-whoosh': `${A}/audio/sfx/blade-whoosh.mp3`,
-    'heavy-whoosh': `${A}/audio/sfx/heavy-whoosh.mp3`,
+    // replace the synthesized blade, guard and body sounds of the same names (AudioManager).
+    // (-lv: the hit and the whooshes came out of the first levelling 25-37 dB too quiet, the
+    // sword all but silent in a fight; brought up to peak with the others)
+    'blade-hit': `${A}/audio/sfx/blade-hit-lv.mp3`,
+    'blade-whoosh': `${A}/audio/sfx/blade-whoosh-lv.mp3`,
+    'heavy-whoosh': `${A}/audio/sfx/heavy-whoosh-lv.mp3`,
     parry: `${A}/audio/sfx/parry-clang.mp3`,
     block: `${A}/audio/sfx/block-impact.mp3`,
     hurt: `${A}/audio/sfx/body-hit.mp3`,
@@ -172,7 +222,7 @@ export const ASSET_MANIFEST = {
     'shield-clang': `${A}/audio/sfx/shield-clang.mp3`,
     // cinematic beats: the finisher's slow motion in and its last blow
     'slowmo-swell': `${A}/audio/sfx/slowmo-swell.mp3`,
-    'slowmo-boom': `${A}/audio/sfx/slowmo-boom.mp3`,
+    'slowmo-boom': `${A}/audio/sfx/slowmo-boom-lv.mp3`,
     // stingers: a champion's or Andhaka's coming, the Third Eye opening, a fight won, the heart
     // at low prana, a chapter's title
     braam: `${A}/audio/sfx/braam.mp3`,
@@ -182,7 +232,7 @@ export const ASSET_MANIFEST = {
     'title-shimmer': `${A}/audio/sfx/title-shimmer.mp3`,
     // the ghats' life: the crowd's murmur (a loop), the cows and the street dogs
     crowd: `${A}/audio/sfx/crowd-murmur.mp3`,
-    'cow-moo': `${A}/audio/sfx/cow-moo.mp3`,
+    'cow-moo': `${A}/audio/sfx/cow-moo-lv.mp3`,
     'dog-bark': `${A}/audio/sfx/dog-bark.mp3`,
     'dog-yelp': `${A}/audio/sfx/dog-yelp.mp3`,
   },

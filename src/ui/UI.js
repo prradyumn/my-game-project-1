@@ -52,6 +52,7 @@ export class UI {
       menu: $('#menu', root),
       story: $('#story', root),
       card: $('#chaptercard', root),
+      establish: $('#establish', root),
       caption: $('#caption', root),
       rhythm: $('#rhythm', root),
       fade: $('#fadeblack', root),
@@ -467,6 +468,18 @@ export class UI {
     el.classList.add('show');
   }
 
+  /** A place's name over its establishing shot (lower left, inside the bars), for `secs`. */
+  establishTitle(small, title, line, secs = 7) {
+    const el = this.els.establish;
+    el.querySelector('small').textContent = small || '';
+    el.querySelector('h1').textContent = title;
+    el.querySelector('p').textContent = line || '';
+    el.style.setProperty('--secs', `${secs}s`);
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+  }
+
   /** A line in a cutscene (speaker + words), or null to clear. */
   caption(who, text) {
     const el = this.els.caption;
@@ -833,6 +846,7 @@ const TEMPLATE = /* html */ `
 <div id="hurt"></div>
 <div id="achievement"><i></i><div><small class="k">Achievement</small><b></b><small></small></div></div>
 <div id="chaptercard"><small></small><h2></h2><p></p></div>
+<div id="establish"><small></small><h1></h1><p></p></div>
 <div id="caption"><b></b><span></span></div>
 <div id="rhythm" class="hidden"><h5></h5><div class="bar"><i class="zone"></i><i class="mark"></i></div><div class="row"><small></small><b class="count"></b></div></div>
 <div id="revive"><p></p></div>

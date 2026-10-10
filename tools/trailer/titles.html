@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Marcellus&family=Tiro+Devanagari+Hindi&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; width: 1920px; height: 1080px; background: transparent; overflow: hidden; }
+  .card { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff3da; }
+  .on { display: flex; }
+  .ingame { font-family: 'Marcellus', serif; font-size: 22px; letter-spacing: 0.6em; text-transform: uppercase; color: #e9dcc6; }
+  .slam { font-family: 'Cinzel', serif; font-weight: 600; font-size: 92px; letter-spacing: 0.22em; text-shadow: 0 0 34px rgba(255, 150, 60, 0.35), 0 4px 20px rgba(0,0,0,0.7); }
+  .slam small { display: block; font-family: 'Marcellus', serif; font-size: 26px; letter-spacing: 0.7em; color: #e8c37a; margin-top: 22px; }
+  .deva { font-family: 'Tiro Devanagari Hindi', serif; font-size: 46px; color: #e8b85a; letter-spacing: 0.12em; }
+  .kicker { font-family: 'Cinzel', serif; font-size: 30px; letter-spacing: 0.62em; text-transform: uppercase; margin: 18px 0 8px; padding-left: 0.62em; }
+  .name { font-family: 'Cinzel', serif; font-weight: 700; font-size: 168px; letter-spacing: 0.2em; padding-left: 0.2em; line-height: 1; text-shadow: 0 0 60px rgba(255, 150, 50, 0.55), 0 0 18px rgba(255, 200, 120, 0.35), 0 6px 24px rgba(0,0,0,0.7); }
+  .rule { width: 520px; height: 1px; margin: 34px auto 0; background: linear-gradient(90deg, transparent, #e8b85a, transparent); }
+  .tag { font-family: 'Marcellus', serif; font-size: 24px; letter-spacing: 0.55em; text-transform: uppercase; color: #e9dcc6; margin-top: 26px; padding-left: 0.55em; }
+</style>
+</head>
+<body>
+  <div class="card ingame" id="ingame"><div id="ig">Captured in-engine</div></div>
+  <div class="card" id="slam"><div class="slam" id="slamtext"></div></div>
+  <div class="card" id="title">
+    <div class="deva" id="tdeva">वाराणसी</div>
+    <div class="kicker" id="tkick">The Legend of</div>
+    <div class="name" id="tname">VARANASI</div>
+    <div class="rule" id="trule"></div>
+    <div class="tag" id="ttag">Light the five flames</div>
+  </div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const cl = (x) => Math.max(0, Math.min(1, x));
+  const ease = (x) => { x = cl(x); return 1 - Math.pow(1 - x, 3); };
+  // render(card, t, dur, opts): every frame set by hand (frame-exact)
+  window.render = (card, t, dur, o = {}) => {
+    for (const c of document.querySelectorAll('.card')) c.classList.remove('on');
+    $(card).classList.add('on');
+    const out = cl((dur - t) / (o.fadeOut ?? 0.5));
+    if (card === 'ingame') {
+      const a = cl(t / 0.6) * out;
+      $('ig').style.opacity = a;
+      $('ig').style.letterSpacing = `${0.6 + t * 0.04}em`;
+    } else if (card === 'slam') {
+      $('slamtext').innerHTML = o.text;
+      const a = cl(t / (o.fadeIn ?? 0.04)) * out;
+      $('slamtext').style.opacity = a;
+      $('slamtext').style.transform = `scale(${1.0 + t * 0.035})`;
+      $('slamtext').style.filter = `blur(${(1 - cl(t / 0.12)) * 6}px)`;
+    } else if (card === 'title') {
+      // lands on the hit: the name out of a blur, the rest after it
+      const n = ease(t / 0.9);
+      $('tname').style.opacity = n * out;
+      $('tname').style.transform = `scale(${1.08 - 0.08 * n})`;
+      $('tname').style.filter = `blur(${(1 - n) * 14}px)`;
+      $('tname').style.letterSpacing = `${0.2 + t * 0.006}em`;
+      $('tdeva').style.opacity = ease((t - 0.7) / 1.2) * out;
+      $('tkick').style.opacity = ease((t - 0.4) / 1.0) * out;
+      $('tkick').style.letterSpacing = `${0.5 + ease((t - 0.4) / 2.5) * 0.12}em`;
+      $('trule').style.opacity = ease((t - 1.6) / 1.0) * out;
+      $('trule').style.transform = `scaleX(${ease((t - 1.6) / 1.4)})`;
+      $('ttag').style.opacity = ease((t - (o.tagAt ?? 2.6)) / 1.0) * out;
+    }
+  };
+</script>
+</body>
+</html>

@@ -3,7 +3,7 @@ import { GHAT_TOP } from '../config.js';
 import { MeshBuilder } from '../utils/MeshBuilder.js';
 import { RNG } from '../utils/math.js';
 import { frameAtX, frameToWorld, ghatById, LANES_V } from './WorldLayout.js';
-import { makeWaterAware } from './materials.js';
+import { makeWaterAware, shiny } from './materials.js';
 
 // The galis: the narrow lanes behind the ghats, where Kashi actually lives. Little shops set
 // into the house fronts (a raised wooden takht under a cloth awning, goods heaped on it, a
@@ -281,7 +281,7 @@ export function buildGalis(layout, textures, physics, scene) {
   // materials
   const woodMat = makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, map: textures.wood?.map || null, normalMap: textures.wood?.normalMap || null }));
   const clothMat = makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, side: THREE.DoubleSide }));
-  const brassMat = makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.85 }));
+  const brassMat = shiny(makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.85 })));
   const signMat = makeWaterAware(new THREE.MeshStandardMaterial({ map: B.atlas.tex, roughness: 0.6, metalness: 0.15 }));
   const stoneMat = makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, map: textures.stone?.map || null, normalMap: textures.stone?.normalMap || null }));
   const group = new THREE.Group();

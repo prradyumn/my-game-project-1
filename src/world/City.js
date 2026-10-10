@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { GHAT_TOP } from '../config.js';
+import { GROUPS } from '../core/Physics.js';
 import { MeshBuilder } from '../utils/MeshBuilder.js';
 import { RNG } from '../utils/math.js';
 import { windowTexture } from '../utils/textures.js';
 import { frameAtX, frameToWorld } from './WorldLayout.js';
-import { surfaceMaterial } from './materials.js';
+import { shiny, surfaceMaterial } from './materials.js';
 import { buildTemple, chhatri, shikhara } from './Temple.js';
 
 // Builds the city of Kashi from the layout: havelis, palaces, the fort, temples, rooftop life
@@ -70,6 +71,8 @@ export function buildCity(layout, textures, physics) {
           _q.setFromAxisAngle(_up, win.yaw);
           _m.compose(_p.set(win.p.x, floorY + 0.55, win.p.z), _q, _s.set(1, 1, 1));
           balconies.push(_m.clone());
+          // (its whole volume: Prady never runs up or hangs through one; the camera looks past it)
+          physics.addBox(win.p.x + Math.sin(win.yaw) * 0.5, floorY + 1.61, win.p.z + Math.cos(win.yaw) * 0.5, 1.9, 2.26, 1.0, win.yaw, GROUPS.decor);
         }
       }
     }
@@ -96,6 +99,8 @@ export function buildCity(layout, textures, physics) {
       if (y > top - 0.2) break;
       const p = local(b, 0, b.d / 2 + 0.32);
       builder.box(p.x, y, p.z, b.w - 0.3, 0.1, 0.64, b.yaw, trim, { tile, faces: ['px', 'nx', 'pz', 'py', 'ny'] });
+      // (a ledge the whole width of the front: caught, hung from, shimmied along, stood on)
+      physics.addBox(p.x, y, p.z, b.w - 0.3, 0.1, 0.64, b.yaw, GROUPS.ledge);
     }
     // Parapet
     const parY = top + 0.45;
@@ -222,7 +227,7 @@ export function buildCity(layout, textures, physics) {
   // water-aware = also receives the baked night light (no cost by day)
   const plasterMat = surfaceMaterial(textures.plaster, { normalScale: 0.9 });
   const stoneMat = surfaceMaterial(textures.stone, { normalScale: 1.0 });
-  const goldMat = new THREE.MeshStandardMaterial({ color: 0xffbf52, metalness: 1, roughness: 0.28, vertexColors: true });
+  const goldMat = shiny(new THREE.MeshStandardMaterial({ color: 0xffbf52, metalness: 1, roughness: 0.28, vertexColors: true }));
   const carvedMat = surfaceMaterial(textures.carving || textures.stone, { normalScale: 1.4 });
   // At night the temples are floodlit (warm uplight on the carvings) and the gold spires glow.
   for (const m of [carvedMat, goldMat]) {

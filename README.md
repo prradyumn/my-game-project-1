@@ -39,6 +39,8 @@ Requires Node ≥ 20 and a WebGL2 browser (Chrome, Edge, Safari 17+, Firefox).
 | R | Draw / sheathe the talwar |
 | 1 / 2 / 3 | Powers (Shakti): Shiva's Damaru · Trishul (press again to call it back) · Third Eye |
 | Space at a ledge | Climb it (running into a low wall or a parapet vaults it) |
+| Space at a tall wall | Run up it (at a run, or pressed against it) and catch the ledge above: a wall top, a chhajja, a parapet |
+| Hanging from a ledge | A / D shimmy · W or Space climb over · S or C let go |
 | Space (boat race) | Power stroke: press it as each oar stroke begins |
 | J | Journal: map (track, fast travel), tasks, siddhis, achievements |
 | M | Meditate |
@@ -127,6 +129,16 @@ counter is always shown in debug.
 - **Rooftops:** vault parapets and low walls at a run, scramble up ledges, climb bamboo ladders
   from the lanes onto the havelis, cross plank bridges between the roofs; a long drop is a roll if
   you land running, and it hurts if you don't.
+- **A score that follows the day and the danger:** a raga for each hour (Bhairav at dawn, Desh by
+  day, Yaman at the aarti, Malkauns at night) comes in as a cue and lets the ghats breathe between;
+  tension when the Asuras rise, the battle music when one is on you.
+- **The ghats talk:** chai-wallahs, flower sellers, boatmen, pilgrims and priests call out in
+  Banarasi Hindi from where they stand, and the crowd reacts to you, to the talwar and to the Asuras.
+- **Establishing shots:** the first time you reach a ghat, the river, or the lanes, the camera takes
+  a breath and shows you the place; each new chapter opens on the place it is set.
+- **Walls, Prince of Persia style:** run up a wall too tall to scramble and catch its top, hang
+  from it, shimmy along it, climb over or let go. Every haveli front climbs this way, chhajja by
+  chhajja, from the ghat to its roof.
 - **Calls for help:** between missions Kashi asks: chase down a pickpocket, pull someone out of the
   current, defend a boatman from the dark at night, cut a rival's kite string on the rooftops.
 - **The journal (J):** a painted map with fast travel to lit flames and honoured shrines and a
@@ -180,7 +192,8 @@ src/ui/                  HUD + menus (DOM) and CSS
 public/assets/           Every model, texture, sound and image the game loads (files you own)
 source-assets/           Full-resolution originals (not shipped in the web build)
 tools/                   check-world.mjs, glb-info.mjs, anim-lab.html (measure clips),
-                         retarget.html + bake-mocap.mjs (mocap onto Prady), gemini-image.mjs (textures),
+                         retarget.html + bake-mocap.mjs (mocap onto Prady), bake-navmesh.mjs (where things
+                         can walk: `npm run bake:nav`), gemini-image.mjs (textures),
                          people.html + bake-people.mjs (the crowd), intro-video.mjs (gameplay montage)
 docs/                    ARCHITECTURE.md, AI_HANDOFF.md, ASSETS.md
 ```

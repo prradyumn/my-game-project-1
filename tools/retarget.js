@@ -77,6 +77,12 @@ const MOVES = [
   // climbing a ladder: one rung after the other, hands reaching up (a loop; the game lifts him)
   { name: 'ladder', file: '13_33', start: 2.6, end: 4.7, lockY: true, loopBlend: 0.35 },
 ];
+// Prady's third file (public/assets/characters/prady-moves2.json): hanging from a ledge, the
+// hands overhead on it (a loop; the game places him on the ledge and moves his hands). ?set=moves2
+const MOVES2 = [
+  // hanging from a bar by both hands, the legs loose, a little sway (a playground take)
+  { name: 'hang', file: '01_12', start: 1.9, end: 3.2, lockY: true, loopBlend: 0.35 },
+];
 const SET = new URLSearchParams(location.search).get('set');
 
 const loader = new GLTFLoader();
@@ -98,7 +104,7 @@ const facing = (root) => {
 const pFacing = facing(prady);
 
 const baked = [];
-for (const src of SET === 'moves' ? [] : SOURCES) {
+for (const src of SET === 'moves' || SET === 'moves2' ? [] : SOURCES) {
   const g = await loader.loadAsync(src.url);
   const root = g.scene;
   if (facing(root) !== pFacing) root.rotation.y = Math.PI;
@@ -111,7 +117,7 @@ for (const src of SET === 'moves' ? [] : SOURCES) {
   }
 }
 const bvh = new BVHLoader();
-for (const m of SET === 'moves' ? MOVES : CMU) {
+for (const m of SET === 'moves' ? MOVES : SET === 'moves2' ? MOVES2 : CMU) {
   const res = bvh.parse(await (await fetch(`/source-assets/cmu/${m.file}.bvh`)).text());
   const root = new THREE.Group();
   root.add(res.skeleton.bones[0]);

@@ -4,7 +4,7 @@ import { MeshBuilder } from '../utils/MeshBuilder.js';
 import { RNG } from '../utils/math.js';
 import { leafTexture } from '../utils/textures.js';
 import { GHAT_SEGMENTS, frameAtX, frameToWorld, ghatById, ghatToWorld } from './WorldLayout.js';
-import { WORLD_UNIFORMS, makeWaterAware, occluderFade, surfaceMaterial } from './materials.js';
+import { WORLD_UNIFORMS, makeWaterAware, occluderFade, shiny, surfaceMaterial } from './materials.js';
 import { buildTemple } from './Temple.js';
 
 // Set dressing and the sacred-flame structures. Fire/smoke emitters are returned as plain
@@ -302,7 +302,7 @@ export function buildProps(layout, textures, physics, extraFlags = []) {
   // ---- Build the merged meshes
   const stoneMat = surfaceMaterial(textures.stone, { normalScale: 1 });
   const plasterMat = surfaceMaterial(textures.plaster, { normalScale: 0.8 });
-  const goldMat = makeWaterAware(new THREE.MeshStandardMaterial({ color: 0xffbf52, metalness: 1, roughness: 0.3, vertexColors: true }));
+  const goldMat = shiny(makeWaterAware(new THREE.MeshStandardMaterial({ color: 0xffbf52, metalness: 1, roughness: 0.3, vertexColors: true })));
   const woodMat = makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, map: textures.wood?.map || null, normalMap: textures.wood?.normalMap || null }));
   const carvedMat = surfaceMaterial(textures.carving || textures.stone, { normalScale: 1.4 });
   // the sunken temple is floodlit at night too (brass lamps stay brass: the fire lights them)

@@ -118,6 +118,35 @@ export function makeSurfaceSet(img, opts = {}) {
   };
 }
 
+/** A ready-made PBR set (colour, OpenGL normal, arm: AO / roughness / metal in R G B). */
+export function pbrSet([map, normal, arm], { repeat = 1, contrast = 1, level = null } = {}) {
+  const t = (img, srgb) => {
+    const x = finish(new THREE.Texture(img), { srgb });
+    x.repeat.set(repeat, repeat);
+    return x;
+  };
+  const armT = t(arm, false);
+  return { map: t(contrast < 1 || level ? flatten(map, contrast, level) : map, true), normalMap: t(normal, false), roughnessMap: armT, aoMap: armT };
+}
+
+/** The colour drawn toward its own average (k: how much of its contrast is kept), its average
+ *  brightness then set to `level` (0..1) when given (a tinted surface keeps its tint's value). */
+function flatten(img, k, level = null) {
+  const c = canvas(img.width, img.height);
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(img, 0, 0);
+  const d = x.getImageData(0, 0, c.width, c.height);
+  const a = d.data;
+  const mean = [0, 0, 0];
+  for (let i = 0; i < a.length; i += 4) for (let j = 0; j < 3; j++) mean[j] += a[i + j];
+  for (let j = 0; j < 3; j++) mean[j] /= a.length / 4;
+  const lum = (mean[0] * 0.299 + mean[1] * 0.587 + mean[2] * 0.114) / 255;
+  const gain = level ? level / Math.max(0.05, lum) : 1;
+  for (let i = 0; i < a.length; i += 4) for (let j = 0; j < 3; j++) a[i + j] = (mean[j] + (a[i + j] - mean[j]) * k) * gain;
+  x.putImageData(d, 0, 0);
+  return c;
+}
+
 // Procedural stand-in when an image is missing (keeps the game running without any asset).
 export function proceduralSurface(kind) {
   const size = 512;

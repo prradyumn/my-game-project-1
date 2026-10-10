@@ -7,6 +7,7 @@ import { solveTwoBone } from '../utils/bones.js';
 import { Ragdoll } from './Ragdoll.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { AsuraEyes, AsuraParticles, asuraMaterial, hornMaterial, hornsGeometry } from '../world/AsuraLook.js';
+import { PathFollower } from '../world/NavMesh.js';
 import { bankCoords, frameAtX, ghatToWorld, groundHeight, PROFILE_LEN, segmentForX } from '../world/WorldLayout.js';
 
 // The Asuras: darkness that rises out of the river at night and walks up the ghats. Each is a
@@ -33,6 +34,7 @@ import { bankCoords, frameAtX, ghatToWorld, groundHeight, PROFILE_LEN, segmentFo
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
+const _dir = { x: 0, z: 0 };
 const DOWN = { x: 0, y: -1, z: 0 };
 const _m = new THREE.Matrix4();
 const _x = new THREE.Vector3();
@@ -197,7 +199,17 @@ export class Asura {
     // a heavy, charged or kicking blow lands with weight under the cut
     if (h.heavy || h.charged || h.kick || h.finisher) sys.audio.play('heavy-hit', { at: h.at, volume: h.charged || h.finisher ? 0.95 : 0.65, rate: (this.K.boss ? 0.8 : 0.95) + Math.random() * 0.1 });
     sys.audio.play('ember-hiss', { at: h.at, volume: 0.5, rate: 0.9 + Math.random() * 0.2 });
-    if (this.state !== 'held' && this.state !== 'floored') this.knock = { x: dir.x, z: dir.z, d: (h.heavy ? 0.9 : 0.35) / Math.sqrt(this.scale), t: 0 };
+    if (this.state !== 'held' && this.state !== 'floored') {
+      this.knock = { x: dir.x, z: dir.z, d: (h.heavy ? 0.9 : 0.35) / Math.sqrt(this.scale), t: 0 };
+      // the blow shows in the body as well as the push: its own recoil while it is carried back
+      // (the walk cycle would step forward under the slide, toward the one it means to reach)
+      // (a shade has no recoil clip of its own: the start of its stagger, played quick, is one)
+      const recoil = this.has('hit') ? 'hit' : this.has('stagger') ? 'stagger' : null;
+      if (recoil && (this.state === 'stalk' || this.state === 'circle' || this.state === 'approach' || this.state === 'idle')) {
+        this.play(recoil, 0.05, { once: true, speed: recoil === 'hit' ? (h.heavy ? 1.2 : 1.6) : h.heavy ? 1.5 : 2.1 });
+        this.recoilUntil = this.t + (h.heavy ? 0.5 : 0.34);
+      }
+    }
     this.flinch = { axis: new THREE.Vector3(dir.z, 0, -dir.x), amt: 0, vel: (h.heavy ? 8 : 5.6) / Math.sqrt(this.scale), head: this.flinch?.head || 0, headVel: this.flinch?.headVel || 0 };
     this.lastBlow = { heavy: !!h.heavy || !!h.finisher, kick: !!h.kick, k: h.k, finisher: !!h.finisher, push: h.push };
     if (this.hp <= 0) return this.die(dir), 'killed';
@@ -696,6 +708,13 @@ export class Asura {
     // reeling, floored, pinned or held in a finisher: it doesn't walk (nor does the steering
     // apart from the others carry it off, down the steps and into the river)
     if (this.state === 'stagger' || this.state === 'floored' || this.state === 'pinned' || this.state === 'held') this.moveSpeed = 0;
+    // hunting him: round whatever stands between (a takht, a temple's wall, a whole row of
+    // havelis) instead of pushing into it; close in, straight at him
+    if ((this.state === 'stalk' || this.state === 'approach') && speed > 0 && dist > 2.4 && !this.airborne && !playerDown) {
+      this.path ??= new PathFollower(sys.g.nav, { repath: 0.5, reach: 0.6 + this.radius });
+      const d = this.path.steer(this.pos, P, dt, _dir);
+      if (d) want = { x: d.x, z: d.z };
+    }
     this.wantDir = want;
     this.wantSpeed = speed;
     if (speed > 0 && this.moveSpeed === 0 && this.state !== 'attack') this.moveSpeed = speed;
@@ -1024,7 +1043,9 @@ export class Asura {
     // animation: locomotion by real speed (unless an action owns the body)
     const B = this.body;
     const gloating = this.gloated && B.curRole === 'roar' && B.cur && B.cur.time < B.cur.getClip().duration - 0.05;
-    const acting = this.state === 'attack' || this.state === 'stagger' || this.state === 'dead' || this.state === 'floored' || this.state === 'pinned' || this.state === 'held' || this.state === 'hop' || this.blockT > 0 || gloating;
+    // (a recoil plays out while the blow still carries it)
+    const recoiling = this.recoilUntil > this.t && this.state !== 'stagger';
+    const acting = this.state === 'attack' || this.state === 'stagger' || this.state === 'dead' || this.state === 'floored' || this.state === 'pinned' || this.state === 'held' || this.state === 'hop' || this.blockT > 0 || gloating || recoiling;
     if (!acting) {
       const relYaw = Math.atan2(this.vel.x, this.vel.z) - this.yaw;
       const side = Math.sin(relYaw);

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GHAT_TOP } from '../config.js';
 import { MeshBuilder } from '../utils/MeshBuilder.js';
 import { ghatById, ghatToWorld } from './WorldLayout.js';
-import { makeWaterAware } from './materials.js';
+import { makeWaterAware, shiny } from './materials.js';
 
 // Amma's kitchen at Kedar Ghat (Chapter II): the temple's bhandara, where the pilgrims are fed.
 // A clay chulha with a wood fire in it, a great brass degchi on top, a wooden paddle to stir
@@ -52,7 +52,7 @@ export class Kitchen {
     cloth.quad([-2.4, 2.75, -1.25], [2.6, 2.75, -1.25], [2.6, 2.45, 1.55], [-2.4, 2.45, 1.55], [0, 0.99, 0.1], [[0, 0], [1, 0], [1, 1], [0, 1]], C('#1e5aa8'), C('#2a6fc0'));
     const mats = [
       [clay, makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }))],
-      [brass, makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.9 }))],
+      [brass, shiny(makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.9 })))],
       [cloth, makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }))],
     ];
     this.group = new THREE.Group();

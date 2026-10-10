@@ -19,10 +19,16 @@ import { groundHeight } from '../world/WorldLayout.js';
 //             ladder's head on a roof climbs back down.
 //   rooftops  every roof has its parapet (Physics), plank bridges cross the narrow lanes between
 //             roofs of a height, so the waterfront row is one long run above the ghats.
+//   wall run  sprinting at a wall, Space: up it a few strides (a scramble's hands and feet on the
+//             stone); a ledge in reach at the top is caught, else he kicks off it backwards
+//   ledges    jumping or falling at a wall whose top is in reach catches it: hanging by both
+//             hands (prady-moves2.json, the hands IK'd onto the edge). A / D shimmy along it hand
+//             over hand while it runs on, W or Space pulls up over it (the scramble), S or C drops.
 //
 // While a move owns the body Player.state is 'climb': the capsule is placed by the move itself.
 
 const FEET = PLAYER.halfHeight + PLAYER.radius;
+const HANG_DROP = 2.08; // a ledge's top to his feet as he hangs from it
 const DOWN = { x: 0, y: -1, z: 0 };
 const UP = { x: 0, y: 1, z: 0 };
 const RUNG = 0.33;
@@ -229,9 +235,238 @@ export class Traversal {
     const w = p.cmd.mag > 0.2 ? p.cmd.wish : _w.set(Math.sin(p.yaw), 0, Math.cos(p.yaw));
     if (p.speed > 2.6 && this.tryVault(w)) return true;
     const s = this.scrambleSpot(w, 1.0);
-    if (!s) return false;
-    this.startScramble(s);
+    if (s) {
+      this.startScramble(s);
+      return true;
+    }
+    // a wall too tall to scramble: up it (at a run, or pressed against it)
+    return (p.speed > 3.2 || p.cmd.mag > 0.2) && this.tryWallRun(w, p.speed <= 3.2);
+  }
+
+  // ------------------------------------------------------------ ledges and wall runs
+  /**
+   * A ledge ahead of (ox, oy, oz) along w: a wall within `reach`, its top edge between minY and
+   * maxY (world) with open air above it. { hx, hz (on the face), top, f (into the wall), r }.
+   */
+  ledgeAhead(ox, oy, oz, w, reach, minY, maxY) {
+    const ph = this.g.physics;
+    const p = this.p;
+    const hit = ph.castRayNormal({ x: ox, y: oy, z: oz }, { x: w.x, y: 0, z: w.z }, reach, p.collider, GROUPS.climb);
+    if (!hit || Math.abs(hit.ny) > 0.35) return null;
+    const nl = Math.hypot(hit.nx, hit.nz) || 1;
+    const f = { x: -hit.nx / nl, z: -hit.nz / nl };
+    let hx = ox + w.x * hit.toi;
+    let hz = oz + w.z * hit.toi;
+    // its top, just inside the face (from above: a wall that runs on higher starts the ray inside
+    // itself and reads as too tall)
+    const from = maxY + 0.5;
+    const span = from - minY + 0.3;
+    let top = this.topAt(hx + f.x * 0.12, hz + f.z * 0.12, from, span);
+    if (top === null || top < minY || top > maxY) {
+      // or a ledge standing out from the face above him (a chhajja, a cornice): felt for outward
+      // from the wall, then its lip found
+      top = null;
+      let lip = 0;
+      for (let d = 0.1; d < 0.95; d += 0.1) {
+        const t = this.topAt(hx - f.x * d, hz - f.z * d, from, span);
+        if (t !== null && t >= minY && t <= maxY && (top === null || Math.abs(t - top) < 0.06)) {
+          top = Math.max(top ?? t, t);
+          lip = d;
+        } else if (top !== null) break;
+      }
+      if (top === null) return null;
+      let out = lip + 0.1;
+      for (let i = 0; i < 3; i++) {
+        const mid = (lip + out) / 2;
+        const t = this.topAt(hx - f.x * mid, hz - f.z * mid, from, span);
+        if (t !== null && Math.abs(t - top) < 0.06) lip = mid;
+        else out = mid;
+      }
+      hx -= f.x * lip;
+      hz -= f.z * lip;
+    }
+    // hands' room on it: nothing standing on the edge itself
+    if (ph.castRay({ x: hx - f.x * 0.2, y: top + 0.1, z: hz - f.z * 0.2 }, { x: f.x, y: 0, z: f.z }, 0.45, p.collider, GROUPS.climb) !== null) return null;
+    // and the body's room under it (a balcony below a chhajja)
+    if (ph.sphereCastOnly({ x: hx - f.x * 0.36, y: top - 0.3, z: hz - f.z * 0.36 }, DOWN, 0.26, 1.5, GROUPS.decor, p.collider) !== null) return null;
+    return { hx, hz, top, f, r: { x: -f.z, z: f.x } }; // (r: his right as he faces the wall)
+  }
+
+  /** Falling or at the top of a jump beside a wall: a ledge in reach is caught. */
+  airGrab() {
+    const p = this.p;
+    if (this.act || p.state !== 'air' || p.velocity.y > 2.5 || this.g.combat?.dead) return false;
+    if (this.g.health?.time - (this.letGoAt ?? -9) < 0.45) return false;
+    const v = p.velocity;
+    const hs = Math.hypot(v.x, v.z);
+    const w = hs > 0.6 ? _w.set(v.x / hs, 0, v.z / hs) : _w.set(Math.sin(p.yaw), 0, Math.cos(p.yaw));
+    const L = this.ledgeAhead(p.position.x, p.feetY + 1.3, p.position.z, w, 0.8, p.feetY + 1.7, p.feetY + 2.45);
+    if (!L) return false;
+    this.startHang(L);
     return true;
+  }
+
+  tryWallRun(w, standing = false) {
+    const p = this.p;
+    const ph = this.g.physics;
+    const o = { x: p.position.x, y: p.feetY + 1.0, z: p.position.z };
+    const hit = ph.castRayNormal(o, { x: w.x, y: 0, z: w.z }, standing ? 0.85 : 1.5, p.collider, GROUPS.climb);
+    if (!hit || Math.abs(hit.ny) > 0.3) return false;
+    const nl = Math.hypot(hit.nx, hit.nz) || 1;
+    const f = { x: -hit.nx / nl, z: -hit.nz / nl };
+    // square enough to it (a glancing run along a wall is not a run up it)
+    if (f.x * w.x + f.z * w.z < 0.75) return false;
+    // the face must go up (no wall-run into a fence) and leave room overhead to rise
+    if (ph.castRay({ x: o.x, y: p.feetY + 2.2, z: o.z }, { x: f.x, y: 0, z: f.z }, hit.toi + 0.4, p.collider, GROUPS.climb) === null) return false;
+    // (a low ceiling, not a ledge overhead: that he catches on the way up)
+    if (ph.sphereCast({ x: p.position.x, y: p.feetY + 1.6, z: p.position.z }, UP, 0.25, 0.9, p.collider, GROUPS.feet) !== null) return false;
+    const wall = new THREE.Vector3(o.x + w.x * hit.toi - f.x * 0.4, 0, o.z + w.z * hit.toi - f.z * 0.4);
+    // (and no balcony on the way up the face)
+    if (ph.sphereCastOnly({ x: wall.x, y: p.feetY + 0.9, z: wall.z }, UP, 0.3, 3.6, GROUPS.decor, p.collider) !== null) return false;
+    this.act = { type: 'wallrun', t: 0, T: 0.62, p0: p.position.clone(), wall, f, f0: p.feetY, rise: 2.35, yaw: Math.atan2(f.x, f.z) };
+    p.state = 'climb';
+    p.velocity.set(0, 0, 0);
+    // strides up the face (the run cycle, quickened), the body leaning back off it
+    const anim = this.g.animator;
+    if (!anim.play('wallRun', { loop: true, timeScale: 1.35, fadeIn: 0.1, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true })) anim.play('scramble', { timeScale: 4.2, fadeIn: 0.08, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true });
+    this.g.audio.play('footstep', { volume: 0.75, rate: 0.9 });
+    return true;
+  }
+
+  wallRunStep(a, dt) {
+    const p = this.p;
+    const k = Math.min(1, a.t / a.T);
+    p.yaw = dampAngle(p.yaw, a.yaw, 16, dt);
+    // onto the face in the first strides, then up it, slowing as the run gives out
+    const onto = smoothstep(0, 0.3, k);
+    const up = 1 - (1 - k) * (1 - k);
+    p.position.set(lerp(a.p0.x, a.wall.x, onto), a.f0 + a.rise * up + FEET, lerp(a.p0.z, a.wall.z, onto));
+    p.climbLean = -0.2 * smoothstep(0.05, 0.3, k) * (1 - smoothstep(0.55, 0.9, k));
+    // the run gives out: both arms up for the edge
+    if (k > 0.58 && !a.reach) {
+      a.reach = true;
+      this.g.animator.play('hang', { loop: true, fadeIn: 0.2, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
+    }
+    if (k > 0.2 && Math.floor(a.t / 0.16) !== Math.floor((a.t - dt) / 0.16)) this.g.audio.play('footstep', { volume: 0.55, rate: 1.05 + Math.random() * 0.15 });
+    // a ledge within reach of the run: he runs on up to hanging height under it, then catches it
+    // (a chhajja overhead is caught from below, never run into)
+    if (!a.L && k > 0.08) a.L = this.ledgeAhead(p.position.x, p.feetY + 1.3, p.position.z, a.f, 0.9, p.feetY + 1.45, a.f0 + a.rise + 2.05);
+    if (a.L && (p.feetY >= a.L.top - HANG_DROP - 0.03 || k >= 1)) {
+      const L = a.L;
+      this.end();
+      this.startHang(L);
+      return;
+    }
+    if (k >= 1) {
+      // nothing to catch: kicked off the wall, turned away from it
+      this.end();
+      p.state = 'air';
+      p.grounded = false;
+      p.yaw = Math.atan2(-a.f.x, -a.f.z);
+      p.velocity.set(-a.f.x * 3.2, 3.4, -a.f.z * 3.2);
+      this.letGoAt = this.g.health?.time ?? 0;
+      this.g.animator.stop(0.15);
+      this.g.audio.play('whoosh', { volume: 0.45, rate: 1.1 });
+    }
+  }
+
+  startHang(L) {
+    const p = this.p;
+    const fresh = this.act?.type !== 'hang';
+    this.act = { type: 'hang', t: 0, L: { ...L }, u: 0, v: 0, lh: -0.22, rh: 0.22, step: null, settle: 0, from: p.position.clone() };
+    p.state = 'climb';
+    p.velocity.set(0, 0, 0);
+    p.grounded = false;
+    if (fresh) {
+      if (!this.g.animator.isPlaying('hang')) this.g.animator.play('hang', { loop: true, fadeIn: 0.12, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
+      this.g.audio.play('thump', { volume: 0.35, rate: 1.4 });
+      this.g.camRig.shake(0.08);
+    }
+  }
+
+  /** Where his body hangs from the ledge at u (metres along it from where he caught it). */
+  hangPoint(a, out) {
+    const L = a.L;
+    out.set(L.hx - L.f.x * 0.36 + L.r.x * a.u, L.top - HANG_DROP + FEET, L.hz - L.f.z * 0.36 + L.r.z * a.u);
+    return out;
+  }
+
+  hangStep(a, dt) {
+    const p = this.p;
+    const c = p.cmd;
+    const L = a.L;
+    p.yaw = dampAngle(p.yaw, Math.atan2(L.f.x, L.f.z), 14, dt);
+    // the catch: a little drop and a swing in toward the wall, settling
+    a.settle = Math.min(1, a.settle + dt * 3);
+    // shimmy: A / D along the ledge while it runs on (felt for a step ahead each frame)
+    const side = Math.abs(c.mv.x) > 0.35 ? Math.sign(c.mv.x) : 0;
+    let want = 0;
+    if (side) {
+      const pr = _t.set(L.hx + L.r.x * (a.u + side * 0.45) - L.f.x * 0.5, 0, L.hz + L.r.z * (a.u + side * 0.45) - L.f.z * 0.5);
+      const ahead = this.ledgeAhead(pr.x, L.top - 0.35, pr.z, L.f, 0.9, L.top - 0.15, L.top + 0.15);
+      // (and nothing in the way of the body: a pillar, a drainpipe, the next house)
+      const body = this.hangPoint(a, _w);
+      const blocked = this.g.physics.sphereCast({ x: body.x, y: body.y + 0.4, z: body.z }, { x: L.r.x * side, y: 0, z: L.r.z * side }, 0.28, 0.4, p.collider, GROUPS.feet) !== null;
+      if (ahead && !blocked) want = side * 0.62;
+    }
+    a.v += (want - a.v) * Math.min(1, dt * 8);
+    a.u += a.v * dt;
+    const P = this.hangPoint(a, _v);
+    P.y += (1 - a.settle) * 0.12 * Math.sin(a.settle * Math.PI);
+    // (from wherever he caught it: a jump's apex, a run up the wall)
+    if (a.from) {
+      const b = smoothstep(0, 0.22, a.t);
+      P.lerpVectors(a.from, P, b);
+      if (b >= 1) a.from = null;
+    }
+    p.position.copy(P);
+    // the hands step along the edge: the leading one reaches, then the other follows
+    const st = a.step;
+    if (st) {
+      st.t += dt / 0.17;
+      a[st.hand] = lerp(st.from, st.to, smoothstep(0, 1, st.t));
+      if (st.t >= 1) a.step = null;
+    } else if (Math.abs(a.v) > 0.05) {
+      const lead = a.v > 0 ? 'rh' : 'lh';
+      const trail = lead === 'rh' ? 'lh' : 'rh';
+      const ls = lead === 'rh' ? 1 : -1;
+      if ((a[lead] - a.u) * ls < 0.12) a.step = { hand: lead, from: a[lead], to: a.u + ls * 0.36, t: 0 };
+      else if ((a.u - a[trail]) * ls > 0.36) a.step = { hand: trail, from: a[trail], to: a.u - ls * 0.12, t: 0 };
+    }
+    if (a.t < 0.3) return;
+    // up over it (W or Space) when there is a level place to stand with room overhead
+    if ((c.mv.y > 0.5 || c.jumpHeld) && !side) {
+      const ex = L.hx + L.r.x * a.u;
+      const ez = L.hz + L.r.z * a.u;
+      // (a wall top: well past the edge; a chhajja: just on it, back to the wall; a parapet: over
+      // it and down onto the roof behind)
+      // (a wall close behind the edge: he stands a body's depth off it, not pressed into it)
+      const back = this.g.physics.castRay({ x: ex, y: L.top + 1.1, z: ez }, { x: L.f.x, y: 0, z: L.f.z }, 1.2, p.collider, GROUPS.climb);
+      for (const d0 of [0.55, 0.34, 0.7]) {
+        const d = back !== null && back - d0 < 0.36 ? Math.max(0.14, back - 0.36) : d0;
+        const sx = ex + L.f.x * d;
+        const sz = ez + L.f.z * d;
+        const stand = this.topAt(sx, sz, L.top + 0.5, 1.8);
+        const headroom = stand !== null && this.g.physics.sphereCast({ x: sx, y: stand + 0.45, z: sz }, UP, 0.27, 1.25, p.collider, GROUPS.feet) === null;
+        if (stand !== null && headroom && stand < L.top + 0.4 && stand > L.top - 1.25) {
+          this.end();
+          this.startScramble({ hx: ex, hz: ez, clear: L.top, stand, sx, sz, w: L.f, h: L.top - p.feetY });
+          return;
+        }
+      }
+    }
+    // let go (S or C), or a blow knocks him off
+    if (c.mv.y < -0.5 || c.down) this.letGo(L.f, 0.8);
+  }
+
+  letGo(f, push = 0.8) {
+    const p = this.p;
+    this.end();
+    p.state = 'air';
+    p.grounded = false;
+    p.velocity.set(-f.x * push, -0.5, -f.z * push);
+    this.letGoAt = this.g.health?.time ?? 0;
+    this.g.animator.stop(0.15);
   }
 
   topAt(x, z, fromY, span = 3.6) {
@@ -296,9 +531,11 @@ export class Traversal {
     }
     const h = clear - feet;
     if (h < 1.05 || h > 2.9) return null;
-    // where he stands: a level spot past the edge
-    const sx = hx + w.x * 0.62;
-    const sz = hz + w.z * 0.62;
+    // where he stands: a level spot past the edge (a body's depth off any wall behind it)
+    const back = ph.castRay({ x: hx, y: clear + 1.1, z: hz }, { x: w.x, y: 0, z: w.z }, 1.3, p.collider, GROUPS.climb);
+    const sd = back !== null && back - 0.62 < 0.36 ? Math.max(0.14, back - 0.36) : 0.62;
+    const sx = hx + w.x * sd;
+    const sz = hz + w.z * sd;
     const stand = this.topAt(sx, sz, clear + 0.4, 1.6);
     const stand2 = this.topAt(hx + w.x * 0.95, hz + w.z * 0.95, clear + 0.4, 1.6);
     if (stand === null || stand2 === null || Math.abs(stand - stand2) > 0.12 || stand > clear + 0.05) return null;
@@ -380,6 +617,8 @@ export class Traversal {
     if (a.type === 'vault') this.vaultStep(a, dt);
     else if (a.type === 'scramble') this.scrambleStep(a, dt);
     else if (a.type === 'ladder') this.ladderStep(a, dt);
+    else if (a.type === 'wallrun') this.wallRunStep(a, dt);
+    else if (a.type === 'hang') this.hangStep(a, dt);
     p.body.setNextKinematicTranslation(p.position);
     return true;
   }
@@ -522,6 +761,7 @@ export class Traversal {
   end() {
     this.act = null;
     this.hold = 0;
+    this.p.climbLean = 0;
   }
 
   // ------------------------------------------------------------ after the animator: the hands
@@ -557,6 +797,20 @@ export class Traversal {
         _pole.set(-a.f.x, -0.6, -a.f.z).normalize();
         solveTwoBone(B.arm, B.fore, B.hand, _t, _pole, w);
       }
+    } else if (a.type === 'hang') {
+      // both hands on the edge, where they are along it (lifted a little while one steps)
+      const L = a.L;
+      for (const [side, s, key] of [['Left', 1, 'lh'], ['Right', -1, 'rh']]) {
+        const B = loco.b[side];
+        if (!B?.arm) continue;
+        const u = a[key];
+        const lift = a.step?.hand === key ? Math.sin(Math.min(1, a.step.t) * Math.PI) * 0.07 : 0;
+        // (his left hand is on his left as he faces the wall: -r)
+        const uu = key === 'lh' ? Math.min(u, a.u - 0.08) : Math.max(u, a.u + 0.08);
+        _t.set(L.hx + L.r.x * uu + L.f.x * 0.06, L.top + 0.02 + lift, L.hz + L.r.z * uu + L.f.z * 0.06);
+        _pole.set(-L.f.x * 0.6 + L.r.x * -s * 0.8, -0.4, -L.f.z * 0.6 + L.r.z * -s * 0.8).normalize();
+        solveTwoBone(B.arm, B.fore, B.hand, _t, _pole, 1);
+      }
     } else if (a.type === 'ladder' && a.phase === 'on') {
       // hands on the rails, each on the rung nearest where the clip reaches
       const L = a.L;
@@ -580,5 +834,7 @@ export class Traversal {
     if (!this.act) return;
     this.end();
     if (this.p.state === 'climb') this.p.state = 'ground';
+    // (the ladder, hang and wall-run loops never end on their own)
+    if (['ladder', 'hang', 'wallRun', 'scramble', 'vault'].includes(this.g.animator.cur?.name)) this.g.animator.stop(0.1);
   }
 }

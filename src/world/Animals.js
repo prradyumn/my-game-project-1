@@ -4,6 +4,7 @@ import { ANIMALS } from '../config.js';
 import { ASSET_MANIFEST } from '../core/Assets.js';
 import { GROUPS } from '../core/Physics.js';
 import { clamp, damp, dampAngle, wrapAngle } from '../utils/math.js';
+import { PathFollower } from './NavMesh.js';
 import { PROFILE, ghatById, ghatToWorld, groundHeight } from './WorldLayout.js';
 
 // The ghats' animals: sacred cows standing about the terraces and landings, and the street dogs
@@ -23,6 +24,7 @@ const _rq = new THREE.Quaternion();
 const _wq = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
+const _d = { x: 0, z: 0 };
 
 function rotateWorld(bone, axis, angle) {
   bone.parent.getWorldQuaternion(_pq);
@@ -211,6 +213,24 @@ export class Animals {
     this.g.audio.play(name, { at: new THREE.Vector3(a.x, a.y + 0.8, a.z), volume, rate: rate * (0.94 + Math.random() * 0.12), ref: a.kind === 'cow' ? 12 : 9 });
   }
 
+  /** T on the walkable ground (the navmesh: not inside a takht or a temple), or null; T itself
+   * while the navmesh isn't loaded. */
+  walkable(T) {
+    const nav = this.g.nav;
+    if (!nav?.ready) return T;
+    const s = nav.snap({ x: T.x, y: groundHeight(T.x, T.z), z: T.z }, 1.2);
+    return s ? { x: s.x, z: s.z } : null;
+  }
+
+  /** The way to T: round whatever stands between (a.face), or straight at it without a navmesh. */
+  steerTo(a, T, dt) {
+    a.path ??= new PathFollower(this.g.nav, { reach: a.kind === 'cow' ? 0.8 : 0.5 });
+    a.path.repath = a.state === 'follow' ? 0.5 : 1.2;
+    _v.set(a.x, a.y, a.z);
+    const d = a.path.steer(_v, T, dt, _d);
+    a.face = d ? Math.atan2(d.x, d.z) : Math.atan2(T.x - a.x, T.z - a.z);
+  }
+
   /** Off, away from (x,z): a point that far on, kept to dry stone. */
   flee(a, x, z, dist) {
     const dx = a.x - x;
@@ -225,8 +245,8 @@ export class Animals {
       const tx = a.x + ux * dist;
       const tz = a.z + uz * dist;
       if (groundHeight(tx, tz) > 0.5 && groundHeight((a.x + tx) / 2, (a.z + tz) / 2) > 0.4) {
-        best = { x: tx, z: tz };
-        break;
+        best = this.walkable({ x: tx, z: tz });
+        if (best) break;
       }
     }
     if (!best) return;
@@ -359,8 +379,8 @@ export class Animals {
           const H = a.home;
           a.t = 0;
           for (let i = 0; i < 8; i++) {
-            const T = ghatToWorld(H.gh, H.u0 + Math.random() * (H.u1 - H.u0), H.v0 + Math.random() * (H.v1 - H.v0));
-            if (this.crowdNear(T.x, T.z, 1.8, true) || this.crowdNear((T.x + a.x) / 2, (T.z + a.z) / 2, 1.4, true)) continue;
+            const T = this.walkable(ghatToWorld(H.gh, H.u0 + Math.random() * (H.u1 - H.u0), H.v0 + Math.random() * (H.v1 - H.v0)));
+            if (!T || this.crowdNear(T.x, T.z, 1.8, true) || this.crowdNear((T.x + a.x) / 2, (T.z + a.z) / 2, 1.4, true)) continue;
             a.target = T;
             a.state = 'walk';
             break;
@@ -380,7 +400,7 @@ export class Animals {
           a.want = 0;
           break;
         }
-        a.face = Math.atan2(T.x - a.x, T.z - a.z);
+        this.steerTo(a, T, dt);
         const fast = a.state === 'flee' ? (dog ? A.run : A.flee) : A.walk;
         a.want = fast * clamp(d / 1.2, 0.3, 1);
         break;
@@ -389,7 +409,8 @@ export class Animals {
         if (!live || dp > 32 || a.t > a.followFor) {
           // back to its own ghat
           const H = a.home;
-          a.target = ghatToWorld(H.gh, (H.u0 + H.u1) / 2, (H.v0 + H.v1) / 2);
+          a.target = this.walkable(ghatToWorld(H.gh, (H.u0 + H.u1) / 2, (H.v0 + H.v1) / 2));
+          a.path?.reset();
           a.state = 'home';
           a.t = 0;
           break;
@@ -404,7 +425,8 @@ export class Animals {
           a.want = 0;
           a.face = Math.atan2(P.x - a.x, P.z - a.z);
         } else {
-          a.face = Math.atan2(tx - a.x, tz - a.z);
+          _w.set(tx, 0, tz);
+          this.steerTo(a, _w, dt);
           a.want = clamp((d - 0.5) * 1.3, 0, A.run);
         }
         a.wag = Math.max(a.wag, 0.6);
@@ -426,8 +448,14 @@ export class Animals {
       if (Math.abs(dy) > 0.9) a.speed = Math.min(a.speed, 0.35);
     }
     if (a.speed < 0.01) return;
-    const nx = a.x + Math.sin(a.yaw) * a.speed * dt;
-    const nz = a.z + Math.cos(a.yaw) * a.speed * dt;
+    let nx = a.x + Math.sin(a.yaw) * a.speed * dt;
+    let nz = a.z + Math.cos(a.yaw) * a.speed * dt;
+    // kept to the walkable ground: it slides along a takht's edge, never into it
+    const on = this.g.nav?.constrain(a, a.x, a.y, a.z, nx, nz);
+    if (on) {
+      nx = on.x;
+      nz = on.z;
+    }
     // dry stone only, and no stepping off a terrace's edge (a drop over a knee's height)
     const ny = groundHeight(nx, nz);
     if (ny < 0.35 || ny < a.y - 0.6 || ny > a.y + 0.6) {

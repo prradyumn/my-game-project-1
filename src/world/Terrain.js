@@ -167,7 +167,8 @@ export function buildTerrain(textures, physics) {
 // Clone a texture set with a different repeat (shares the GPU image).
 export function cloneSet(set, repeat) {
   const out = {};
-  for (const k of ['map', 'normalMap', 'roughnessMap']) {
+  for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap']) {
+    if (!set[k]) continue;
     const t = set[k].clone();
     t.repeat.set(repeat, repeat);
     t.needsUpdate = true;

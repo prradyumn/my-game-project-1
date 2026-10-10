@@ -77,6 +77,7 @@ export class Player {
     this.visualDip = 0; // holy dip: the body goes under for a moment
     this.diving = false;
     this.pitch = 0;
+    this.climbLean = 0;
     this.bank = 0;
     this.lean = 0;
     this.speed = 0;
@@ -302,6 +303,8 @@ export class Player {
     const wasGrounded = this.grounded;
     this.grounded = this.kcc.computedGrounded();
     if (this.state === 'ground' && !this.traversal?.check(dt)) this.actions?.checkClimb(dt);
+    // in the air beside a wall: a ledge in reach is caught (Traversal: hang, shimmy, pull up)
+    if (this.state === 'air' && this.traversal?.airGrab()) return;
     if (this.state === 'climb') return;
 
     if (this.state === 'ground' || this.state === 'air') {
@@ -411,8 +414,56 @@ export class Player {
       groundY: this.model.position.y,
       rayDown: this.state === 'ground' ? (x, y, z) => this.rayDown(x, y, z) : null,
     });
+    // (before the hands are placed on a ledge, so they still reach it)
+    this.clearWall(dt, yaw);
     this.actions?.late(dt);
     this.traversal?.late(dt);
+  }
+
+  /**
+   * Nothing of him inside the wall in front. The capsule keeps the body off a wall, but a pose can
+   * carry the head and chest past it: the pull up onto a chhajja a hand's width deep, a run's lean
+   * into the plaster, the sword stance's arm. The model eases back by as much as it would go in
+   * (the body in physics stays where it is). A hang is left alone: its hands are on the edge.
+   */
+  clearWall(dt, yaw) {
+    const m = this.model;
+    const act = this.traversal?.act?.type;
+    let want = 0;
+    if ((this.state === 'ground' || this.state === 'climb') && act !== 'hang' && act !== 'ladder') {
+      const fx = Math.sin(yaw);
+      const fz = Math.cos(yaw);
+      const P = this.renderPosition;
+      let dw = Infinity;
+      for (const h of [1.05, 1.6]) {
+        const d = this.physics.castRay({ x: P.x, y: P.y - FEET + h, z: P.z }, { x: fx, y: 0, z: fz }, 1.0, this.collider, GROUPS.climb);
+        if (d !== null) dw = Math.min(dw, d);
+      }
+      if (dw < Infinity) {
+        if (!this.clearBones) {
+          const find = (n) => {
+            let b = null;
+            m.traverse((o) => !b && o.isBone && o.name.endsWith(n) && (b = o));
+            return b;
+          };
+          this.clearBones = { body: ['Head', 'Neck', 'Spine2'].map(find).filter(Boolean), hands: ['LeftHand', 'RightHand'].map(find).filter(Boolean) };
+        }
+        // (on a climb the hands belong on the edge: only the head and the chest count)
+        const bones = this.state === 'climb' ? this.clearBones.body : [...this.clearBones.body, ...this.clearBones.hands];
+        let ext = 0;
+        for (const b of bones) {
+          b.getWorldPosition(_v);
+          ext = Math.max(ext, (_v.x - m.position.x) * fx + (_v.z - m.position.z) * fz);
+        }
+        want = Math.max(0, ext + 0.1 - dw);
+      }
+    }
+    this.wallPush = damp(this.wallPush || 0, want, want > (this.wallPush || 0) ? 20 : 5, dt);
+    if (this.wallPush > 1e-3) {
+      m.position.x -= Math.sin(yaw) * this.wallPush;
+      m.position.z -= Math.cos(yaw) * this.wallPush;
+      m.updateMatrixWorld(true);
+    }
   }
 
   rayDown(x, y, z) {
@@ -447,10 +498,10 @@ export class Player {
       pitchTarget = 0.12;
       feetTarget = surface;
     } else if (this.state === 'climb') {
-      // a vault, a ledge, a ladder: the move places the body exactly
-      this.pitch = 0;
+      // a vault, a ledge, a ladder: the move places the body exactly (a wall run leans it back)
+      this.pitch = this.climbLean;
       this.bank = 0;
-      _e.set(0, yaw, 0);
+      _e.set(this.pitch, yaw, 0);
       m.quaternion.setFromEuler(_e);
       this.visualY = feetY;
       this.visualVel.y = 0;

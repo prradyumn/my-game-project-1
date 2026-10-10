@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { GROUPS } from '../core/Physics.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshBuilder } from '../utils/MeshBuilder.js';
 import { frameAtX, frameToWorld } from './WorldLayout.js';
-import { makeWaterAware, surfaceMaterial } from './materials.js';
+import { makeWaterAware, shiny, surfaceMaterial } from './materials.js';
 import { shikhara } from './Temple.js';
 
 // Kaal Bhairav's temple (Chapter V): the Kotwal of Kashi keeps his shrine on the first lane
@@ -109,9 +110,11 @@ export class BhairavTemple {
     const plH = 0.75;
     stone.box(0, plH / 2, (mz0 + mz1) / 2 - 1.2, mW + 1, plH, mz0 - mz1 + 3.4, 0, C('#cdb48c'), { tile: 1.6 });
     solid.push([0, plH / 2, (mz0 + mz1) / 2 - 1.2, mW + 1, plH, mz0 - mz1 + 3.4]);
+    const treads = [];
     for (let i = 0; i < 3; i++) {
-      stone.box(0, (plH / 3) * (i + 0.5), mz0 + 0.45 + (2 - i) * 0.32, 3, (plH / 3) * (i + 1), 0.32, 0, C('#c8ad84'));
-      solid.push([0, (plH / 3) * (i + 0.5), mz0 + 0.45 + (2 - i) * 0.32, 3, (plH / 3) * (i + 1), 0.32]); // (steps he climbs, not wades)
+      // (each a block from the ground to its tread: three even rises up to the plinth)
+      stone.box(0, (plH / 3) * (i + 1) * 0.5, mz0 + 0.45 + (2 - i) * 0.32, 3, (plH / 3) * (i + 1), 0.32, 0, C('#c8ad84'));
+      treads.push([0, (plH / 3) * (i + 1) * 0.5, mz0 + 0.45 + (2 - i) * 0.32, 3, (plH / 3) * (i + 1), 0.32]);
     }
     this.pillars = [];
     for (let i = 0; i < 4; i++) {
@@ -183,7 +186,7 @@ export class BhairavTemple {
       [stone, surfaceMaterial(textures.carving || textures.stone, { normalScale: 1.2 })],
       [plaster, surfaceMaterial(textures.plaster, { normalScale: 0.8 })],
       [wood, makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }))],
-      [brass, makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.9 }))],
+      [brass, shiny(makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.9 })))],
       [cloth, makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }))],
     ];
     this.group = new THREE.Group();
@@ -220,6 +223,24 @@ export class BhairavTemple {
     for (const [cx, cy, cz, w, h, d] of solid) {
       const c = L(cx, cy, cz);
       physics.addBoxQ(c.x, c.y, c.z, w, h, d, { x: q.x, y: q.y, z: q.z, w: q.w });
+    }
+    // the mandapa steps, as the ghats do it: the exact treads for his feet, one smooth ramp over
+    // their nosings for the walking (a capsule perches on tread edges; the navmesh reads 32 cm
+    // treads as a wall)
+    for (const [cx, cy, cz, w, h, d] of treads) {
+      const c = L(cx, cy, cz);
+      physics.addBoxQ(c.x, c.y, c.z, w, h, d, { x: q.x, y: q.y, z: q.z, w: q.w }).setCollisionGroups(GROUPS.tread);
+    }
+    {
+      const za = mz0 + 0.45 + 2 * 0.32 + 0.16 + 0.32; // where the line of the nosings meets the courtyard
+      const zb = mz0 + 0.45 + 0.16; // the top nosing, at the plinth
+      const len = Math.hypot(za - zb, plH);
+      const ny = (za - zb) / len;
+      const nz = plH / len;
+      const t = 0.6;
+      const c = L(0, plH / 2 - ny * (t / 2), (za + zb) / 2 - nz * (t / 2));
+      const rq = q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.atan2(nz, ny)));
+      physics.addBoxQ(c.x, c.y, c.z, 3, t, len, { x: rq.x, y: rq.y, z: rq.z, w: rq.w }).setCollisionGroups(GROUPS.ramp);
     }
     // lamps burn always; the light pool lights the sanctum
     for (const p of this.lamps) fire.add(p, 0.5, true);

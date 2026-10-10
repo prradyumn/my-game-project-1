@@ -220,14 +220,16 @@ export class RenderSystem {
   }
 
   /** level 0 off, 1 soft, 2 strong; target: world point to keep sharp. */
-  setDof(level, target) {
+  /** Depth of field on `target` (null: off at level 0). opts: { range (m in focus), bokeh } for a
+   *  long lens on a far subject (an establishing shot) rather than a portrait. */
+  setDof(level, target, opts = {}) {
     this.dofLevel = level;
     this.dofTarget = target;
     if (!this.dof) return;
     this.dofPass.enabled = level > 0;
     this.dof.target = target || null;
-    this.dof.bokehScale = level > 1 ? 5.5 : 2.6;
-    this.dof.cocMaterial.focusRange = level > 1 ? 1.6 : 3.2;
+    this.dof.bokehScale = opts.bokeh ?? (level > 1 ? 5.5 : 2.6);
+    this.dof.cocMaterial.focusRange = opts.range ?? (level > 1 ? 1.6 : 3.2);
   }
 
   updateHeat(camera, sources) {

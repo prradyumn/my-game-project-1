@@ -219,6 +219,36 @@ export class AudioManager {
     return src;
   }
 
+  /**
+   * A piece played once from `offset` seconds (a music cue): a handle to fade it, stop it and know
+   * when it has ended. null before unlock or when the buffer isn't loaded yet.
+   */
+  cue(name, opts = {}) {
+    if (!this.ctx || !this.buffers[name]) return null;
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = this.buffers[name];
+    const g = ctx.createGain();
+    g.gain.value = opts.volume ?? 1;
+    src.connect(g).connect(this.buses[opts.channel || 'music']);
+    const offset = Math.min(opts.offset ?? 0, src.buffer.duration - 0.05);
+    src.start(0, offset);
+    const handle = {
+      name,
+      ended: false,
+      left: () => (handle.ended ? 0 : src.buffer.duration - offset - (ctx.currentTime - t0)),
+      setVolume: (v, tc = 0.4) => g.gain.setTargetAtTime(v, ctx.currentTime, tc),
+      stop: (fade = 0) => {
+        if (handle.ended) return;
+        g.gain.setTargetAtTime(0, ctx.currentTime, fade / 4 + 0.001);
+        src.stop(ctx.currentTime + fade);
+      },
+    };
+    const t0 = ctx.currentTime;
+    src.onended = () => (handle.ended = true);
+    return handle;
+  }
+
   duck(seconds) {
     const g = this.buses.music.gain;
     const t = this.ctx.currentTime;
