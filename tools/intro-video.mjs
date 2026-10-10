@@ -1,4 +1,4 @@
-// Records the pre-game gameplay montage (public/assets/video/prady-intro.mp4) from the REAL game:
+// Records the pre-game gameplay montage (public/assets/video/prady-intro-5m.mp4; master in source-assets/video) from the REAL game:
 // every shot is scripted gameplay (Prady driven like a player, the camera on a path), rendered
 // frame by frame on a virtual clock at 30 fps, so the result is perfectly smooth no matter how
 // slowly the browser renders. The game's own sound calls are logged during capture and rebuilt
@@ -25,7 +25,11 @@ const H = 1080;
 const XFADE = 0.5;
 const OUT_DIR = 'tools/out';
 const WORK = path.join(OUT_DIR, 'intro-work');
-const FINAL = 'public/assets/video/prady-intro.mp4';
+// the master (8 Mbps, kept outside the web build) and the copy the game streams (two-pass 5.5 Mbps:
+// a third smaller, the same to the eye)
+const MASTER = 'source-assets/video/prady-intro.mp4';
+const FINAL = 'public/assets/video/prady-intro-5m.mp4';
+const POSTER = 'public/assets/video/prady-intro-poster.jpg';
 const A = 'public/assets/audio';
 const exe = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
@@ -598,8 +602,9 @@ shots.forEach((s, i) => {
   if (s.end) add(SFX.bell, starts[i] + 1.3, 0.6);
 });
 const amix = `${mix.join(';')};${mix.map((_, i) => `[a${i}]`).join('')}amix=inputs=${mix.length}:normalize=0,alimiter=limit=0.9,atrim=0:${total.toFixed(2)},afade=t=out:st=${(total - 1.2).toFixed(2)}:d=1.2[a]`;
-fs.mkdirSync(path.dirname(FINAL), { recursive: true });
-ff(...vIn, ...audioIn, '-filter_complex', `${chain};${amix}`, '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'slow', '-tune', 'film', '-crf', '19', '-maxrate', '8M', '-bufsize', '16M', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-c:a', 'aac', '-b:a', '160k', '-t', total.toFixed(2), FINAL);
+fs.mkdirSync(path.dirname(MASTER), { recursive: true });
+ff(...vIn, ...audioIn, '-filter_complex', `${chain};${amix}`, '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'slow', '-tune', 'film', '-crf', '19', '-maxrate', '8M', '-bufsize', '16M', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-c:a', 'aac', '-b:a', '160k', '-t', total.toFixed(2), MASTER);
+for (const pass of [1, 2]) ff('-i', MASTER, '-c:v', 'libx264', '-preset', 'slower', '-b:v', '5500k', ...(pass === 2 ? ['-maxrate', '11000k', '-bufsize', '11000k', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart'] : ['-an', '-f', 'mp4']), '-pass', String(pass), '-passlogfile', path.join(WORK, 'x264'), pass === 2 ? FINAL : '/dev/null');
 // poster frame for the player
-ff('-ss', '1.6', '-i', FINAL, '-frames:v', '1', '-q:v', '3', FINAL.replace(/\.mp4$/, '-poster.jpg'));
+ff('-ss', '1.6', '-i', MASTER, '-frames:v', '1', '-q:v', '3', POSTER);
 console.log(`wrote ${FINAL} (${total.toFixed(1)} s, ${(fs.statSync(FINAL).size / 1e6).toFixed(1)} MB)`);

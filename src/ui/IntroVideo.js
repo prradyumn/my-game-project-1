@@ -2,7 +2,9 @@
 // while the world loads, so it costs no extra waiting. Browsers only autoplay muted video, so
 // it starts muted with a sound button; any key, a click or "Skip" ends it.
 
-const SRC = '/assets/video/prady-intro.mp4';
+// (prady-intro-5m: the 8 Mbps master re-encoded two-pass at 5.5 Mbps, 24 MB instead of 36; its
+// worst frame, a cross-dissolve, looks the same side by side; SSIM 0.974 over the whole clip)
+const SRC = '/assets/video/prady-intro-5m.mp4';
 const POSTER = '/assets/video/prady-intro-poster.jpg';
 
 export function playIntro({ force = false, onDone } = {}) {

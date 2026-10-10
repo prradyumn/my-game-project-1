@@ -137,9 +137,10 @@ export const ASSET_MANIFEST = {
     wood: { map: `${A}/textures/pbr/weathered_brown_planks_diff_1k.jpg`, normal: `${A}/textures/pbr/weathered_brown_planks_nor_gl_1k.jpg`, arm: `${A}/textures/pbr/weathered_brown_planks_arm_1k.jpg`, repeat: 1 },
   },
   textures: {
-    stone: `${A}/textures/seamless-tileable-texture-straight-top-d-cmuyhilb.png`,
-    plaster: `${A}/textures/seamless-tileable-texture-flat-front-on-cmuyhin9.png`,
-    sand: `${A}/textures/seamless-tileable-texture-straight-top-d-cmuyhip5.png`,
+    // (lossless WebP of the generated PNGs: the same pixels, 35% smaller)
+    stone: `${A}/textures/seamless-tileable-texture-straight-top-d-cmuyhilb.webp`,
+    plaster: `${A}/textures/seamless-tileable-texture-flat-front-on-cmuyhin9.webp`,
+    sand: `${A}/textures/seamless-tileable-texture-straight-top-d-cmuyhip5.webp`,
     // Generated with Gemini (tools/gemini-image.mjs); 2K originals in /source-assets/textures
     carving: `${A}/textures/gemini-temple-carving.jpg`,
     wood: `${A}/textures/gemini-wood-planks.jpg`,
