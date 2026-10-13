@@ -1,5 +1,6 @@
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { loadImage } from '../utils/textures.js';
 
 // ONE place that maps game roles -> files in /public/assets. To swap any asset (your own
@@ -10,10 +11,12 @@ import { loadImage } from '../utils/textures.js';
 const A = '/assets';
 
 export const ASSET_MANIFEST = {
+  // the Basis Universal transcoder (three.js's own build) for the models' KTX2 textures
+  transcoder: `${A}/lib/basis/`,
   // The people of the ghats: Microsoft Rocketbox avatars (MIT) with CMU + Mixamo motion capture,
   // baked by tools/bake-people.mjs. Loaded lazily after the title screen (src/world/Crowd.js).
   people: {
-    base: `${A}/people`,
+    base: `${A}/opt/people`, // (meshopt copies of /assets/people: tools/optimise-models.mjs)
     avatars: [
       { id: 'Male_Adult_15', role: 'pilgrim', sex: 'm', kurta: true },
       { id: 'Female_Adult_06', role: 'pilgrim', sex: 'f' },
@@ -40,11 +43,11 @@ export const ASSET_MANIFEST = {
   // enemy motion pack (tools/people.js "asura" pack: CMU + Mixamo mocap on the same skeleton).
   // roles: which clip plays each part of a fight (the first one present wins).
   enemies: {
-    body: `${A}/people/Male_Adult_11.glb`,
-    packBase: `${A}/people/motions-m.glb`,
-    pack: `${A}/people/motions-asura.glb`,
+    body: `${A}/opt/people/Male_Adult_11.glb`,
+    packBase: `${A}/opt/people/motions-m.glb`,
+    pack: `${A}/opt/people/motions-asura.glb`,
     // thrown flat and up again (Shiva's Damaru), the Vetala's leap, the Kavacha's guard
-    pack2: `${A}/people/motions-asura2.glb`,
+    pack2: `${A}/opt/people/motions-asura2.glb`,
     bossBody: null,
     // ('-name': the clip played backwards)
     roles: {
@@ -69,24 +72,29 @@ export const ASSET_MANIFEST = {
   character: {
     // Prady, rigged by Uthana with a Mixamo-named skeleton (game copy with 2K textures;
     // the full-resolution originals are in /source-assets, outside the web build).
-    model: `${A}/characters/prady-game-2k.glb`,
+    model: `${A}/opt/characters/prady-game-2k.glb`,
     // Motion-capture idle/walk/run (Mixamo, from the three.js examples) retargeted onto Prady's
     // skeleton by tools/retarget.html (src/gameplay/Retarget.js). Preferred over the clips below.
-    mocap: `${A}/characters/prady-mocap.json`,
+    // (v2: four clips, oneTwo / roundKick / parry / guard, from the same CMU takes put onto him by
+    // Unreal Engine 5.8's IK Retargeter: 16-42% less foot slip, same poses; tools/merge-clips.mjs)
+    mocap: `${A}/characters/prady-mocap-v4.json`, // (video motion capture, Motion2MixamoRig: tools/joints-to-clip.js. v3: the roundhouse; v4: + the side kick and the backflip)
     // + traversal (CMU, tools/retarget.js ?set=moves): the vault, the scramble up a ledge, a ladder
     moves: `${A}/characters/prady-moves.json`,
     // + hanging from a ledge (CMU 01_12, tools/retarget.js ?set=moves2)
     moves2: `${A}/characters/prady-moves2.json`,
+    // + turning on the spot, braking out of a run, hands on hips (CMU 69_17, 69_19, 16_08,
+    //   40_11; tools/retarget.js ?set=moves3; Footwork.js)
+    moves3: `${A}/characters/prady-moves3-v2.json`, // (v2: runStop from Unreal's retarget, 24% less slip)
     // + CMU motion capture: the greeting wave (G) and idle breaks
     mocapClips: {
       idle: 'idle', walk: 'walk', run: 'run', swim: 'swimCrawl',
       wave: 'wave', stretch: 'stretch', lookAround: 'lookAround', pranam: 'pranam',
       meditate: 'meditate', sitToStand: 'sitToStand', crouchReach: 'crouchReach', stepUp: 'stepUp', diveTakeoff: 'diveTakeoff',
       // combat (CMU: boxer 13, karate 135, swordplay 02, woodcutter 79)
-      guard: 'guard', oneTwo: 'oneTwo', bodyShot: 'bodyShot', frontKick: 'frontKick', roundKick: 'roundKick',
+      guard: 'guard', oneTwo: 'oneTwo', bodyShot: 'bodyShot', frontKick: 'frontKick', roundKick: 'roundKick', sideKick: 'sideKick',
       thrust: 'thrust', parry: 'parry', swordStance: 'swordStance', slashA: 'slashA', slashB: 'slashB', heavyCut: 'heavyCut',
       // defence (CMU): dodge roll / backstep, knockdown + get up, the fall
-      dodgeRoll: 'dodgeRoll', dodgeBack: 'dodgeBack', knockdown: 'knockdown', getUp: 'getUp', death: 'death',
+      dodgeRoll: 'dodgeRoll', dodgeBack: 'dodgeBack', backFlip: 'backFlip', knockdown: 'knockdown', getUp: 'getUp', death: 'death',
     },
     // Fallback clips (Genex / Uthana) used if the mocap file is missing.
     clips: {
@@ -99,8 +107,8 @@ export const ASSET_MANIFEST = {
     },
     height: 1.75,
   },
-  boat: `${A}/models/boat-game-1k.glb`, // the boat you ride (1K textures, 23.7k tris)
-  boatLod: `${A}/models/boat-lod.glb`, // moored boats (simplified to 3.5k tris)
+  boat: `${A}/opt/models/boat-game-1k.glb`, // the boat you ride (1K textures, 23.7k tris)
+  boatLod: `${A}/opt/models/boat-lod.glb`, // moored boats (simplified to 3.5k tris)
   // the ghats' animals: Genex models, quadruped-rigged, one walk clip each (in place, 2.6 s);
   // baked to 1K WebP textures + meshopt from /source-assets/animals. front: the yaw that turns
   // the model's nose to +Z; scale: metres per model unit; stride: model units per second the
@@ -111,8 +119,8 @@ export const ASSET_MANIFEST = {
     // share of a nod or a lowered head; look: the share of a turn of the head; then the tail and
     // the back. (The cow's neck runs tripoSpine_3..5 to tripoHead_1; the dog's head hangs off its
     // shoulder chain at bone_17/18; its tail is tripoTail_*.)
-    cow: { url: `${A}/animals/cow.glb`, front: Math.PI, scale: 1.75, stride: 0.62, rig: { pitch: [['tripoSpine_3', 0.14], ['tripoSpine_4', 0.28], ['tripoSpine_5', 0.3], ['tripoHead_1', 0.28]], look: [['tripoSpine_5', 0.45], ['tripoHead_1', 0.55]], tail: ['bone_38', 'bone_39', 'bone_40'], spine: ['tripoSpine_1', 'tripoSpine_2'] } },
-    dog: { url: `${A}/animals/dog.glb`, front: -Math.PI / 2, scale: 0.85, stride: 0.52, rig: { pitch: [['bone_17', 0.3], ['bone_18', 0.32], ['tripoHead_0', 0.2], ['tripoHead_1', 0.18]], look: [['bone_18', 0.45], ['tripoHead_1', 0.55]], tail: ['tripoTail_0', 'tripoTail_1', 'tripoTail_2', 'tripoTail_3', 'bone_40'], spine: ['tripoSpine_1'] } },
+    cow: { url: `${A}/opt/animals/cow.glb`, front: Math.PI, scale: 1.75, stride: 0.62, rig: { pitch: [['tripoSpine_3', 0.14], ['tripoSpine_4', 0.28], ['tripoSpine_5', 0.3], ['tripoHead_1', 0.28]], look: [['tripoSpine_5', 0.45], ['tripoHead_1', 0.55]], tail: ['bone_38', 'bone_39', 'bone_40'], spine: ['tripoSpine_1', 'tripoSpine_2'] } },
+    dog: { url: `${A}/opt/animals/dog.glb`, front: -Math.PI / 2, scale: 0.85, stride: 0.52, rig: { pitch: [['bone_17', 0.3], ['bone_18', 0.32], ['tripoHead_0', 0.2], ['tripoHead_1', 0.18]], look: [['bone_18', 0.45], ['tripoHead_1', 0.55]], tail: ['tripoTail_0', 'tripoTail_1', 'tripoTail_2', 'tripoTail_3', 'bone_40'], spine: ['tripoSpine_1'] } },
   },
   // fire: a CC0 flipbook of real simulated flame (Unity Labs, 16 x 4 frames; see
   // /source-assets/fx/LICENSE-unity-labs-vfx.txt) for the big fires (Fire.js)
@@ -164,6 +172,9 @@ export const ASSET_MANIFEST = {
     night: `${A}/audio/score/night.mp3`,
     tension: `${A}/audio/score/tension.mp3`,
     reveal: `${A}/audio/score/reveal.mp3`,
+    // Dev Deepawali (Festival.js): conch and bells, shehnai in Yaman, dhol and nagada building
+    // (Lyria; master in source-assets/music/dev-deepawali-lyria.mp3)
+    festival: `${A}/audio/score/festival.mp3`,
   },
   // the crowd's voices (world/Barks.js; Gemini 2.5 Pro TTS via tools/gemini-tts.mjs): an id ends
   // -m / -f for a man's or a woman's line
@@ -200,6 +211,16 @@ export const ASSET_MANIFEST = {
     ignite: `${A}/audio/oil-lamp-flame-igniting-with-a-soft-whoo-cmuyh9a4.mp3`,
     chime: `${A}/audio/magical-sacred-chime-shimmer-small-bead-cmuyh9bt.mp3`,
     footstep: `${A}/audio/single-footstep-on-a-worn-stone-step-lea-cmuyhupr.mp3`,
+    // whispers in the dark (Gemini TTS via tools/gemini-tts.mjs --batch tools/whisper-lines.json):
+    // the dark lane, Masan, the drowned sanctum
+    'whisper-prady': `${A}/audio/whisper/prady-1.mp3`,
+    'whisper-laut-ja': `${A}/audio/whisper/laut-ja.mp3`,
+    'whisper-diya-bujhega': `${A}/audio/whisper/diya-bujhega.mp3`,
+    'whisper-hum-yahin': `${A}/audio/whisper/hum-yahin.mp3`,
+    'whisper-jala-do': `${A}/audio/whisper/jala-do.mp3`,
+    'whisper-moksha': `${A}/audio/whisper/moksha.mp3`,
+    'whisper-koi-nahi': `${A}/audio/whisper/koi-nahi-aaya.mp3`,
+    'whisper-gehre': `${A}/audio/whisper/gehre.mp3`,
     oar: `${A}/audio/wooden-oar-stroke-pulling-through-calm-r-cmuyhut0.mp3`,
     pigeons: `${A}/audio/flock-of-pigeons-taking-off-wings-flappi-cmuyhux9.mp3`,
     narrationIntro: `${A}/audio/kashi-older-than-history-the-city-of-lig-cmuyhulu.mp3`,
@@ -241,8 +262,13 @@ export const ASSET_MANIFEST = {
 
 export class Assets {
   constructor() {
-    // People GLBs are meshopt-compressed (tools/bake-people.mjs)
+    // Models are meshopt-compressed and carry KTX2 (UASTC) textures: transcoded on load to what
+    // this GPU samples natively (ASTC on Apple, BC7 on desktop), a quarter of the video memory
+    // of the decoded JPEG / WebP they replace (tools/optimise-models.mjs)
     this.gltf = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    this.ktx2 = new KTX2Loader().setTranscoderPath(ASSET_MANIFEST.transcoder);
+    this.gltf.setKTX2Loader(this.ktx2);
+    this.rendererReady = new Promise((r) => (this._rendererReady = r));
     this.progress = 0;
     this.total = 0;
     this.done = 0;
@@ -266,8 +292,25 @@ export class Assets {
     }
   }
 
+  /** The renderer is up: KTX2 textures can be transcoded for its formats. */
+  useRenderer(renderer) {
+    this.ktx2.detectSupport(renderer);
+    this._rendererReady();
+  }
+
+  // (downloaded at once, parsed once the renderer is there to say what its GPU samples)
   gltfAsync(url) {
-    return this.track(this.gltf.loadAsync(url));
+    return this.track(
+      fetch(url)
+        .then((r) => {
+          if (!r.ok) throw new Error(`model ${url}: ${r.status}`);
+          return r.arrayBuffer();
+        })
+        .then(async (buf) => {
+          await this.rendererReady;
+          return this.gltf.parseAsync(buf, url.slice(0, url.lastIndexOf('/') + 1));
+        })
+    );
   }
 
   image(url) {

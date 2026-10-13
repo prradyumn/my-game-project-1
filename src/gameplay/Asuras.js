@@ -35,6 +35,7 @@ import { bankCoords, frameAtX, ghatToWorld, groundHeight, PROFILE_LEN, segmentFo
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _dir = { x: 0, z: 0 };
+const _cur = { x: 0, z: 0 };
 const DOWN = { x: 0, y: -1, z: 0 };
 const _m = new THREE.Matrix4();
 const _x = new THREE.Vector3();
@@ -200,7 +201,7 @@ export class Asura {
     if (h.heavy || h.charged || h.kick || h.finisher) sys.audio.play('heavy-hit', { at: h.at, volume: h.charged || h.finisher ? 0.95 : 0.65, rate: (this.K.boss ? 0.8 : 0.95) + Math.random() * 0.1 });
     sys.audio.play('ember-hiss', { at: h.at, volume: 0.5, rate: 0.9 + Math.random() * 0.2 });
     if (this.state !== 'held' && this.state !== 'floored') {
-      this.knock = { x: dir.x, z: dir.z, d: (h.heavy ? 0.9 : 0.35) / Math.sqrt(this.scale), t: 0 };
+      this.knock = { x: dir.x, z: dir.z, d: (h.heavy ? 0.9 : h.final ? 0.75 : 0.35) / Math.sqrt(this.scale), t: 0, strong: !!(h.heavy || h.kick || h.final || h.charged) };
       // the blow shows in the body as well as the push: its own recoil while it is carried back
       // (the walk cycle would step forward under the slide, toward the one it means to reach)
       // (a shade has no recoil clip of its own: the start of its stagger, played quick, is one)
@@ -211,6 +212,15 @@ export class Asura {
       }
     }
     this.flinch = { axis: new THREE.Vector3(dir.z, 0, -dir.x), amt: 0, vel: (h.heavy ? 8 : 5.6) / Math.sqrt(this.scale), head: this.flinch?.head || 0, headVel: this.flinch?.headVel || 0 };
+    // a cut sweeping across the body turns it with the edge (the torque of the blow about its
+    // spine: the front of it is struck, pushed along the sweep), and it springs back to face him
+    if (h.sweep) {
+      const sl = Math.hypot(h.sweep.x, h.sweep.z);
+      if (sl > 1e-4) {
+        const tq = (dir.x * h.sweep.z - dir.z * h.sweep.x) / sl;
+        this.twistV = (this.twistV || 0) + tq * (h.heavy ? 4.6 : 2.8) / Math.sqrt(this.scale);
+      }
+    }
     this.lastBlow = { heavy: !!h.heavy || !!h.finisher, kick: !!h.kick, k: h.k, finisher: !!h.finisher, push: h.push };
     if (this.hp <= 0) return this.die(dir), 'killed';
     if (this.state === 'held' || this.state === 'floored' || this.state === 'pinned') return 'hit';
@@ -226,6 +236,12 @@ export class Asura {
     // a charged blow floors what it hits (Andhaka only reels)
     if (h.charged && !this.K.boss) {
       this.floor(dir, 1.3);
+      return 'hit';
+    }
+    // the last cut of a full combo throws the small ones flat; the big ones reel from it
+    if (h.final && !this.K.boss && this.state !== 'stagger') {
+      if (!this.mini && (this.kindName === 'shade' || this.kindName === 'pishacha')) this.floor(dir, 0.9);
+      else this.stagger(this.mini ? 0.55 : 0.8);
       return 'hit';
     }
     // a broken poise staggers it; a shade caught winding up is knocked out of its blow
@@ -283,7 +299,7 @@ export class Asura {
     this.setState('floored');
     this.floorFor = secs;
     this.gettingUp = false;
-    this.knock = { x: dir.x, z: dir.z, d: 1.4 / Math.sqrt(this.scale), t: 0 };
+    this.knock = { x: dir.x, z: dir.z, d: 1.4 / Math.sqrt(this.scale), t: 0, strong: true };
     this.play('fall', 0.1, { once: true, clamp: true, speed: 1.15 });
   }
 
@@ -433,6 +449,32 @@ export class Asura {
     this.blockT = Math.max(0, (this.blockT || 0) - dt);
     this.poise = Math.min(this.poiseMax, this.poise + dt * this.poiseMax * (K.boss || this.mini ? 0.05 : 0.12));
 
+    // a pret (Masan): it moves only while he isn't looking. In his sight it is stone, frozen
+    // mid-stride, mid-lunge; the moment it is out of view it comes on fast, and a pret that
+    // reaches him strikes before he can turn
+    if (this.unseen && this.alive && this.state !== 'rise') {
+      const seen = sys.g.inView?.(this.pos, this.height * 0.6, 34) ?? false;
+      if (seen && !this.statue) this.sys.g.onPretSeen?.(this, dist);
+      this.statue = seen;
+      if (seen) {
+        this.locomote(0);
+        if (this.state === 'approach') this.setState('stalk');
+        return;
+      }
+      if (this.state !== 'attack' && dist < 1.9 && this.cool <= 0) {
+        this.cool = 2.2;
+        this.beginAttack(ATTACKS.lunge || ATTACKS.swipe);
+      } else if (this.state !== 'attack') {
+        this.state = 'stalk';
+        const l = dist || 1;
+        this.vel.set(0, 0, 0);
+        this.yaw = toP;
+        const sp = K.run * 1.15 * dt;
+        if (dist > 1.4) this.move((dx / l) * sp, (dz / l) * sp);
+        this.locomote(K.run * 1.15);
+        return;
+      }
+    } else this.statue = false;
     switch (this.state) {
       case 'rise': {
         // walk up out of the river toward the goal (or Prady), burning into being
@@ -518,6 +560,16 @@ export class Asura {
           if (close && this.cool > 0.4) this.cool -= dt;
           if (this.stateT > 1.2 && this.cool <= 0 && this.t > (this.stunUntil ?? 0) && sys.requestToken(this)) this.setState('approach');
         }
+        // a diya lit in his hand: a shade won't come into its light. It backs out of it facing
+        // him and holds at its edge, pacing him; when the flame gutters low it closes in
+        const fear = sys.g.handDiya?.fearAt(this.pos, this) ?? 0;
+        if (fear > 0 && !playerDown) {
+          want = { x: -dx / dist, z: -dz / dist };
+          speed = K.speed * (0.5 + fear * 0.9);
+          face = toP;
+          this.cool = Math.max(this.cool, 0.5);
+          if (fear > 0.5 && Math.random() < dt * 1.5) sys.audio.play('ember-hiss', { at: this.pos, volume: 0.35, rate: 1.3 + Math.random() * 0.3 });
+        }
         // a finisher playing out on another: they give it room, a few steps off, and watch
         // (sideways where they can strafe; otherwise they turn and step away, then face him)
         const fin = sys.g.finishers?.active;
@@ -553,7 +605,8 @@ export class Asura {
           break;
         }
         const reach = atk.reach * this.reachK + 0.3;
-        if (playerDown || this.t < (this.stunUntil ?? 0) || (sys.g.finishers?.active && sys.g.finishers.active.a !== this)) {
+        // (into a diya's light it won't go: back to its edge)
+        if ((sys.g.handDiya?.fearAt(this.pos, this) ?? 0) > 0.15 || playerDown || this.t < (this.stunUntil ?? 0) || (sys.g.finishers?.active && sys.g.finishers.active.a !== this)) {
           this.releaseToken();
           this.setState('circle');
           break;
@@ -606,6 +659,7 @@ export class Asura {
         const toHit = (atk.hit - k) * clipT;
         this.toHit = toHit;
         this.glare = k < atk.hit + 0.05 ? clamp(1 - (toHit - 0.05) / 0.45, 0, 1) : 0;
+        this.glintCheck(toHit);
         if (!this.whooshed && k > atk.hit - 0.12) {
           this.whooshed = true;
           sys.audio.play('whoosh', { at: this.pos, volume: 0.6, rate: (K.boss ? 0.45 : 0.7) + Math.random() * 0.1 });
@@ -672,6 +726,35 @@ export class Asura {
         this.hopStep(dt);
         break;
       }
+      case 'drown': {
+        // carried off by the river, flailing, going under, burning out beneath the surface
+        const W = sys.water;
+        const cur = W.currentAt(this.pos.x, this.pos.z, _cur);
+        const k = Math.exp(-dt * 1.4);
+        this.drownV.x = this.drownV.x * k + cur.x * (1 - k);
+        this.drownV.z = this.drownV.z * k + cur.z * (1 - k);
+        this.pos.x += this.drownV.x * dt;
+        this.pos.z += this.drownV.z * dt;
+        const surf = W.heightAt(this.pos.x, this.pos.z);
+        this.pos.y = Math.max(groundHeight(this.pos.x, this.pos.z), surf - this.height * (0.45 + Math.min(1, this.stateT * 0.35)));
+        this.yaw += dt * 1.1;
+        if (this.stateT < 2.2 && Math.random() < dt * 5) sys.fx?.splash?.(this.pos.x + (Math.random() - 0.5), surf, this.pos.z + (Math.random() - 0.5), 0.3);
+        const burn = clamp((this.stateT - 1.6) / 1.6, 0, 1);
+        this.uniforms.uDissolve.value = burn;
+        if (burn > 0 && Math.random() < dt * 20) sys.particles.emitEmbers(this.pos.x, surf + 0.05, this.pos.z, 2, null, 0.5);
+        this.locomote(0);
+        if (burn >= 1) this.remove();
+        break;
+      }
+      case 'banish': {
+        // the light has come back: it burns away where it stands, into embers
+        const burn = clamp(this.stateT / 1.4, 0, 1);
+        this.uniforms.uDissolve.value = burn;
+        if (burn < 1 && Math.random() < dt * 40) sys.particles.emitEmbers(this.pos.x + (Math.random() - 0.5) * this.radius * 2.4, this.pos.y + Math.random() * this.height * (1 - burn), this.pos.z + (Math.random() - 0.5) * this.radius * 2.4, 3, null, 0.7);
+        this.locomote(0);
+        if (burn >= 1) this.remove();
+        break;
+      }
       case 'dead': {
         const d = this.deathDir;
         const rag = this.ragdoll;
@@ -689,8 +772,8 @@ export class Asura {
       }
     }
 
-    // knock-back from blows
-    if (this.knock) {
+    // knock-back from blows (after the hit-stop: the body is held in the instant of the blow)
+    if (this.knock && !(this.freezeT > 0)) {
       const kb = this.knock;
       kb.t += dt;
       const e = (x) => 1 - (1 - x) * (1 - x);
@@ -735,6 +818,22 @@ export class Asura {
   }
 
   /** Its throwing hand (the right), in world space. */
+  /**
+   * The parry cue: the instant a guard raised now would turn the blow (the difficulty's parry
+   * window before it lands), a glint of light flashes off the striking hand with a thin shimmer.
+   * The eyes' flare says a blow is coming; the glint says *now*.
+   */
+  glintCheck(toHit) {
+    const sys = this.sys;
+    const win = sys.g.combat?.parryWindow ?? 0.42;
+    if (this.glinted || toHit > win - 0.04 || toHit <= 0.02) return;
+    this.glinted = true;
+    // (a blow he can't parry, a stomp's shockwave, gets no glint: roll from those)
+    if (this.attack?.shock) return;
+    this.glintT = 0.24;
+    sys.audio.play('glint', { at: this.pos, volume: 0.55, rate: 0.95 + Math.random() * 0.1, ref: 8 });
+  }
+
   handPos(out) {
     const h = this.body.handR;
     return h ? h.getWorldPosition(out) : null;
@@ -891,6 +990,7 @@ export class Asura {
     const toHit = (atk.hit - k) * clipT;
     this.toHit = toHit;
     this.glare = k < atk.hit + 0.05 ? clamp(1 - (toHit - 0.05) / 0.45, 0, 1) : 0;
+    this.glintCheck(toHit);
     if (!this.struck && k >= atk.hit) {
       this.struck = true;
       this.airborne = false;
@@ -916,6 +1016,7 @@ export class Asura {
     this.struck = false;
     this.toHit = 9; // (computed through the wind-up: never the last blow's)
     this.glare = 0;
+    this.glinted = false;
     this.whooshed = false;
     this.lastLunge = 0;
     this.setState('attack');
@@ -950,6 +1051,7 @@ export class Asura {
   /** Move by (dx, dz) through the controller (walls, steps, Prady, each other). */
   move(dx, dz) {
     if (!dx && !dz) return;
+    if (this.statue) return; // (a pret in his sight: stone still)
     // along the ground's plane (the stair ramps): pressing into the floor in the same controller
     // call makes Rapier drop whole steps of movement (see Player.js)
     const c = { x: this.pos.x, y: this.pos.y + this.halfH, z: this.pos.z };
@@ -958,14 +1060,32 @@ export class Asura {
     _v.set(dx, dy, dz);
     this.kcc.computeColliderMovement(this.col, _v, undefined, GROUPS.enemyMover);
     const m = this.kcc.computedMovement();
+    // a strong blow that drives it into a wall, a stall, a takht: stopped dead, stunned by it
+    const want = Math.hypot(dx, dz);
+    if (this.knock?.strong && !this.knock.slammed && want > 0.004 && Math.hypot(m.x, m.z) < want * 0.35 && this.alive) {
+      const l = want || 1;
+      const wall = this.sys.physics.castRay({ x: this.pos.x, y: this.pos.y + this.height * 0.55, z: this.pos.z }, { x: dx / l, y: 0, z: dz / l }, this.radius + 0.55, this.col, GROUPS.climb);
+      if (wall !== null) this.wallSlam({ x: dx / l, z: dz / l }, wall);
+    }
     // once risen it stays ashore: a lunge, a blow or a step that would take it deeper than its
     // knees into the river doesn't happen
     if (this.state !== 'rise' && this.state !== 'dead') {
       const W = this.sys.water;
       const nx = this.pos.x + m.x;
       const nz = this.pos.z + m.z;
-      const deepNow = W.heightAt(this.pos.x, this.pos.z) - groundHeight(this.pos.x, this.pos.z);
-      const deepNext = W.heightAt(nx, nz) - groundHeight(nx, nz);
+      // (how deep: from the ground's profile, or from where its feet really are on the treads,
+      // the drowned steps going down under the surface)
+      const deepNow = Math.max(W.heightAt(this.pos.x, this.pos.z) - groundHeight(this.pos.x, this.pos.z), W.heightAt(this.pos.x, this.pos.z) - this.pos.y);
+      const deepNext = Math.max(W.heightAt(nx, nz) - groundHeight(nx, nz), W.heightAt(nx, nz) - (this.pos.y + m.y));
+      // (a strong blow off the bottom step, into the water: off balance on the drowned steps it
+      // goes over backwards into the deep, and the Ganga takes it)
+      if (this.knock?.strong && deepNext > 0.1 && deepNext >= deepNow) {
+        const l = Math.hypot(dx, dz) || 1;
+        // (only where the deep is just beyond: a wide shallow shelf just wets its feet)
+        const bx = nx + (dx / l) * 1.5;
+        const bz = nz + (dz / l) * 1.5;
+        if (W.heightAt(bx, bz) - groundHeight(bx, bz) > 0.8 && this.fallIn({ x: dx / l, z: dz / l })) return;
+      }
       if (deepNext > this.wadeDepth && deepNext > deepNow) {
         this.pos.y += m.y;
         return;
@@ -974,6 +1094,65 @@ export class Asura {
     this.pos.x += m.x;
     this.pos.z += m.z;
     this.pos.y += m.y;
+  }
+
+  /**
+   * Knocked off the bottom step into deep water: Ganga Maiya takes it. A great splash, then it is
+   * carried off by the current, flailing and turning, sinks, and burns out under the surface
+   * (a kill, like any other: its embers and prana are his).
+   */
+  fallIn(dir) {
+    if (!this.alive || this.K.boss || this.mini || this.state === 'held') return false;
+    const sys = this.sys;
+    this.alive = false;
+    this.attack = null;
+    this.releaseToken();
+    this.setState('drown');
+    this.knock = null;
+    this.drownV = { x: dir.x * 2.4, z: dir.z * 2.4 };
+    const s = sys.water.heightAt(this.pos.x, this.pos.z);
+    sys.fx?.splash?.(this.pos.x, s, this.pos.z, 1);
+    sys.audio.play('splash', { at: this.pos, volume: 1, rate: 0.75 });
+    sys.audio.play('ember-hiss', { at: this.pos, volume: 0.9, rate: 0.6 });
+    sys.audio.play('asura-death', { at: this.pos, volume: 0.6, rate: 1.1, ref: 12 });
+    this.play(this.has('hit') ? 'hit' : 'stagger', 0.1, { speed: 1.4 });
+    sys.onKilled(this);
+    this.onDeath?.(this);
+    return true;
+  }
+
+  /** Driven into a wall by a blow: a thud through the stone, dust off it, a stun and a toll. */
+  wallSlam(dir, dist) {
+    const sys = this.sys;
+    this.knock.slammed = true;
+    this.knock = null;
+    const at = { x: this.pos.x + dir.x * dist, y: this.pos.y + this.height * 0.55, z: this.pos.z + dir.z * dist };
+    sys.particles.emitDust(at.x, at.y, at.z, 0.9, 10);
+    sys.audio.play('thump', { at, volume: 1, rate: 0.7, ref: 10 });
+    sys.audio.play('heavy-hit', { at, volume: 0.6, rate: 0.85 });
+    sys.g.camRig?.shake(0.22);
+    if (sys.g.combat) sys.g.combat.hitStop = Math.max(sys.g.combat.hitStop, 0.07);
+    // (it costs: the stone hits harder than he did, though never past the finisher's line)
+    const line = this.K.boss ? 0.12 : this.mini ? 0.2 : 0.34;
+    this.hp = Math.max(Math.min(this.hp, this.maxHp * line * 0.6 + 1), this.hp - this.maxHp * 0.12);
+    this.hurt = 1;
+    if (!this.K.boss) this.stagger(this.mini ? 0.9 : 1.5);
+    this.flinch = { axis: new THREE.Vector3(-dir.z, 0, dir.x), amt: 0, vel: -7, head: 0, headVel: 0 };
+  }
+
+  /** Sent back into the dark (the light returns, a mission ends): it burns away where it stands. */
+  banish() {
+    if (!this.alive) return;
+    this.alive = false;
+    this.attack = null;
+    this.releaseToken();
+    this.setState('banish');
+    this.sys.audio.play('ember-hiss', { at: this.pos, volume: 0.6, rate: 0.8 + Math.random() * 0.2 });
+  }
+
+  /** The blow's hit-stop: the body held in the instant it lands (with Prady's). */
+  freeze(secs) {
+    this.freezeT = Math.max(this.freezeT || 0, secs);
   }
 
   locomote(speed, still = false) {
@@ -1058,14 +1237,20 @@ export class Asura {
       }
       this.play(role, 0.3, { speed: sp });
     }
+    const frozen = this.freezeT > 0;
+    this.freezeT = Math.max(0, (this.freezeT || 0) - dt);
     if (this.ragdoll) return this.lateRagdoll(B);
-    B.mixer.update(dt);
+    this.glintT = Math.max(0, (this.glintT || 0) - dt);
+    B.mixer.update(this.statue ? 0 : frozen ? dt * 0.04 : dt);
+    // the side blow's turn, springing back
+    this.twistV = (this.twistV || 0) + (-70 * (this.twist || 0) - 11 * (this.twistV || 0)) * dt;
+    this.twist = (this.twist || 0) + this.twistV * dt;
     // place the body: feet on the real treads (the controller rides the smooth stair ramp)
     const tread = this.sys.physics.castRay({ x: this.pos.x, y: this.pos.y + 0.6, z: this.pos.z }, DOWN, 1.4, this.col, GROUPS.enemyFeet);
     const footY = tread !== null ? this.pos.y + 0.6 - tread : this.pos.y;
     this.visY = this.visY === undefined ? footY : damp(this.visY, Math.min(footY, this.pos.y + 0.05), 14, dt);
     B.holder.position.set(this.pos.x, this.visY, this.pos.z);
-    B.holder.rotation.set(0, this.yaw, 0);
+    B.holder.rotation.set(0, this.yaw + (this.twist || 0), 0);
     B.holder.updateMatrixWorld(true);
     // a body between the camera and Prady, or right at the lens, thins out so Prady is never lost
     // behind it (Andhaka and the Rakshasas fill the frame; a shade only when the lens is in it)
@@ -1154,6 +1339,11 @@ export class Asura {
     const warn = this.alive && this.state === 'attack' ? this.glare || 0 : 0;
     const glow = (this.alive ? 0.8 + warn * 1.6 + this.hurt * 0.6 : Math.max(0, 1 - this.stateT * 1.5)) * (1 - this.uniforms.uDissolve.value);
     for (const e of B.eyes) sys.eyes.add(_w.copy(e).applyMatrix4(B.head.matrixWorld), glow * (this.K.boss ? 1.6 : this.mini ? 1.3 : 1), warn, this.K.eye || null);
+    // the parry glint, off the striking hand: swells in a frame, a star for a breath
+    if (this.glintT > 0 && this.alive && this.handPos(_w)) {
+      const k = this.glintT / 0.24;
+      sys.eyes.add(_w, -(Math.sin(Math.PI * Math.sqrt(1 - k)) * 3.2 * Math.sqrt(this.scale)), 1);
+    }
   }
 
   /** In the air (a Vetala's bound, its pounce) or on a wall: placed where its arc says. */
@@ -1179,6 +1369,19 @@ export class Asura {
   lateRagdoll(B) {
     const sys = this.sys;
     this.ragdoll.apply();
+    // a body coming down hard (off a step, against the stone): the thud of it, a breath of dust
+    const v = this.ragdoll.root?.body?.linvel?.();
+    if (v) {
+      const was = this.ragVy ?? 0;
+      this.ragVy = v.y;
+      this.ragThudT = (this.ragThudT || 0) - 1 / 60;
+      if (was < -2.6 && v.y > was + 2.2 && this.ragThudT <= 0) {
+        this.ragThudT = 0.3;
+        const c = this.ragdoll.center(_w);
+        sys.audio.play('thump', { at: c, volume: Math.min(1, -was / 6), rate: 0.8 + Math.random() * 0.2, ref: 8 });
+        sys.particles.emitDust(c.x, c.y - 0.15, c.z, 0.6, 5);
+      }
+    }
     // (the shield falls with the arm it is strapped to)
     if (this.shield && this.shield.parent !== B.foreL) B.foreL.attach(this.shield);
     if (this.shield) this.shield.visible = this.uniforms.uDissolve.value < 0.7;
@@ -1206,7 +1409,7 @@ export class Asura {
   }
 
   plantFeet(B) {
-    if (this.state === 'dead' || this.state === 'rise' || this.state === 'floored') return;
+    if (this.state === 'dead' || this.state === 'rise' || this.state === 'floored' || this.state === 'drown' || this.state === 'banish') return;
     const fwd = _z.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     const base = B.holder.position.y;
     const ankle = 0.12 * this.scale;

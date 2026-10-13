@@ -75,6 +75,8 @@ export class Cinematics {
   // ------------------------------------------------------------------ impact
   /** A blow lands (k ~0.3 a heavy hit .. 1 a finisher's last cut), at a world point if given. */
   impact(k, at = null) {
+    // the lens punches in for a beat with the blow
+    this.punch = Math.max(this.punch || 0, k);
     this.chroma = Math.max(this.chroma, 0.011 * k);
     this.blur = Math.max(this.blur, 0.1 * k);
     if (at) {
@@ -220,9 +222,12 @@ export class Cinematics {
     const sprinting = g.player.cmd?.sprint && g.player.speed > 4 && g.player.state === 'ground';
     const want = this.shot ? this.shot.fov : this.baseFov + (sprinting ? 5 : 0) - slow * 5;
     const f = damp(this.fov, want, this.shot ? 3 : 4, dt);
-    if (Math.abs(f - this.fov) > 0.005) {
+    const was = this.punch || 0;
+    this.punch = was > 0.004 ? was * Math.exp(-dt * 7) : 0;
+    if (Math.abs(f - this.fov) > 0.005 || was > 0) {
       this.fov = f;
-      g.camera.fov = f;
+      // in on the frame of the blow, back out over a tenth of a second
+      g.camera.fov = f - this.punch * 8 * (quiet ? 0.4 : 1);
       g.camera.updateProjectionMatrix();
     }
     this.updateMotes(dt);
@@ -260,7 +265,7 @@ export class Cinematics {
     U.uTime.value += dt;
     U.uCam.value.copy(g.camera.position);
     U.uSun.value.copy(g.sky.sunDir);
-    U.uPx.value = g.rs.renderer.getPixelRatio();
+    U.uPx.value = g.rs.pixelRatio;
     // by day, in the air (not under the water)
     const day = clamp((g.sky.sunDir.y + 0.02) * 6, 0, 1) * (1 - (g.weather?.rain ?? 0));
     U.uDay.value = g.camera.position.y < (g.water?.heightAt?.(g.camera.position.x, g.camera.position.z) ?? 0) ? 0 : day;

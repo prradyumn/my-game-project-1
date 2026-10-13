@@ -156,6 +156,12 @@ function makeBreath(clip, a, b, period, name) {
   return new THREE.AnimationClip(name, period, tracks);
 }
 // the short-sliced holds: [from phase, to phase, seconds a breath]
+// idle breaks after standing still a while: [clip, weight, play options]
+const IDLE_BREAKS = [
+  ['lookAround', 3, { plant: true }],
+  ['akimbo', 3, { fadeIn: 0.7, fadeOut: 0.8, plant: true }],
+  ['stretch', 2, { plant: true }],
+];
 const BREATHE = { swordStance: [0.35, 0.6, 3.6], guard: [0.3, 0.6, 3.2], pranam: [0.3, 0.7, 4.5], meditate: [0.3, 0.7, 5] };
 
 export class CharacterAnimator {
@@ -198,9 +204,11 @@ export class CharacterAnimator {
     // sitting down to meditate, stepping up, the dive take-off. One plays at a time; switching
     // crossfades. See play() / stop().
     this.clipActions = {};
-    for (const k of ['wave', 'stretch', 'lookAround', 'pranam', 'meditate', 'sitToStand', 'crouchReach', 'stepUp', 'diveTakeoff', 'guard', 'oneTwo', 'bodyShot', 'frontKick', 'roundKick', 'thrust', 'parry', 'swordStance', 'slashA', 'slashB', 'heavyCut', 'dodgeRoll', 'dodgeBack', 'knockdown', 'getUp', 'death', 'hitLight', 'hitHeavy', 'vault', 'scramble', 'ladder', 'hang']) {
+    for (const k of ['wave', 'stretch', 'lookAround', 'pranam', 'meditate', 'sitToStand', 'crouchReach', 'stepUp', 'diveTakeoff', 'guard', 'oneTwo', 'bodyShot', 'frontKick', 'roundKick', 'sideKick', 'thrust', 'parry', 'swordStance', 'slashA', 'slashB', 'heavyCut', 'dodgeRoll', 'dodgeBack', 'backFlip', 'knockdown', 'getUp', 'death', 'hitLight', 'hitHeavy', 'vault', 'scramble', 'ladder', 'hang', 'turnL', 'turnR', 'runStop', 'akimbo']) {
       if (clips[k]) this.clipActions[k] = this.mixer.clipAction(BREATHE[k] ? makeBreath(clips[k], ...BREATHE[k], k) : clips[k]);
     }
+    // a half turn on the spot is two quarter turns: the second its own copy, so they cross-fade
+    for (const k of ['turnL', 'turnR']) if (clips[k]) this.clipActions[`${k}2`] = this.mixer.clipAction(Object.assign(clips[k].clone(), { name: `${k}2` }));
     // up a wall at a run: the run cycle itself, its own action (Traversal leans the body back)
     if (run) this.clipActions.wallRun = this.mixer.clipAction(Object.assign(run.clone(), { name: 'wallRun' }));
     this.cur = null;
@@ -242,7 +250,8 @@ export class CharacterAnimator {
   /**
    * Play a full-body action. opts: loop, timeScale, reverse (play backwards from the end),
    * clamp (stay on the last frame until stop()), hold (seconds, then fade out), fadeIn,
-   * fadeOut, cancelOnMove (default true), bow (head bow, radians), noLook, noFootIK.
+   * fadeOut, cancelOnMove (default true), bow (head bow, radians), noLook, noFootIK, plant (feet
+   * pinned where they stand while down: Locomotion.footLock).
    */
   play(name, opts = {}) {
     const a = this.clipActions[name];
@@ -289,8 +298,17 @@ export class CharacterAnimator {
     // an idle break after standing still a while
     const still = state === 'ground' && groundSpeed < 0.15;
     this.stillTime = still && !this.cur ? this.stillTime + dt : Math.min(this.stillTime, 0);
-    if (this.stillTime > 16 && (this.clipActions.lookAround || this.clipActions.stretch)) {
-      this.play(Math.random() < 0.6 && this.clipActions.lookAround ? 'lookAround' : 'stretch', {});
+    if (this.stillTime > (this.nextBreak ?? 9)) {
+      // a different one from the last (looking round, hands on the hips, a stretch)
+      const opts = IDLE_BREAKS.filter(([n]) => this.clipActions[n] && n !== this.lastBreak);
+      let r = Math.random() * opts.reduce((a, [, w]) => a + w, 0);
+      const pick = opts.find(([, w]) => (r -= w) <= 0) || opts[0];
+      if (pick) {
+        this.play(pick[0], pick[2]);
+        this.lastBreak = pick[0];
+      }
+      // (play() sets stillTime to -12: the next one comes 14-20 s after this one ends)
+      this.nextBreak = 2 + Math.random() * 6;
     }
     const c = this.cur;
     if (c) {
@@ -355,7 +373,11 @@ export class CharacterAnimator {
     const groundSpeed = state === 'boat' ? 0 : speed;
     const nw = this.natural.walk;
     const nr = this.natural.run;
-    const wMove = smoothstep(0.05, 0.55, groundSpeed);
+    // (eased over a few frames, not taken straight from the speed: the brakes stop a walk in
+    // 0.06 s, and the pose swapped from stride to idle in one frame, a foot jumping 30 cm)
+    const wMoveT = smoothstep(0.05, 0.55, groundSpeed);
+    this.wMove = dt > 0 ? damp(this.wMove ?? wMoveT, wMoveT, wMoveT > (this.wMove ?? 0) ? 16 : 11, dt) : wMoveT;
+    const wMove = this.wMove;
     // walk -> run blend across the speeds where neither clip would need extreme playback rates
     const wRun = smoothstep(nw * 1.2, Math.max(nw * 1.2 + 0.5, nr * 0.85), groundSpeed);
     const wCrawl = A.tread ? smoothstep(0.2, 0.75, speed) : 1;
@@ -405,6 +427,12 @@ export class CharacterAnimator {
       swimMocap: this.swimMocap,
       noLook: !!o?.noLook && actW > 0.3,
       noFootIK: !!o?.noFootIK && actW > 0.3,
+      // feet pinned while a planting action plays, and standing in the idle (its own share, so
+      // the pins hold through an action's fade back into it: the idle's wider stance never
+      // slides the feet apart, he stands where the turn or the stop left his feet)
+      plant: o?.plant ? this.cur?.w ?? 0 : !this.cur && this.mode.ground * (1 - wMove) > 0.95 && groundSpeed < 0.05 ? 1 : 0,
+      plantAct: !!o?.plant,
+      blending: actW > 0.02 && actW < 0.98,
       ...extra,
     });
     // a gentle bow of the head and upper back (pranam)

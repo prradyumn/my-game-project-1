@@ -9,6 +9,20 @@ import { groundHeight } from '../world/WorldLayout.js';
 
 export const BOAT = { length: 7.5, draft: 0.32, halfLen: 3.3, halfBeam: 0.95 };
 
+// A meshopt model's positions and normals are integers (KHR_mesh_quantization), put back to
+// metres by its node's transform: baking that transform into the vertices needs floats first
+// (applyMatrix4 on the integers clamps every vertex into a box)
+function floatAttributes(geo) {
+  for (const name of ['position', 'normal', 'tangent']) {
+    const a = geo.getAttribute(name);
+    if (!a || a.array instanceof Float32Array) continue;
+    const out = new Float32Array(a.count * a.itemSize);
+    for (let i = 0; i < a.count; i++) for (let k = 0; k < a.itemSize; k++) out[i * a.itemSize + k] = a.getComponent(i, k);
+    geo.setAttribute(name, new THREE.BufferAttribute(out, a.itemSize));
+  }
+  return geo;
+}
+
 export function prepareBoatGeometry(gltfScene) {
   let mesh = null;
   gltfScene.traverse((o) => {
@@ -16,7 +30,7 @@ export function prepareBoatGeometry(gltfScene) {
   });
   if (!mesh) return null;
   gltfScene.updateMatrixWorld(true);
-  const geo = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+  const geo = floatAttributes(mesh.geometry.clone()).applyMatrix4(mesh.matrixWorld);
   geo.computeBoundingBox();
   const bb = geo.boundingBox;
   const size = new THREE.Vector3();

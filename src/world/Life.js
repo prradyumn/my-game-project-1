@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RNG } from '../utils/math.js';
-import { ghatById, ghatToWorld, PROFILE_LEN } from './WorldLayout.js';
+import { GHAT_SEGMENTS, ghatById, ghatToWorld, PROFILE_LEN } from './WorldLayout.js';
 import { WORLD_UNIFORMS } from './materials.js';
 
 // Ambient life: flocks of pigeons and kites over the ghats, and floating diyas on the river.
@@ -111,14 +111,19 @@ export class FloatingDiyas {
     this.items.push({ x, z, vx: (Math.random() - 0.3) * 0.1, vz: 0.08 + Math.random() * 0.12, rot: Math.random() * 6, age: 0 });
   }
 
-  update(dt, evening, ripples) {
-    // Evening: diyas float out from the Dashashwamedh steps.
-    if (evening) {
+  update(dt, evening, ripples, festival = null, pushers = null) {
+    // Evening: diyas float out from the Dashashwamedh steps; on Dev Deepawali from every ghat
+    // near him (festival: the camera's position), three times as many
+    if (evening || festival) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
-        this.spawnTimer = 0.7 + Math.random() * 1.2;
-        const g = this.spawnLine.g;
-        const p = ghatToWorld(g, g.width * (0.2 + Math.random() * 0.6), PROFILE_LEN - 3 + Math.random() * 2);
+        this.spawnTimer = festival ? 0.22 + Math.random() * 0.4 : 0.7 + Math.random() * 1.2;
+        let g = this.spawnLine.g;
+        if (festival) {
+          const near = GHAT_SEGMENTS.filter((s) => Math.abs((s.x0 + s.x1) / 2 - festival.x) < 160);
+          if (near.length) g = near[Math.floor(Math.random() * near.length)];
+        }
+        const p = ghatToWorld(g, g.width * (0.08 + Math.random() * 0.84), PROFILE_LEN - 3 + Math.random() * 2);
         this.launch(p.x, p.z);
       }
     }
@@ -128,11 +133,34 @@ export class FloatingDiyas {
       d.age += dt;
       const out = Math.min(1, d.age / 20);
       this.water.currentAt(d.x, d.z, cur);
-      d.x += (cur.x + d.vx) * dt;
-      d.z += (cur.z + d.vz * (1 - out * 0.7)) * dt;
+      // pushed aside by a hull, a boat's wake, a swimmer (and spun a little by it)
+      d.px ||= 0;
+      d.pz ||= 0;
+      for (const h of pushers || []) {
+        const hx = d.x - h.x;
+        const hz = d.z - h.z;
+        const d2 = hx * hx + hz * hz;
+        if (h.r > 0 && d2 < h.r * h.r && d2 > 1e-6) {
+          const l = Math.sqrt(d2);
+          const k = (1 - l / h.r) * 2.2 * (h.k ?? 1);
+          d.px += (hx / l) * k * dt * 4;
+          d.pz += (hz / l) * k * dt * 4;
+          d.rot += k * dt * 0.8;
+        }
+      }
+      const drag = Math.exp(-dt * 1.3);
+      d.px *= drag;
+      d.pz *= drag;
+      d.x += (cur.x + d.vx + d.px) * dt;
+      d.z += (cur.z + d.vz * (1 - out * 0.7) + d.pz) * dt;
       d.rot += dt * 0.2;
       const y = this.water.heightAt(d.x, d.z);
-      this._q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, d.rot);
+      // riding the swell: tilted with the water's slope under it
+      const sx = (this.water.heightAt(d.x + 0.25, d.z) - this.water.heightAt(d.x - 0.25, d.z)) / 0.5;
+      const sz = (this.water.heightAt(d.x, d.z + 0.25) - this.water.heightAt(d.x, d.z - 0.25)) / 0.5;
+      this._n = this._n || new THREE.Vector3();
+      this._n.set(-sx, 1, -sz).normalize();
+      this._q.setFromUnitVectors(THREE.Object3D.DEFAULT_UP, this._n).multiply(this._qy || (this._qy = new THREE.Quaternion()).setFromAxisAngle(THREE.Object3D.DEFAULT_UP, d.rot));
       this._m.compose(this._p.set(d.x, y, d.z), this._q, this._s);
       this.cups.setMatrixAt(n, this._m);
       this.leaves.setMatrixAt(n, this._m);

@@ -72,6 +72,9 @@ export class Locomotion {
     this.footDelta = { Left: 0, Right: 0 };
     this.sideSign = 1;
     this.lean = 0;
+    // foot locks (a planting action: a turn on the spot, a braking stop)
+    this.plantW = 0;
+    this.locks = { Left: { on: false, w: 0, x: 0, z: 0, px: null, pz: null }, Right: { on: false, w: 0, x: 0, z: 0, px: null, pz: null } };
   }
 
   // Position of a bone in the wrapper's local frame (wrapper = the Player's root object).
@@ -271,6 +274,7 @@ export class Locomotion {
     else {
       this.pelvisDrop = dt > 0 ? damp(this.pelvisDrop, 0, 10, dt) : 0;
       this.footDelta.Left = this.footDelta.Right = 0;
+      this.unpin();
     }
   }
 
@@ -363,17 +367,73 @@ export class Locomotion {
     }
   }
 
+  /**
+   * Feet that stay where they are put. While a planting action plays (ctx.plant), a foot that is
+   * down and still is pinned to the stone where it stands; when the clip lifts it the pin lets go
+   * over a moment and the step carries it to wherever it lands, to be pinned there in turn. So a
+   * turn begun from the idle's wider stance steps in from it instead of skating the feet together,
+   * and a stop whose path was stretched to a sprint plants its feet instead of dragging them.
+   * Returns the pin's weight for the side (its xz in this.locks[side]).
+   */
+  /** Every pin let go at once (off the ground, a teleport). */
+  unpin() {
+    this.plantW = 0;
+    this.steadyT = 0;
+    for (const L of Object.values(this.locks)) (L.on = false), (L.w = 0), (L.px = null);
+  }
+
+  footLock(side, B, dt, fresh, steady) {
+    const L = this.locks[side];
+    B.foot.getWorldPosition(_v);
+    const other = this.b[side === 'Left' ? 'Right' : 'Left'].foot.getWorldPosition(_w);
+    const sp = L.px === null || dt <= 0 ? 0 : Math.hypot(_v.x - L.px, _v.z - L.pz) / dt;
+    L.px = _v.x;
+    L.pz = _v.z;
+    // down (no higher than the other foot) and not travelling
+    const planted = _v.y - Math.min(_v.y, other.y) < 0.03 && sp < 0.3;
+    if (fresh) {
+      L.on = true;
+      L.w = 1;
+      L.x = _v.x;
+      L.z = _v.z;
+    } else if (!L.on && planted && L.w < 0.05) {
+      L.on = true;
+      L.x = _v.x;
+      L.z = _v.z;
+    }
+    // lifted, or the body has gone too far from it: let go (its travel only counts once the
+    // action is fully in: while it blends in, the pose itself sweeps the feet toward its stance)
+    if (L.on && ((steady && !planted && sp > 0.45) || _v.y - other.y > 0.03 || Math.hypot(L.x - _v.x, L.z - _v.z) > 0.32)) L.on = false;
+    // (carried off from it: a push, the boat, a teleport: gone at once, never dragged after him)
+    if (Math.hypot(L.x - _v.x, L.z - _v.z) > 0.6) (L.on = false), (L.w = 0);
+    L.w = L.on ? Math.min(1, L.w + dt / 0.06) : Math.max(0, L.w - dt / 0.16);
+    return L.w * L.w * (3 - 2 * L.w);
+  }
+
   footIK(ctx) {
     const dt = ctx.dt;
     const ankleRest = this.cal.walk?.ankleRest ?? 0.09;
     const floorY = ctx.groundY;
+    const was = this.plantW;
+    this.plantW = dt > 0 ? damp(this.plantW, ctx.plant ? 1 : 0, ctx.plant ? 30 : 7, dt) : ctx.plant ? 1 : 0;
+    // (an action that plants begins: both feet pinned where the idle had them; coming to a
+    // stand from a walk, each foot is pinned only once it is down)
+    const fresh = ctx.plantAct && ctx.plant && was < 0.02;
+    const pins = {};
+    // (fully in, or out, for a moment: a blend between poses sweeps the feet on its own)
+    this.steadyT = (ctx.plant || 0) > 0.97 && !ctx.blending ? (this.steadyT || 0) + dt : 0;
+    const steady = this.steadyT > 0.12;
+    if (this.plantW > 0.01 || fresh) for (const side of ['Left', 'Right']) pins[side] = this.footLock(side, this.b[side], dt, fresh, steady) * Math.max(this.plantW, fresh ? 1 : 0);
+    else this.unpin();
     const want = {};
     for (const side of ['Left', 'Right']) {
       const B = this.b[side];
       B.toe.getWorldPosition(_v);
       B.foot.getWorldPosition(_w);
-      const gx = (_v.x + _w.x) / 2;
-      const gz = (_v.z + _w.z) / 2;
+      // (a pinned foot stands on the stone under its pin)
+      const pin = this.locks[side].w > 0.5 ? this.locks[side] : null;
+      const gx = pin ? pin.x + (_v.x - _w.x) / 2 : (_v.x + _w.x) / 2;
+      const gz = pin ? pin.z + (_v.z - _w.z) / 2 : (_v.z + _w.z) / 2;
       const g = ctx.rayDown(gx, floorY + 0.65, gz);
       want[side] = g === null ? 0 : clamp(g - floorY, -0.45, 0.45);
     }
@@ -390,8 +450,14 @@ export class Locomotion {
       _target.y += d;
       // never let the ankle sink below the floor under it
       _target.y = Math.max(_target.y, floorY + this.footDelta[side] + ankleRest * 0.85);
+      const pw = pins[side] || 0;
+      if (pw > 0.001) {
+        const L = this.locks[side];
+        _target.x += (L.x - _target.x) * pw;
+        _target.z += (L.z - _target.z) * pw;
+      }
       B.foot.getWorldPosition(_v);
-      if (Math.abs(_target.y - _v.y) < 0.004) continue;
+      if (_target.distanceToSquared(_v) < 0.004 * 0.004) continue;
       solveTwoBone(B.upLeg, B.leg, B.foot, _target, _F, 1);
     }
   }

@@ -444,7 +444,7 @@ export class Water {
   renderReflection(camera) {
     if (!this.reflectionRT || this.reflectionScale <= 0) return;
     const r = this.renderer;
-    const size = r.getDrawingBufferSize(new THREE.Vector2());
+    const size = this.drawSize ? this.drawSize(new THREE.Vector2()) : r.getDrawingBufferSize(new THREE.Vector2());
     const w = Math.max(64, Math.floor(size.x * this.reflectionScale));
     const h = Math.max(64, Math.floor(size.y * this.reflectionScale));
     const key = `${w}x${h}`;

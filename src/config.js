@@ -135,6 +135,7 @@ export const QUALITY_PRESETS = {
 
 export const DEFAULT_SETTINGS = {
   quality: 'medium',
+  look: 'cinematic', // cinematic (the film print, Grading.js) | natural
   adaptiveResolution: true,
   musicVolume: 0.45,
   sfxVolume: 0.8,
@@ -152,6 +153,7 @@ export const DEFAULT_SETTINGS = {
   telegraph: 'ember', // the colour of an Asura's warning flare: ember | blue (colour-blind safe)
   reduceFlashes: false, // softer parry / hurt / finisher flashes
   rumble: true, // gamepad vibration
+  hints: true, // a card the first time each move, each danger comes up (Guide.js)
   bindings: {}, // { action: KeyCode } (src/core/Input.js ACTIONS)
 };
 

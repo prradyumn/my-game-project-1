@@ -52,6 +52,16 @@ export class Score {
     for (const [k, url] of Object.entries(ASSET_MANIFEST.score)) a.fetchBuffer(`score-${k}`, url);
   }
 
+  /** Dev Deepawali begins: its own music now (conch, shehnai, the dhol building), over whatever
+   *  cue was playing; on the night after, it comes round with the night's raga. */
+  festival() {
+    const h = this.g.audio.cue('score-festival', { volume: 0 });
+    if (!h) return void (this.rest = Math.min(this.rest, 1.5));
+    this.cur?.stop?.(2.5);
+    this.cur = h;
+    h.setVolume(LEVEL * 1.1 * this.duck, 1.5);
+  }
+
   /** The next exploration cue now, if none is playing (a first visit, the sun coming up). */
   moment() {
     if (!this.cur || this.cur.ended) this.rest = Math.min(this.rest, 1.5);
@@ -80,7 +90,7 @@ export class Score {
   }
 
   _next() {
-    const list = CUES[this.period];
+    const list = this.period === 'night' && this.g.festival?.tonight && this.g.audio.buffers['score-festival'] ? ['night', 'festival'] : CUES[this.period];
     const i = ((this.turn[this.period] ?? -1) + 1) % list.length;
     const name = list[i];
     const key = name === 'river' ? 'music' : `score-${name}`;
@@ -117,7 +127,7 @@ export class Score {
       }
     }
     // exploration steps aside for danger, a race, a reveal
-    const race = g.race?.music ?? 0;
+    const race = Math.max(g.race?.music ?? 0, g.roofRun?.music ?? 0);
     this.duck = (1 - Math.max(this.fight, this.tension, race)) * (this.rev && !this.rev.ended ? 0.1 : 1);
     if (this.rev?.ended) this.rev = null;
     const period = periodOf(g.sky.hours);

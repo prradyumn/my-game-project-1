@@ -13,6 +13,8 @@ import { bankCoords, frameAtX, GHAT_SEGMENTS, ghatToWorld, groundHeight, PROFILE
 //   ambush   at night the dark comes up out of the river at a boatman sleeping by his boat
 //   patang   a kite-flyer up on a haveli roof calls a challenge: climb up (the bamboo ladder),
 //            take the manjha and cut his string ("Bo kata!") on the beat
+//   grahan   a rare clear night: the eclipse. The moon goes to blood, and the dark comes up out of
+//            the river in waves until it is free again
 //
 // Each gives punya; every answered call counts toward "Always Nearby".
 
@@ -31,7 +33,7 @@ export class WorldEvents {
     this.cur = null;
     this.nextT = 150; // the first call after a while of free roaming (and never before Chapter I is told)
     this.marks = [];
-    this.defs = { chor: this.chor(), bachao: this.bachao(), ambush: this.ambush(), patang: this.patang() };
+    this.defs = { chor: this.chor(), bachao: this.bachao(), ambush: this.ambush(), patang: this.patang(), grahan: this.grahan() };
     this.lastKind = null;
     this.kites = null;
   }
@@ -475,6 +477,72 @@ export class WorldEvents {
         }
       },
       stop() {},
+    };
+  }
+
+  // ------------------------------------------------------------ Grahan (the eclipse)
+  /**
+   * A night of Grahan: Rahu, the severed head of the demon who stole the amrit, swallows the
+   * moon. Over a few seconds it goes to blood and the whole night with it (SkySystem.blood, the
+   * grade's uBlood), the dread rises, the ghats empty, and the dark comes up out of the river in
+   * waves until the last of them falls and the moon comes back out of Rahu's mouth.
+   */
+  grahan() {
+    const self = this;
+    const g = this.g;
+    return {
+      title: 'Grahan',
+      can(force) {
+        // (a rare night: a clear one, deep in the dark hours, on the ghats or the river)
+        if (!force && (g.sky.nightFactor < 0.85 || (g.weather?.rain ?? 0) > 0.15 || Math.random() > 0.3)) return null;
+        const P = g.player.position;
+        const { v, seg } = bankCoords(P.x, P.z);
+        const gh = seg || segmentForX(P.x);
+        if (!gh || (!force && (v < -6 || v > PROFILE_LEN + 4))) return null;
+        const bc = bankCoords(P.x, P.z);
+        return { gh, u: clamp(bc.u, 8, gh.width - 8) };
+      },
+      begin(E) {
+        E.s.phase = 'dark';
+        E.s.t = 0;
+        g.grahan.target = 1;
+        g.audio.play('conch', { volume: 0.75, rate: 0.82 });
+        g.audio.play('bell', { volume: 0.5, rate: 0.7, delay: 1.5 });
+        g.ui.toast('Grahan', 'Rahu swallows the moon. The bells fall silent, and the dark comes up out of the river.', 5);
+        g.ui.subtitle('A woman on the steps: “Grahan! Grahan lag gaya! Inside, children, inside!”', 4);
+      },
+      update(E, dt, ending) {
+        const s = E.s;
+        s.t += dt;
+        g.dread.want('grahan', ending || s.phase === 'won' ? 0 : 0.45 * g.grahan.blood);
+        // the waves, once the moon is red
+        if (s.phase === 'dark' && g.grahan.blood > 0.7 && !s.fighting) {
+          s.fighting = true;
+          const { gh, u } = E.s.spot;
+          g.encounters.start({
+            ghat: gh.id,
+            u,
+            waves: [{ n: 3, kind: 'shade' }, { mix: [{ n: 2, kind: 'shade' }, { n: 1, kind: 'brute' }] }, { mix: [{ n: 2, kind: 'vetala' }, { n: 2, kind: 'shade' }] }],
+            waveText: ['', 'Rahu’s hunger brings more', 'The last of them, out of the red water'],
+            title: 'Grahan',
+            onWin: () => {
+              if (self.cur !== E) return;
+              s.phase = 'won';
+              g.grahan.target = 0;
+              g.audio.play('conch', { volume: 0.7, delay: 1 });
+              g.ui.subtitle('The moon slides out of Rahu’s mouth. Somewhere up the ghat a bell rings, then a hundred.', 5);
+              for (let i = 0; i < 4; i++) g.audio.play('bell', { volume: 0.4, delay: 2 + i * 0.7, rate: 0.9 + i * 0.08 });
+              self.done(45, 'the moon is freed');
+            },
+            onLose: () => self.cur === E && self.fail('Rahu kept the moon tonight.'),
+          });
+        }
+        if (s.phase !== 'won' && !ending) self.objective(s.fighting ? 'Hold the ghat until the moon is free.' : 'The moon is going to blood…');
+      },
+      stop() {
+        g.grahan.target = 0;
+        g.dread.want('grahan', 0);
+      },
     };
   }
 

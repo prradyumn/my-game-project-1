@@ -394,6 +394,9 @@ export function buildStreetLife(layout, physics) {
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = WORLD_UNIFORMS.uTime;
+    shader.uniforms.uGust = WORLD_UNIFORMS.uGust;
+    shader.uniforms.uPusher = WORLD_UNIFORMS.uPusher;
+    shader.uniforms.uPushVel = WORLD_UNIFORMS.uPushVel;
     shader.uniforms.uWind = { value: WIND };
     shader.uniforms.uKites = kitesUp;
     // cloth between the camera and Prady (or the enemy he's locked on to) dithers out, and cloth
@@ -424,7 +427,7 @@ export function buildStreetLife(layout, physics) {
         }`
       );
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform vec3 uWind;\nuniform float uKites;\nattribute vec3 aSway;\nattribute vec3 aHome;\nvarying vec3 vClothW;')
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uGust;\nuniform vec4 uPusher;\nuniform vec3 uPushVel;\nuniform vec3 uWind;\nuniform float uKites;\nattribute vec3 aSway;\nattribute vec3 aHome;\nvarying vec3 vClothW;')
       .replace('#include <project_vertex>', '#include <project_vertex>\n  vClothW = (modelMatrix * vec4(transformed, 1.0)).xyz;')
       .replace(
         '#include <begin_vertex>',
@@ -435,10 +438,22 @@ export function buildStreetLife(layout, physics) {
           float ph = aSway.z;
           if (kind < 0.5) {
             // cloth in the breeze: gusts push the hem downwind and let it fall back
-            float gust = 0.6 + 0.4 * sin(uTime * 0.31 + ph * 0.2);
-            float w = sin(uTime * 1.7 + ph + position.x * 0.35) * 0.11 + sin(uTime * 3.9 + ph * 1.7) * 0.035;
+            float gust = (0.6 + 0.4 * sin(uTime * 0.31 + ph * 0.2)) * (1.0 + uGust * 1.6);
+            float w = sin(uTime * (1.7 + uGust * 1.5) + ph + position.x * 0.35) * 0.11 + sin(uTime * 3.9 + ph * 1.7) * 0.035;
             transformed += uWind * amt * (w + 0.08) * gust;
             transformed.y += amt * abs(w) * 0.25 * gust;
+            // a body walking through the line: the cloth is pushed aside and along with him, and
+            // falls back behind him (the hem most, the edge held by the pegs not at all)
+            vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
+            vec2 off = wp.xz - uPusher.xz;
+            float pd = length(off);
+            if (uPusher.w > 0.0 && pd < uPusher.w && abs(wp.y - uPusher.y - 1.0) < 1.3) {
+              float k = (1.0 - pd / uPusher.w);
+              k = k * k * min(amt * 2.2, 1.0);
+              vec2 away = off / max(pd, 0.05);
+              transformed.xz += (away * 0.32 + uPushVel.xz * 0.06) * k;
+              transformed.y += k * 0.1;
+            }
           } else if (kind < 1.5) {
             // a kite on the wind: slow figure-eights, a dive, a climb
             vec3 o = vec3(sin(uTime * 0.53 + ph) * 2.4, sin(uTime * 1.06 + ph * 1.3) * 1.3, cos(uTime * 0.41 + ph) * 1.8);

@@ -79,6 +79,7 @@ const _q2 = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
+const _Y = new THREE.Vector3(0, 1, 0);
 
 function charQuat(bone, rootInvQ, out) {
   bone.getWorldQuaternion(out);
@@ -97,7 +98,8 @@ function charPos(bone, rootInvM, out) {
  *             the floor: its T-pose frame sits at the lying hip height, so every pose would come
  *             out ~0.7 m too high)
  * @param tgtRoot  target character root (its skeleton must be in its rest pose now)
- * @param opts { fps = 30, name, targetKeyOf, inPlace = false, loopBlend = 0 (seconds),
+ * @param opts { fps = 30, name, targetKeyOf, inPlace = false ('sway': in place from the first
+ *               frame, the hips' sway over the feet kept), loopBlend = 0 (seconds),
  *               faceForward = false (turn the take so the actor faces +Z on average),
  *               pitch = 0 (extra turn about the character's X axis, radians: e.g. -PI/2 stands a
  *                          take captured lying face down, like the CMU swimmers, upright),
@@ -105,6 +107,10 @@ function charPos(bone, rootInvM, out) {
  *               rootMotion = false (with inPlace: keep the removed horizontal hip path in
  *               clip.userData.rootMotion as [x, z] per frame, in hip-above-foot heights, for the game to
  *               move the character by: a lunge plants its feet instead of sliding),
+ *               rootYaw = false (with inPlace: the take's turning is taken out of it frame by
+ *               frame, so the actor always faces +Z, and kept in clip.userData.rootMotion.yaw as
+ *               radians per frame from the first: the game turns the character by it, and a turn
+ *               on the spot plants its feet instead of spinning on them),
  *               staticKeys = RegExp of keys stored as a held pose (e.g. fingers) }
  */
 export function retargetClip(src, tgtRoot, opts = {}) {
@@ -173,17 +179,40 @@ export function retargetClip(src, tgtRoot, opts = {}) {
   }
   if (opts.pitch) yawFix.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), opts.pitch));
   const frames = Math.max(2, Math.round(duration * fps) + 1);
+  // rootYaw: the facing at every frame (from the hip line), unwrapped and smoothed over 0.3 s
+  // (the pelvis' own swing with each step stays in the pose; only the turn is taken out)
+  let yawPath = null;
+  if (opts.rootYaw && S.get('LeftUpLeg') && S.get('RightUpLeg')) {
+    const raw = [];
+    for (let f = 0; f < frames; f++) {
+      mixer.setTime(start + Math.min(duration, f / fps));
+      srcRoot.updateMatrixWorld(true);
+      const lr = charPos(S.get('LeftUpLeg'), sInvM, new THREE.Vector3()).sub(charPos(S.get('RightUpLeg'), sInvM, new THREE.Vector3()));
+      let y = Math.atan2(-lr.z, lr.x);
+      if (f > 0) while (y - raw[f - 1] > Math.PI) y -= 2 * Math.PI;
+      if (f > 0) while (y - raw[f - 1] < -Math.PI) y += 2 * Math.PI;
+      raw.push(y);
+    }
+    const half = Math.round(0.15 * fps);
+    yawPath = raw.map((_, f) => {
+      let sum = 0;
+      for (let k = -half; k <= half; k++) sum += raw[Math.min(frames - 1, Math.max(0, f + k))];
+      return sum / (2 * half + 1);
+    });
+  }
   const times = [];
   const qData = new Map(tBones.map((b) => [b, []]));
   const hipData = [];
   const rootPath = [];
   const legT = Math.max(1e-6, tHip0.y - tFoot.y); // hip height above the foot, target units
+  const sHipStart = new THREE.Vector3();
 
   for (let f = 0; f < frames; f++) {
     const tt = Math.min(duration, f / fps);
     times.push(tt);
     mixer.setTime(start + tt);
     srcRoot.updateMatrixWorld(true);
+    if (yawPath) yawFix.setFromAxisAngle(_Y, -yawPath[f]);
 
     // 1) rest-relative world deltas, parents first
     for (const tb of tBones) {
@@ -198,9 +227,16 @@ export function retargetClip(src, tgtRoot, opts = {}) {
 
     // 2) hips translation (rest-relative, scaled, optionally in place)
     const sh = charPos(hips.s, sInvM, _a);
+    if (f === 0) sHipStart.copy(sh);
     const off = _b.subVectors(sh, sHip0).applyQuaternion(yawFix).multiplyScalar(ratio);
     if (opts.rootMotion) rootPath.push(off.x / legT, off.z / legT);
-    if (opts.inPlace) off.x = off.z = 0;
+    if (opts.inPlace === 'sway') {
+      // in place from the first frame, but the hips still sway over the feet as they did (a turn
+      // on the spot shifts its weight foot to foot: taken out, the planted foot would slide)
+      const sw = _v.subVectors(sh, sHipStart).applyQuaternion(yawFix).multiplyScalar(ratio);
+      off.x = sw.x;
+      off.z = sw.z;
+    } else if (opts.inPlace) off.x = off.z = 0;
     if (opts.lockY) off.y = 0;
     const wantWorld = _v.copy(tHip0).add(off).applyMatrix4(tgtRoot.matrixWorld);
     hips.t.parent.updateMatrixWorld(true);
@@ -280,5 +316,6 @@ export function retargetClip(src, tgtRoot, opts = {}) {
   tracks.push(new THREE.VectorKeyframeTrack(`${hips.t.name}.position`, times, hipData));
   const clip = new THREE.AnimationClip(opts.name || src.clip.name, duration, tracks);
   if (opts.rootMotion) clip.userData.rootMotion = { fps, path: rootPath.map((v) => Math.round(v * 1e4) / 1e4) };
+  if (yawPath) clip.userData.rootMotion = { ...clip.userData.rootMotion, fps, yaw: yawPath.map((v) => Math.round((v - yawPath[0]) * 1e4) / 1e4) };
   return clip;
 }

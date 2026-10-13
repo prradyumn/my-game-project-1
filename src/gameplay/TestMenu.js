@@ -9,6 +9,7 @@ export class TestMenu {
   constructor(game) {
     this.g = game;
     this.entries = [];
+    this.pinned = new Set(); // section headings listed first (the horror places)
     this.addBasics();
   }
 
@@ -24,6 +25,7 @@ export class TestMenu {
       if (!sec) groups.push((sec = { heading: e.group, items: [] }));
       sec.items.push({ label: e.label, sub: e.sub, tag: e.tag, onClick: () => this.jump(e, from) });
     }
+    groups.sort((a, b) => this.pinned.has(b.heading) - this.pinned.has(a.heading));
     this.g.ui.openMenu({
       title: 'Chapter Select · Test',
       note: 'Jump to any chapter, fight or activity. Nothing is required first, and nothing here is saved to your journeys.',
@@ -77,6 +79,7 @@ export class TestMenu {
       this.placeOnGhat('dashashwamedh', 49, 1, 1.5);
       this.hours(20.5);
     });
+    this.add(T, 'Dev Deepawali night', 'Dusk on Dashashwamedh: every ghat lit, lanterns, fireworks', (g) => g.festival.jump());
     this.add(T, 'Monsoon thunderstorm', 'Rain, lightning, wet stone', (g) => {
       this.placeOnGhat('darbhanga', 40, 1, 1);
       this.hours(16);

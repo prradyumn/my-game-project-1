@@ -77,7 +77,7 @@ export default function marigolds(game) {
         }
       });
       if (game.sky.hours > DEADLINE + 0.15 && game.sky.hours < 23) {
-        m.fail('The aarti began without fresh marigolds. Phoolwati will need help another day.');
+        m.fail('The aarti began without fresh marigolds. Phoolwati will need help another day.', { retry: false });
         return;
       }
       const clock = `${Math.floor(DEADLINE)}:${String(Math.round((DEADLINE % 1) * 60)).padStart(2, '0')}`;

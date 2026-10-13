@@ -62,7 +62,7 @@ export class ClothSway {
    * vel: Prady's world velocity (m/s), yawRate (rad/s), hipY: world height of his hips,
    * facing: unit forward vector.
    */
-  update(dt, { vel, yawRate = 0, hipY, footY, facing, swimming = false }) {
+  update(dt, { vel, yawRate = 0, hipY, footY, facing, swimming = false, airborne = false }) {
     if (dt <= 0) return;
     this.t += dt;
     const sp = Math.hypot(vel.x, vel.z);
@@ -76,13 +76,15 @@ export class ClothSway {
       this.target.addScaledVector(_v, Math.sin(this.t * 9.0) * f);
       this.target.y += Math.abs(Math.sin(this.t * 9.0)) * f * 0.5;
     }
+    // in the air the hem lifts as he falls and drags as he rises (the cloth meets the air)
+    if (airborne) this.target.y += THREE.MathUtils.clamp(-vel.y * 0.006, -0.015, 0.05);
     // underdamped spring: overshoots and settles when he stops
     const w = 9;
     const zeta = 0.45;
     this.dv.addScaledVector(_v.subVectors(this.target, this.d), w * w * dt).addScaledVector(this.dv, -2 * zeta * w * dt);
     this.d.addScaledVector(this.dv, dt);
     const L = this.d.length();
-    if (L > 0.045) this.d.multiplyScalar(0.045 / L);
+    if (L > 0.06) this.d.multiplyScalar(0.06 / L);
     this.u.uClothDisp.value.copy(this.d);
     this.u.uClothHipY.value = hipY;
     this.u.uClothFootY.value = footY;

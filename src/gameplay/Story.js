@@ -328,6 +328,7 @@ export class Story {
     const list = [];
     if (r) for (const mk of r.marks) if (mk.compass) list.push({ id: `s${list.length}`, name: r.chapter.title, kind: 'story', pos: mk.pos });
     for (const mk of this.g.race?.marks || []) if (mk.compass) list.push({ id: `r${list.length}`, name: 'Nauka Daud', kind: 'story', pos: mk.pos });
+    for (const mk of this.g.roofRun?.marks || []) if (mk.compass) list.push({ id: `rr${list.length}`, name: 'Chhat Daud', kind: 'story', pos: mk.pos });
     const key = list.map((m) => m.id).join('|') + (r ? `${r.chapter.id}:${r.index}` : '') + (this.g.race?.active ? `race${this.g.race.me?.next}` : '');
     if (key !== this._compassKey) {
       this._compassKey = key;

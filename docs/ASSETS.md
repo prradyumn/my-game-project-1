@@ -28,6 +28,7 @@ water, sky, particles, umbrellas, trees, birds) is generated in code.
 | Asura shades / Rakshasa / Andhaka | `people/Male_Adult_11.glb` + `people/motions-asura.glb` | Rocketbox body (MIT) with the ember-crack shader and horns in code; CMU takes (crouched idle, bent-over walk, sideways sneak, hooks, lunge, overhead chop, reel back, fall) baked by `tools/bake-people.mjs pack` | `PACK_ASURA` in `tools/people-config.js`. |
 | Prady's fighting mocap | `characters/prady-mocap.json` (29 clips) | CMU takes (boxing, swordplay, kicks, rolls, a backward hop, falls, a get-up) via `tools/retarget.js` | Every take picked from contact sheets (`tools/mocap-sheet.html`) and measured with `tools/bvh-measure.mjs`. |
 | Prady's traversal mocap | `characters/prady-moves.json` (vault, scramble, ladder) | CMU 141_08 (a running leap), 01_02 (a playground climb), 13_33 (stepping up, arms forward) via `tools/retarget.js ?set=moves` (`node tools/bake-mocap.mjs moves`) | A second file so the first is never rewritten. |
+| Prady's footwork mocap | `characters/prady-moves3.json` (turnL, turnR, runStop, akimbo; 225 KB) | CMU 69_17 / 69_19 (turn in place, the turn baked out: `rootYaw`, hips' sway kept: `inPlace: 'sway'`), 16_08 (run/jog, sudden stop, root motion), 40_11 (waiting for a bus: hands on hips) via `tools/retarget.js ?set=moves3` (`node tools/bake-mocap.mjs moves3`) | Takes in `source-assets/cmu/` (from the una-dinosauria/cmu-mocap mirror of mocap.cs.cmu.edu, free for any use). A new file beside the others. Used by `gameplay/Footwork.js` and the idle breaks. |
 | More Asura motion | `people/motions-asura2.glb` (fall, getUp, leap, block) | CMU 90_18, 140_08, 141_08, 135_10 via `tools/bake-people.mjs pack:asura2` | Thrown flat by the Damaru and up again, the Vetala's leap, the Kavacha's guard. |
 | A sprint for the crowd | `people/motions-mx.glb` (run) | The three.js Xbot Mixamo run, `tools/bake-people.mjs pack:mx` | The pickpocket's run (grown men of the crowd). |
 | Chapter voices (61 lines) | `audio/voice/ch1…ch5/*.mp3` | Gemini 2.5 Pro TTS via `tools/voice-lines.mjs` (cast in `chapters/lines.js`) | Each line transcribed back and checked against its text. |
@@ -41,6 +42,10 @@ water, sky, particles, umbrellas, trees, birds) is generated in code.
 | Real PBR sets: lime plaster, weathered planks | `textures/pbr/white_rough_plaster_*_1k.jpg`, `textures/pbr/weathered_brown_planks_*_1k.jpg` (colour, GL normal, AO/rough/metal packed in R/G/B) · licence `source-assets/textures/polyhaven/LICENSE.txt` | **Poly Haven** (CC0) API, loaded by `utils/textures.js → pbrSet()` (`ASSET_MANIFEST.pbr`) | Haveli plaster (contrast and level flattened so the per-building tint still reads) and the wood of takhts, balconies and boats. (`sandstone_blocks_08` was downloaded but went unused, the generated sandstone reading better on the ghats: removed from the build; it is free on Poly Haven, and in git history.) |
 | Navmesh (where things can walk) | `nav/kashi.navmesh.bin` (1 MB, 0.26 MB gzipped) · `nav/kashi.navmesh.json` (the collider signature it fits) | Baked from the world's own colliders by `npm run bake:nav` (recast-navigation, MIT) | Dogs, cows and Asuras path round obstacles. Re-bake after any layout or collider change. |
 | The score: dawn, day, evening and night ragas, tension, reveal | `audio/score/*.mp3` (128 kbps; ~14 MB, fetched after the game begins) · 160 kbps masters `source-assets/music/score-*-lyria.mp3` | Lyria 3.5 via `tools/gemini-music.mjs`, each checked by ear (Gemini listening: instruments, percussion, glitches) | `gameplay/Score.js`. Dawn Bhairav on bansuri, day Desh on sitar and santoor, evening Yaman on sarangi and harmonium, night Malkauns on low bansuri and esraj (~3 min each, natural fade-outs); tension trimmed to 2 min; reveal 62 s, its peak at 31–39 s. |
+| Whispers in the dark | `audio/whisper/*.mp3` (8 lines, 340 KB: prady-1, laut-ja, diya-bujhega, hum-yahin, jala-do, moksha, koi-nahi-aaya, gehre) | Gemini TTS (`tools/whisper-lines.json`, voices and pacing per line; checked by Gemini listening) | Dread.js / the dark missions (Andheri Gali, Masan, the Drowned Sanctum), positional. |
+| Optimised models | `opt/people/*.glb`, `opt/characters/prady-game-2k.glb`, `opt/models/boat-*.glb`, `opt/animals/*.glb` | `tools/optimise-models.mjs`: meshopt + quantisation copies of the originals beside them (24.8 → 19.2 MB, A/B identical on screen) | What the manifest loads. The originals stay where they were. |
+| KTX2 transcoder | `lib/basis/basis_transcoder.{js,wasm}` (0.58 MB) | three.js r186's Basis Universal build | Fetched only if a model carries a KTX2 texture (none ship yet). |
+| Dev Deepawali's music | `audio/score/festival.mp3` (96 kbps, 64 s, 764 KB) · 160 kbps master `source-assets/music/dev-deepawali-lyria.mp3` | Lyria 3.5 via `tools/gemini-music.mjs` (Gemini listening: conch and bells, shehnai in Yaman over harmonium, dhol / nagada / manjira building to a celebratory close, no glitches; rated 9/10) | `Score.festival()` at the festival's dusk (Festival.js); alternates with the night raga on festival nights. |
 | Crowd barks (30 lines) | `audio/barks/*.mp3` (800 KB) | Gemini 2.5 Pro TTS via `tools/gemini-tts.mjs`, voices none of the story characters use; each checked by ear for the speaker (man / woman, the -m / -f in its id) and the words | `world/Barks.js`, groups in `ASSET_MANIFEST.barks`. Banarasi Hindi: chai, kachori and flower sellers, pilgrims, boatmen, a priest's mantra, a dhobi; "Arre, dhyan se!", "Talwar! Hato!", "Asur! Bhago!", "Shabaash, beta!". |
 | Kaal Bhairav murti | `images/gemini-bhairav-murti-v2.jpg` (2K original in `source-assets/images/`) | Gemini 3 Pro Image | The relief in the temple's sanctum. |
 | Trailer music (not in the game) | `source-assets/music/trailer-lyria.mp3` (94 s) | Lyria 3.5 via `tools/gemini-music.mjs` (one of three takes; Gemini listening rated it 9/10) | The trailer's three acts: bansuri wonder, rising threat to a pause at 52 s, battle from 55.9 s (~159 bpm). The cut is in `tools/trailer/edl.mjs`; the trailer itself is in `marketing/trailer/`. |
@@ -68,6 +73,58 @@ image lane and are processed into PBR sets in the browser instead.
 4. Use it: map a role in `ASSET_MANIFEST.character.mocapClips`, or play it from code by name.
    Check it in `tools/anim-lab.html?mocap=myName&mode=play`.
 
+## Retargeting through Unreal Engine (the PradyAnim lab)
+
+`~/Desktop/PradyAnim` is an Unreal Engine 5.8 project kept for Prady's animation (never shipped,
+and nothing of Epic's own animation goes into the web game: its sample content is licensed for
+Unreal only). Its `Scripts/` take a motion source through Unreal's IK Retargeter and back:
+
+1. `blender -b --python Scripts/bvh_to_fbx.py -- <bvh dir> Source/cmu_fbx <takes...>` and
+   `Scripts/glb_to_fbx.py` (Prady): FBX in true centimetres (scene unit 0.01, bones at scale 1),
+   Prady stood on the ground (his GLB's rest pose hangs below the origin), each CMU take's rest
+   pose raised to its standing hip height with that height taken back out of the hips' keys.
+   (Without these the retargeter has no pelvis height to scale by: frozen hips, collapsed limbs.)
+2. In the open editor (MCP on port 8010; Python Remote Execution on 239.0.0.1:6767, so another
+   project's editor on 6766 is never addressed): `python3 -I Scripts/ue_run.py Scripts/ue_import.py`
+   (legacy FBX importer, no unit conversion), `ue_rig.py` (IK Rigs with auto chains + full-body IK
+   goals, the retargeter with auto-mapped chains and auto-aligned pose, the Root Motion op off:
+   Prady's root bone is his hips), `ue_retarget.py` (batch), `ue_validate.py`, `ue_export.py`
+   (glTF per take, skeleton + animation, to `Export/`).
+3. `node tools/bake-mocap.mjs <set|-> ue` shapes Unreal's takes exactly as the BVH path does
+   (ranges, loops, root motion; `tools/retarget.js ?src=ue`) into `source-assets/ue/*-ue.json`.
+4. Measure (foot slip, jitter) and look frame by frame against the shipped clips, then
+   `node tools/merge-clips.mjs <base> <ue file> <new file> clip ...` takes only the better ones.
+
+2026-10-11, on the CMU takes: Unreal's retarget plants the feet better in some fighting moves
+(oneTwo 73 → 42 cm of slip, roundKick 86 → 68, parry 87 → 73, guard 20 → 16; runStop 136 → 104)
+and those five now ship (`prady-mocap-v2.json`, `prady-moves3-v2.json`). Elsewhere it is no better,
+or worse: it straightens the CMU actor's forward lean (the body shot and the vault lose their
+drive) and its seated takes (sitToStand) need the hip-height handling the BVH path has. With the
+same source, the retarget alone is not a big step; the big step is better source motion (any FBX
+mocap, e.g. Mixamo's library, goes through the same lab onto Prady).
+
+### Motion from video (Motion2MixamoRig / GVHMR)
+
+Licensed stock clips (Mixkit: free for commercial use) or the user's own footage become joint
+tracks (`source-assets/m2mr/*.json`), and `tools/joints-to-clip.js` poses Prady from them. The
+`video-to-mocap` skill has the whole pipeline. `VIDEO` in `tools/retarget.js`; `node
+tools/bake-mocap.mjs video`; `merge-clips` into a new file. The GVHMR weights and SMPL-X body model
+are non-commercial: fine while the game is free, re-capture or license before it is ever sold.
+
+Shipping in `prady-mocap-v4.json`:
+- `roundKick`: Mixkit 49634, the RMB heavy.
+- `sideKick`: Mixkit 12971, a head-high side kick that ends every other bare-handed combo.
+  Jitter 0.54 against 0.96 cm/f² for the CMU front kick; foot slip 44 against 84 cm.
+- `backFlip`: Mixkit 1222, the dodge with no direction held.
+  - The take is about 2× slow motion and monocular capture loses height in the air.
+  - So `joints-to-clip`'s `floor` / `air` options rebuild the flight as a 0.65 s ballistic arc.
+  - It is baked in place: Combat moves him 2.4 m, only while airborne.
+
+Tried and kept out:
+- Kata punches (49632, 49633): they snap out and hold, and the one-two jittered. The CMU boxer stays.
+- The wall jump (21756): the extraction collapsed.
+- The "cartwheels" take (41017): handstands, with no cartwheel in it.
+
 ## The people (crowd)
 
 - Bodies: 12 Microsoft Rocketbox avatars (MIT) in `source-assets/rocketbox/`, chosen and given a
@@ -77,6 +134,8 @@ image lane and are processed into PBR sets in the browser instead.
   (`gameplay/Retarget.js`, Biped bone map), welds the mesh, packs body + head into one texture
   atlas, exports GLB, then gltf-transform meshopt + WebP → `public/assets/people/*.glb`
   (~0.8–1.3 MB each). The game loads them lazily after the title screen (`world/Crowd.js`).
+  (The WebP pass rewrote them without the meshopt compression; `tools/optimise-models.mjs` puts it
+  back into copies under `public/assets/opt/people/`, which the manifest loads: ~22% lighter.)
 - Preview: `tools/people-view.html?id=Male_Adult_15` (every clip side by side).
 - Prady's extra CMU clips (wave, stretch, lookAround) are baked by `tools/retarget.js` into
   `prady-mocap.json` (`npm run bake:mocap`).

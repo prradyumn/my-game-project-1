@@ -34,13 +34,17 @@ Requires Node ≥ 20 and a WebGL2 browser (Chrome, Edge, Safari 17+, Firefox).
 | E | Interact: talk · take · light a sacred flame · board / leave the boat · climb a ladder · **finish** a reeling Asura |
 | Mouse left / right | Strike (click again for a 3-hit combo, 4 with the siddhi) / heavy strike (hold to charge, with the siddhi) |
 | Q (hold) or middle mouse | Guard; raise it just before a blow lands to **parry** (or toggle: Settings) |
-| C / Ctrl | Dodge roll (with a direction) on land · dive in the water · slide down a ladder |
+| C / Ctrl | Dodge roll (with a direction) or a backflip (none) on land · dive in the water · slide down a ladder |
 | Tab | Lock on to an Asura (flick the mouse to switch) |
-| R | Draw / sheathe the talwar |
+| R | Draw / sheathe the talwar · on the rooftop run (Chhat Daud): run it again from the start |
 | 1 / 2 / 3 | Powers (Shakti): Shiva's Damaru · Trishul (press again to call it back) · Third Eye |
 | Space at a ledge | Climb it (running into a low wall or a parapet vaults it) |
 | Space at a tall wall | Run up it (at a run, or pressed against it) and catch the ledge above: a wall top, a chhajja, a parapet |
-| Hanging from a ledge | A / D shimmy · W or Space climb over · S or C let go |
+| Hanging from a ledge | A / D shimmy · W or Space leap to the ledge above (or climb over the top) · S drop to the ledge below (or let go) · C let go · S + Space kick off the wall |
+| Space in the air beside a wall | Wall jump: kick off it (between two walls, zig-zag up) |
+| Swinging from a bamboo pole | W pumps the swing · Space lets go at the top of the arc, out to the far ledge · C drops |
+| At a rope's high end (E) | Slide down it to the roof across the lane · Space lets go early |
+| E after a long fall from a roof | Climb back up to where you were (a few seconds) · after a failed task: try it again at its giver |
 | Space (boat race) | Power stroke: press it as each oar stroke begins |
 | J | Journal: map (track, fast travel), tasks, siddhis, achievements |
 | M | Meditate |
@@ -64,9 +68,13 @@ warning flare, reduced flashes, gamepad vibration.
 
 **Chapter Select · Test** (title screen and pause menu): jump straight into any chapter step, fight,
 side mission or river activity with nothing required first. Test sessions never touch your saves.
+Its first section, **Horror · dark places**, drops you straight into each scary place, already
+under way at its hour: Andheri Gali (the dark lane), Masan (the burning ghat after midnight), the
+Drowned Sanctum (the dive) and Grahan (the blood moon).
 
 **Debug mode:** open `http://localhost:5173/?debug` — `F1` lights all flames (finale),
-`F2` skips an hour, `F3` teleports to the next flame, `F4` toggles Ganga's Blessing. FPS/draw-call
+`F2` skips an hour, `F3` teleports to the next flame, `F4` toggles Ganga's Blessing, `H` jumps to
+the next horror place. FPS/draw-call
 counter is always shown in debug.
 
 ## What's in the game
@@ -137,8 +145,19 @@ counter is always shown in debug.
 - **Establishing shots:** the first time you reach a ghat, the river, or the lanes, the camera takes
   a breath and shows you the place; each new chapter opens on the place it is set.
 - **Walls, Prince of Persia style:** run up a wall too tall to scramble and catch its top, hang
-  from it, shimmy along it, climb over or let go. Every haveli front climbs this way, chhajja by
-  chhajja, from the ghat to its roof.
+  from it (the body swings in from the catch), shimmy along it, leap hand over hand to the ledge
+  above or drop to the one below, kick off backwards, and mantle over the top. Every haveli front
+  climbs this way, chhajja by chhajja, from the ghat to its roof.
+- **Footwork:** he steps round on the spot instead of spinning on his feet, brakes out of a run
+  with a planted foot and dropped hips, and stands where his feet came to rest (foot locks, all
+  motion capture); idle breaks look along the ghat with his hands on his hips.
+- **Combat feel:** both fighters hold in the instant a blow lands, the lens kicks with the cut and
+  punches in on a heavy one, a side cut turns the body with the edge, a combo's last cut throws a
+  shade flat, and a glint off the claw says exactly when a raised guard will parry.
+- **Dev Deepawali:** once the Maha Aarti is restored (or from the test menu, or `?deepawali`),
+  every step of every ghat is lit at dusk — some 60,000 diyas, running down the river front in a
+  wave and doubled in the Ganga — with diyas set floating from every ghat, sky lanterns, its own
+  music and a fireworks show over the river.
 - **Calls for help:** between missions Kashi asks: chase down a pickpocket, pull someone out of the
   current, defend a boatman from the dark at night, cut a rival's kite string on the rooftops.
 - **The journal (J):** a painted map with fast travel to lit flames and honoured shrines and a
@@ -171,7 +190,33 @@ counter is always shown in debug.
   through a matka: shards and spilt water) and thrown by Andhaka's stomp, and whatever reaches
   the Ganga floats, fills, sinks or drifts away; townsfolk stagger when Prady runs into them.
 - **Look:** height fog with sun scattering, time-of-day colour grading, Kashi gains colour as the
-  Ganga is purified; Gemini-generated carved sandstone, wood and straw.
+  Ganga is purified; Gemini-generated carved sandstone, wood and straw. **Cinematic look**
+  (Settings → Look, the default): a film print after the painterly open-world westerns — warm sun
+  against cool teal shade, amber golden hours, olive greens and azure skies, dense lifted blacks,
+  creamy whites, a lens vignette; a print for every hour (dawn rose, noon bleached gold, night
+  moon-blue around firelight) and a mood for every place (the lanes' ochre, Manikarnika's smoke,
+  the open river's clean light). No extra download: it is shader maths (~0 ms a frame).
+- **Dark places:** **Andheri Gali** (a lane whose lamps die one by one; a child's voice, echoing
+  footsteps, a diya in the hand that holds the shades back and that wind and water put out),
+  **Masan** (Manikarnika after midnight with the Aghori: prets that move only while unseen, pyres
+  to light in the mist), **the Drowned Sanctum** (down to sunken Ratneshwar on one breath, a lamp
+  to place and a Naga in the dark water), **Grahan** (a blood-moon eclipse and three waves to hold
+  the ghat through). A shared dread layer: a heartbeat, a drone, colour draining from the edges
+  in, whispers in Hindi.
+- **Parkour:** wall jumps (zig-zag up between two walls), rope slides from roof to roof across the
+  lanes, swing poles over the wider gaps, balance beams, ramps where two roofs of different
+  heights meet, and vaults over a parapet straight down onto a lower roof across the slot; hands
+  that really grip the rungs and the stone. **Chhat Daud**, the rooftop run (its flag stands on
+  the ghat below the last havelis downstream): up a haveli front chhajja by chhajja, then over
+  five roofs against the clock and against your **chhaya**, a shadow of your best run played back
+  beside you.
+- **A world that answers:** boats, swimmers and Prady push the diyas, flowers and floating things
+  aside; the saris part as you brush through them and lift in the gusts; the temple bells swing and
+  ring when struck; planks bow under you; an Asura knocked hard into the river drowns, one knocked
+  into a wall slams against it, and a thrown pot is a weapon.
+- **Flow:** a short card the first time each move or danger comes up (Settings → First-time hints),
+  E to climb back up after a long fall, E to try a failed task again, the distance to your next
+  objective under the compass.
 - **Presentation:** a 40-second in-engine gameplay montage plays while the world loads (skippable,
   "Watch Gameplay" replays it), cinematic intro with narration, compass with flame markers, region titles,
   toasts with mythological lore, photo mode, pause/settings (quality, volumes, sensitivity,
@@ -194,7 +239,9 @@ source-assets/           Full-resolution originals (not shipped in the web build
 tools/                   check-world.mjs, glb-info.mjs, anim-lab.html (measure clips),
                          retarget.html + bake-mocap.mjs (mocap onto Prady), bake-navmesh.mjs (where things
                          can walk: `npm run bake:nav`), gemini-image.mjs (textures),
-                         people.html + bake-people.mjs (the crowd), intro-video.mjs (gameplay montage)
+                         people.html + bake-people.mjs (the crowd), intro-video.mjs (gameplay montage),
+                         optimise-models.mjs (meshopt copies of the models in public/assets/opt/),
+                         merge-clips.mjs + bake-mocap.mjs `ue` (clips through Unreal's IK Retargeter)
 docs/                    ARCHITECTURE.md, AI_HANDOFF.md, ASSETS.md
 ```
 
@@ -203,7 +250,8 @@ building it with Claude Opus or Gemini.
 
 ## Performance knobs
 
-Pause menu → Graphics quality (Low / Medium / High / Ultra) and Adaptive resolution.
+Pause menu → Graphics quality (Low / Medium / High / Ultra) and Adaptive resolution; Look
+(Cinematic / Natural) costs nothing either way.
 Medium is the default and targets a 16 GB MacBook Air. Presets live in `src/config.js`
 (`QUALITY_PRESETS`): pixel ratio, shadow map size, reflection resolution, ambient occlusion,
 bloom, SMAA.

@@ -4,6 +4,9 @@ import { WATER_LEVEL } from '../config.js';
 // Uniforms shared by every "water-aware" material. Updated once per frame by Game.
 export const WORLD_UNIFORMS = {
   uTime: { value: 0 },
+  uGust: { value: 0 }, // 0..1: a gust of wind passing (Game): cloth and flags swell with it
+  uPusher: { value: new THREE.Vector4(0, -100, 0, 0) }, // Prady: xyz, radius (cloth parts round him)
+  uPushVel: { value: new THREE.Vector3() },
   uWaterLevel: { value: WATER_LEVEL },
   uSunColor: { value: new THREE.Color(1, 1, 1) },
   uCaustics: { value: 1 },
@@ -111,6 +114,7 @@ export function occluderFade(material, { top = 3, r = 2, minY = null } = {}) {
         uniform vec3 uFocusB;
         uniform float uOccOn;
         varying float vOcclude;
+        varying float vOccY;
         float occSeg(vec3 p, vec3 a, vec3 b) {
           vec3 ab = b - a;
           float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-4), 0.0, 1.0);
@@ -136,22 +140,29 @@ export function occluderFade(material, { top = 3, r = 2, minY = null } = {}) {
           float dC = min(dDisc, occSeg(cameraPosition, base, head));
           // in the way of a focus (and not beyond it: what stands behind him stays)
           float dm = distance(cameraPosition, mid);
-          // (narrow edges: a prop is either there or gone; the dither shows only in the brief switch)
-          float blockA = (1.0 - smoothstep(${(r * 1.02).toFixed(2)}, ${(r * 1.14).toFixed(2)}, dA)) * (1.0 - smoothstep(0.0, 0.6, dm - distance(cameraPosition, uFocusA)));
-          float blockB = (1.0 - smoothstep(${(r * 1.02).toFixed(2)}, ${(r * 1.14).toFixed(2)}, dB)) * (1.0 - smoothstep(0.0, 0.6, dm - distance(cameraPosition, uFocusB)));
-          float lens = 1.0 - smoothstep(2.6, 3.0, dC);
+          // (narrow edges: a prop is either there or gone; the dither shows only in the brief switch.
+          // Wide ones left a prop beside Prady, or 2.6-3 m from the lens, half-dithered for as long
+          // as the camera stayed: a static crosshatch that read as noise in daylight)
+          float blockA = (1.0 - smoothstep(${(r * 1.04).toFixed(2)}, ${(r * 1.07).toFixed(2)}, dA)) * (1.0 - smoothstep(0.28, 0.32, dm - distance(cameraPosition, uFocusA)));
+          float blockB = (1.0 - smoothstep(${(r * 1.04).toFixed(2)}, ${(r * 1.07).toFixed(2)}, dB)) * (1.0 - smoothstep(0.28, 0.32, dm - distance(cameraPosition, uFocusB)));
+          // (a hair-thin band: with a wide one a camera resting 2.6-3 m from a pole left it
+          // half-dithered, a static speckle that read as noise in daylight)
+          float lens = 1.0 - smoothstep(2.78, 2.82, dC);
           vOcclude = max(max(blockA, blockB), lens) * uOccOn;
-          ${minY === null ? '' : `vOcclude *= step(${minY.toFixed(2)}, position.y); // (what stands below this stays: the takht people sit on)`}
+          vOccY = position.y;
         }`
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vOcclude;')
+      .replace('#include <common>', '#include <common>\nvarying float vOcclude;\nvarying float vOccY;')
       .replace(
         '#include <clipping_planes_fragment>',
         `#include <clipping_planes_fragment>
-        if (vOcclude > 0.01) {
+        // (what stands below minY stays: the takht people sit on. Cut per pixel: per vertex, the
+        // pole, one tall segment from the stone up, came out half-dithered along its length)
+        float occ = vOcclude${minY === null ? '' : ` * step(${minY.toFixed(2)}, vOccY)`};
+        if (occ > 0.01) {
           float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-          if (n < vOcclude) discard;
+          if (n < occ) discard;
         }`
       );
   };

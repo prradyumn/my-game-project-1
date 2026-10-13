@@ -67,7 +67,7 @@ select { font-family: var(--body); background: rgba(0,0,0,0.45); color: var(--in
 #compass .dir.major { font-size: 16px; opacity: 0.95; color: #fff1d6; }
 #compass .mark { position: absolute; top: 4px; transform: translateX(-50%); width: 14px; height: 18px; }
 #compass .mark.flame { background: radial-gradient(circle at 50% 70%, #ffd27a 0 30%, #ff7a1a 45%, transparent 70%); filter: drop-shadow(0 0 4px #ff8a2a); }
-#compass .mark.flame::after { content: attr(data-dist); position: absolute; top: 18px; left: 50%; transform: translateX(-50%); font-size: 10px; opacity: 0.8; white-space: nowrap; }
+#compass .mark::after { content: attr(data-dist); position: absolute; top: 18px; left: 50%; transform: translateX(-50%); font-size: 10px; opacity: 0.8; white-space: nowrap; }
 #compass .mark.mission { width: 10px; height: 10px; top: 9px; transform: translateX(-50%) rotate(45deg); background: #bfe6ff; box-shadow: 0 0 8px #7cc4ff; }
 #compass .mark.giver { width: 8px; height: 12px; top: 8px; border-radius: 50% 50% 45% 45%; background: radial-gradient(circle at 50% 70%, #fff3c4 0 30%, #ffb03a 60%, transparent 75%); filter: drop-shadow(0 0 3px #ffb03a); opacity: 0.8; }
 #compass .mark.boat { background: #8fd3ff; width: 8px; height: 8px; top: 10px; border-radius: 50%; box-shadow: 0 0 6px #8fd3ff; }

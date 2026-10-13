@@ -164,13 +164,15 @@ export class BhairavTemple {
     const dog = dogGeometry();
     for (const sx of [-1, 1]) stone.geometry(dog, new THREE.Matrix4().makeRotationY(sx > 0 ? -0.3 : 0.3).setPosition(sx * 1.1, plH, sz + 2.2), C('#141212'));
     // ---- bells hanging in the mandapa, lamps on brass stands
+    // (each its own pendulum, hung from the ceiling: brushed past, struck, they swing and ring;
+    // one instanced mesh, see updateBells)
     this.bells = [];
+    this.swing = [];
     for (let i = 0; i < 5; i++) {
       const bx = -2 + i;
       const bz = mz0 - 1.4 - (i % 2) * 0.8;
-      brass.cylinder(bx, roofY - 0.86, bz, 0.01, 0.01, 0.86, 4, C('#3a2a1a')); // the rope, ceiling down to the bell
-      brass.lathe(bx, roofY - 1.15, bz, [[0, 0.3], [0.05, 0.28], [0.1, 0.12], [0.16, 0], [0.15, -0.02]], 14, C('#d1a24a'));
       this.bells.push(L(bx, roofY - 1.1, bz));
+      this.swing.push({ top: L(bx, roofY, bz), ax: 0, az: 0, vx: 0, vz: 0, rungT: 0 });
     }
     this.lamps = [];
     for (const [lx, lz] of [[-1.6, sz + 2.8], [1.6, sz + 2.8], [-0.5, dz + 0.6], [0.5, dz + 0.6]]) {
@@ -217,6 +219,25 @@ export class BhairavTemple {
     murti.rotation.y = yaw;
     this.group.add(murti);
 
+    {
+      // the hanging bells: rope and bell about the rope's top
+      const rope = new THREE.CylinderGeometry(0.01, 0.01, 0.86, 4).translate(0, -0.43, 0);
+      const bell = new THREE.LatheGeometry([[0, 0.3], [0.05, 0.28], [0.1, 0.12], [0.16, 0], [0.15, -0.02]].map(([r, y]) => new THREE.Vector2(r, y)), 14).translate(0, -1.15, 0);
+      const col = (g, c) => {
+        const n = g.attributes.position.count;
+        const a = new Float32Array(n * 3);
+        for (let k = 0; k < n; k++) a.set([c.r, c.g, c.b], k * 3);
+        g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+        g.deleteAttribute('uv');
+        return g.toNonIndexed();
+      };
+      const geo = mergeGeometries([col(rope, C('#3a2a1a')), col(bell, C('#d1a24a'))]);
+      this.bellMesh = new THREE.InstancedMesh(geo, matsOf.find(([b]) => b === brass)[1], this.swing.length);
+      this.bellMesh.castShadow = true;
+      this.yaw = yaw;
+      this.placeBells();
+      this.group.add(this.bellMesh);
+    }
     scene.add(this.group);
     // colliders
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
@@ -252,6 +273,64 @@ export class BhairavTemple {
     this.center = L(0, 0, -D / 2);
     this.plinthY = lot.baseY + plH;
     this.clutter = [{ x: this.center.x, z: this.center.z, r: Math.max(W, D) / 2 + 1 }];
+  }
+
+  /** Each bell at its swing (about the rope's top, two axes). */
+  placeBells() {
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    this.swing.forEach((b, i) => {
+      q.setFromEuler(e.set(b.ax, this.yaw, b.az, 'YXZ'));
+      m.compose(b.top, q, new THREE.Vector3(1, 1, 1));
+      this.bellMesh.setMatrixAt(i, m);
+    });
+    this.bellMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /**
+   * The bells swing: pendulums (about 1.1 m of rope and bell), damped. A body brushing past one
+   * (he walks through them, a hand reaches through, a blow swings through) gives it a push the
+   * way it was going; struck hard enough, its clapper rings it, and again on the backswing.
+   */
+  updateBells(dt, { pushers = [], audio }) {
+    if (!this.bellMesh) return;
+    let moving = false;
+    for (const b of this.swing) {
+      const bx = b.top.x + Math.sin(b.az) * -1.0;
+      const bz = b.top.z + Math.sin(b.ax) * 1.0;
+      const by = b.top.y - 1.05;
+      for (const p of pushers) {
+        const dx = bx - p.x;
+        const dz = bz - p.z;
+        if (dx * dx + dz * dz < p.r * p.r && Math.abs(by - p.y) < 0.55) {
+          // the push, in the bell's own frame (the temple turned by yaw)
+          const c = Math.cos(this.yaw);
+          const sn = Math.sin(this.yaw);
+          const lx = p.vx * c - p.vz * sn;
+          const lz = p.vx * sn + p.vz * c;
+          b.vx += lz * dt * 2.2;
+          b.vz -= lx * dt * 2.2;
+        }
+      }
+      // pendulum (g/L ~ 9), a little damping
+      b.vx += (-9 * Math.sin(b.ax) - 0.5 * b.vx) * dt;
+      b.vz += (-9 * Math.sin(b.az) - 0.5 * b.vz) * dt;
+      b.ax += b.vx * dt;
+      b.az += b.vz * dt;
+      b.rungT -= dt;
+      const sp = Math.hypot(b.vx, b.vz);
+      const amp = Math.hypot(b.ax, b.az);
+      // the clapper meets the bell at the end of a swing big enough
+      const sign = Math.sign(b.ax * b.vx + b.az * b.vz);
+      if (amp > 0.14 && sign < 0 && b.lastSign > 0 && b.rungT <= 0) {
+        b.rungT = 0.45;
+        audio?.play('bell', { at: { x: bx, y: by, z: bz }, volume: Math.min(0.9, amp * 2.2), rate: 1.15 + (this.swing.indexOf(b) % 3) * 0.12, ref: 10 });
+      }
+      b.lastSign = sign;
+      if (sp > 0.001 || amp > 0.001) moving = true;
+    }
+    if (moving) this.placeBells();
   }
 }
 

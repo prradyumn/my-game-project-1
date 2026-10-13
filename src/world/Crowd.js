@@ -244,7 +244,7 @@ class Body {
 // ------------------------------------------------------------------------------------------
 
 export class Crowd {
-  constructor({ scene, physics, layout, props, water, fx, ripples, fire, smoke, moored, renderer, camera, sun, exclude, manifest, quality = 'medium' }) {
+  constructor({ scene, physics, layout, props, water, fx, ripples, fire, smoke, moored, renderer, compile, camera, sun, exclude, manifest, quality = 'medium' }) {
     this.scene = scene;
     this.physics = physics;
     this.water = water;
@@ -253,6 +253,7 @@ export class Crowd {
     this.fire = fire;
     this.moored = moored;
     this.renderer = renderer;
+    this.compile = compile; // (Renderer.compile: shaders built for the render targets they are drawn into)
     this.camera = camera;
     this.exclude = exclude;
     this.manifest = manifest;
@@ -404,7 +405,7 @@ export class Crowd {
         both.remove(b.holder, solid.holder);
         av.free.push(b, solid);
       };
-      this.renderer.compileAsync(both, this.camera, this.scene).then(done, done);
+      (this.compile ? this.compile(both, this.camera, true, this.scene) : this.renderer.compileAsync(both, this.camera, this.scene)).then(done, done);
     }
   }
 

@@ -304,6 +304,22 @@ export class PhysicsProps {
         }
       }
       p.v.set(v.x, v.y, v.z);
+      // a prop he sent flying, into an Asura: it is struck (a clay pot breaks over it)
+      const sp = Math.hypot(v.x, v.y, v.z);
+      if (p.thrownT !== undefined && (g.health?.time ?? 0) - p.thrownT < 1.6 && sp > 3.2 && g.asuras?.active) {
+        for (const a of g.asuras.list) {
+          if (!a.alive || a.state === 'rise') continue;
+          const dx = a.pos.x - t.x;
+          const dz = a.pos.z - t.z;
+          if (dx * dx + dz * dz > (a.radius + K.r + 0.15) ** 2 || t.y < a.pos.y - 0.2 || t.y > a.pos.y + a.height + 0.2) continue;
+          a.hit({ k: 0.55 + sp * 0.05, dir: { x: v.x, z: v.z }, at: { x: t.x, y: t.y, z: t.z }, sword: false, heavy: sp > 6, kick: false, move: 'thrown' });
+          p.thrownT = undefined;
+          if (p.kind === 'matka') this.shatter(p, { x: -v.x * 0.2, y: 1.2, z: -v.z * 0.2 });
+          else b.setLinvel({ x: -v.x * 0.25, y: Math.abs(v.y) * 0.3 + 1, z: -v.z * 0.25 }, true);
+          break;
+        }
+        if (!p.body) continue;
+      }
       // buoyancy, water drag and the current
       const wy = W.heightAt(t.x, t.z);
       const sub = Math.min(1, Math.max(0, (wy - (t.y - K.hh)) / (2 * K.hh)));
@@ -320,7 +336,21 @@ export class PhysicsProps {
         W.currentAt(t.x, t.z, _cur);
         // (a clay pot takes water through its mouth and slowly goes under)
         const fl = K.fills ? K.float * Math.max(0.35, 1 - p.wetT / K.fills) : K.float;
-        b.addForce({ x: (_cur.x - v.x) * m * 1.5 * sub, y: m * 9.81 * fl * sub - v.y * m * 2.2 * sub, z: (_cur.z - v.z) * m * 1.5 * sub }, true);
+        // (and shoved aside by a hull, a wake, a swimmer: Game.riverPushers)
+        let px = 0;
+        let pz = 0;
+        for (const h of g.riverPushers || []) {
+          const hx = t.x - h.x;
+          const hz = t.z - h.z;
+          const d2 = hx * hx + hz * hz;
+          if (h.r > 0 && d2 < h.r * h.r && d2 > 1e-6) {
+            const l = Math.sqrt(d2);
+            const k = (1 - l / h.r) * 2.4 * (h.k ?? 1);
+            px += (hx / l) * k;
+            pz += (hz / l) * k;
+          }
+        }
+        b.addForce({ x: (_cur.x + px - v.x) * m * 1.5 * sub, y: m * 9.81 * fl * sub - v.y * m * 2.2 * sub, z: (_cur.z + pz - v.z) * m * 1.5 * sub }, true);
         b.setAngularDamping(2.5);
       } else if (p.inWater) {
         p.inWater = false;
@@ -348,6 +378,8 @@ export class PhysicsProps {
     const K = KINDS[p.kind];
     if (p.kind === 'matka' && (sword || heavy || (kick && k >= 1))) return this.shatter(p, { x: (dir.x / l) * 2.5, y: 1.5, z: (dir.z / l) * 2.5 });
     const speed = (kick ? 5.5 : heavy ? 6 : 3.6) * k * (p.kind === 'matka' ? 0.55 : 1);
+    // (sent flying by him: for a moment it is a missile, Asuras in its way are struck by it)
+    p.thrownT = this.g.health?.time ?? 0;
     p.body.wakeUp();
     p.body.applyImpulse({ x: (dir.x / l) * speed * K.mass, y: speed * 0.45 * K.mass, z: (dir.z / l) * speed * K.mass }, true);
     p.body.applyTorqueImpulse({ x: (Math.random() - 0.5) * K.mass * 0.4, y: (Math.random() - 0.5) * K.mass * 0.2, z: (Math.random() - 0.5) * K.mass * 0.4 }, true);

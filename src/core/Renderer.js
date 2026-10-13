@@ -7,6 +7,7 @@ import { ColorGradeEffect } from './Grading.js';
 import { HeatShimmerEffect } from './HeatShimmer.js';
 import { ImpactEffect } from './Impact.js';
 import { SharpenEffect } from './Sharpen.js';
+import { UpscalePass } from './Upscale.js';
 
 // Renderer + post stack (pmndrs/postprocessing): optional N8AO ambient occlusion, bloom for
 // flames and sun glitter, SMAA, AgX tone mapping and a soft vignette.
@@ -33,8 +34,15 @@ export class RenderSystem {
     return QUALITY_PRESETS[this.qualityName];
   }
 
+  /** Render pixels per CSS pixel (what particles and screen-space sizes are measured in; the
+   *  canvas itself may be finer: see resize). */
   get pixelRatio() {
-    return this.renderer.getPixelRatio();
+    return this.renderPR ?? this.renderer.getPixelRatio();
+  }
+
+  /** The render resolution in pixels (the composer's buffers, below the canvas when upscaling). */
+  renderSize(out = new THREE.Vector2()) {
+    return out.copy(this._renderSize || this.renderer.getDrawingBufferSize(out));
   }
 
   setQuality(name, initial = false) {
@@ -125,6 +133,8 @@ export class RenderSystem {
     composer.addPass(new EffectPass(camera, ...effects));
     // last: restore the detail lost to upscaling (its own pass: it reads neighbouring pixels)
     if (q.sharpen > 0) composer.addPass(new EffectPass(camera, new SharpenEffect(q.sharpen)));
+    // last of all: up to the screen's own resolution (Upscale.js)
+    composer.addPass(new UpscalePass());
     this.composer = composer;
     this.resize();
   }
@@ -134,7 +144,12 @@ export class RenderSystem {
     const h = window.innerHeight;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const pr = clamp(this.quality.pixelRatio * this.scale, 0.45, 2) * Math.min(dpr, this.quality.dprCap ?? 1.25);
-    this.renderer.setPixelRatio(pr);
+    // The canvas is the screen's own resolution and the picture is drawn at `pr`, then upscaled by
+    // the last pass (Upscale.js) instead of the browser's bilinear stretch. The cheap presets
+    // (below 1.2x) keep the browser's stretch: a native-size pass is not free on a weak GPU.
+    const canvasPR = pr >= 1.2 ? Math.max(pr, dpr) : pr;
+    this.renderPR = pr;
+    this.renderer.setPixelRatio(canvasPR);
     this.renderer.setSize(w, h, false);
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
@@ -142,7 +157,17 @@ export class RenderSystem {
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
     }
-    this.composer?.setSize(w, h, false);
+    // (the composer would size its buffers to the canvas: they are sized to the render instead)
+    const rw = Math.max(1, Math.round(w * pr));
+    const rh = Math.max(1, Math.round(h * pr));
+    this._renderSize = new THREE.Vector2(rw, rh);
+    const c = this.composer;
+    if (c) {
+      c.inputBuffer.setSize(rw, rh);
+      c.outputBuffer.setSize(rw, rh);
+      c.depthRenderTarget?.setSize(rw, rh);
+      for (const pass of c.passes) pass.setSize(rw, rh);
+    }
     this.rest(30);
   }
 
@@ -242,5 +267,70 @@ export class RenderSystem {
     this.renderer.shadowMap.needsUpdate = true;
     this.renderer.info.reset();
     this.composer.render();
+    this.keepPrograms();
+  }
+
+  /**
+   * Shader programs are kept once compiled. three.js frees a program when the last material
+   * using it lets go, and compiles it again from nothing the next time it is needed: a crowd
+   * body fading in, a night effect, a particle burst. On a cold GPU shader cache (the first run
+   * after every update) each recompile froze the game for up to seconds. A program costs little
+   * GPU memory, so none is ever freed (one extra use each).
+   */
+  keepPrograms() {
+    const list = this.renderer.info.programs;
+    if (!list || list.length === this._kept) return;
+    for (const p of list) {
+      if (p.kept) continue;
+      p.kept = true;
+      p.usedTimes++;
+    }
+    this._kept = list.length;
+  }
+
+  /**
+   * Compile what the scene holds before it is first seen, off the main thread
+   * (KHR_parallel_shader_compile): things added after loading (the crowd's people, animals, a
+   * temple, the Asuras, effects) would otherwise compile at their first frame on screen. Called
+   * every frame, it acts every two seconds at most, and only when the scene has changed.
+   */
+  prewarm(scene, camera, dt) {
+    this._warmT = (this._warmT ?? 0) - dt;
+    if (this._warmT > 0 || this._warming) return;
+    this._warmT = 2;
+    let n = 0;
+    scene.traverse(() => n++);
+    if (n === this._warmN) return;
+    this._warmN = n;
+    this._warming = true;
+    const done = () => (this._warming = false);
+    this.compile(scene, camera, true).then(done, done);
+  }
+
+  /**
+   * Compile the scene's shaders as they will actually be drawn. Everything renders into a render
+   * target (the composer's buffers, the river's mirror), and three.js builds a different program
+   * for a target (linear output) than for the screen (sRGB): compiling with none bound made the
+   * screen variants, never used, and every material compiled again on its first frame in view.
+   */
+  compile(scene, camera, async = false, targetScene = null) {
+    const r = this.renderer;
+    this._compileRT ||= new THREE.WebGLRenderTarget(1, 1);
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(this._compileRT);
+    try {
+      return async ? r.compileAsync(scene, camera, targetScene) : r.compile(scene, camera, targetScene);
+    } finally {
+      r.setRenderTarget(prev);
+    }
+  }
+
+  /** One render with every post pass on (depth of field, heat shimmer...): their shaders
+   *  compile behind the loading screen, not the first time a cutscene or photo needs them. */
+  renderAllPasses(exposure) {
+    const off = this.composer.passes.filter((p) => !p.enabled);
+    for (const p of off) p.enabled = true;
+    this.render(exposure);
+    for (const p of off) p.enabled = false;
   }
 }

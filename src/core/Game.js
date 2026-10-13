@@ -13,7 +13,7 @@ import { Player } from '../gameplay/Player.js';
 import { PradyActions } from '../gameplay/Actions.js';
 import { ClothSway } from '../gameplay/ClothSway.js';
 import { Missions } from '../gameplay/Missions.js';
-import { Combat, synthBladeHit, synthBladeWhoosh, synthBlock, synthBodyHit, synthDraw, synthParry, synthSheathe, synthThump, synthWhoosh } from '../gameplay/Combat.js';
+import { Combat, synthBladeHit, synthBladeWhoosh, synthBlock, synthBodyHit, synthDraw, synthGlint, synthParry, synthSheathe, synthThump, synthWhoosh } from '../gameplay/Combat.js';
 import { Health } from '../gameplay/Health.js';
 import { AsuraSystem } from '../gameplay/Asuras.js';
 import { Encounters } from '../gameplay/Encounters.js';
@@ -23,6 +23,8 @@ import { Establishing } from '../gameplay/Establishing.js';
 import { Oars } from '../gameplay/Oars.js';
 import { PhysicsProps, synthBrassClang, synthClayBreak, synthClayKnock, synthWicker } from '../world/PhysicsProps.js';
 import { BoatRace } from '../gameplay/BoatRace.js';
+import { RoofRun } from '../gameplay/RoofRun.js';
+import { Guide } from '../gameplay/Guide.js';
 import { RiverAarti } from '../gameplay/RiverAarti.js';
 import { Siddhis } from '../gameplay/Siddhis.js';
 import { Powers, synthDamaru, synthOm } from '../gameplay/Powers.js';
@@ -30,6 +32,10 @@ import { Finishers } from '../gameplay/Finishers.js';
 import { Cinematics } from '../gameplay/Cinematics.js';
 import { Projectiles, synthFireball } from '../gameplay/Projectiles.js';
 import { Traversal } from '../gameplay/Traversal.js';
+import { Footwork } from '../gameplay/Footwork.js';
+import { Festival } from '../gameplay/Festival.js';
+import { Dread } from '../gameplay/Dread.js';
+import { HandDiya } from '../gameplay/HandDiya.js';
 import { WorldEvents } from '../gameplay/WorldEvents.js';
 import { Achievements } from '../gameplay/Achievements.js';
 import { Journal } from '../ui/Journal.js';
@@ -44,7 +50,7 @@ import { Story } from '../gameplay/Story.js';
 import { Quest } from '../gameplay/Quest.js';
 import { UI } from '../ui/UI.js';
 import { makeSurfaceSet, pbrSet, proceduralSurface } from '../utils/textures.js';
-import { lerp } from '../utils/math.js';
+import { damp, lerp } from '../utils/math.js';
 import { PHOTO_FILTERS, applyGrade } from './Grading.js';
 import { playIntro } from '../ui/IntroVideo.js';
 import { FOG } from '../world/Atmosphere.js';
@@ -75,6 +81,7 @@ const SAVE_KEY = 'prady-save-v1'; // the single save from before journeys had sl
 const SLOTS = 3;
 const slotKey = (i) => `lov-slot-${i}`;
 const LAST_KEY = 'lov-last-slot';
+const _moodV = new THREE.Vector3();
 const SETTINGS_KEY = 'prady-settings-v1';
 const DEBUG = new URLSearchParams(location.search).has('debug');
 const NO_CROWD = new URLSearchParams(location.search).has('nocrowd');
@@ -111,11 +118,12 @@ export class Game {
     this.worldState = {
       shrines: new Set(),
       serialize() {
-        return { shrines: [...this.shrines], raceBest: game.race?.serialize() ?? null, places: game.establishing?.serialize() };
+        return { shrines: [...this.shrines], raceBest: game.race?.serialize() ?? null, roofRun: game.roofRun?.serialize() ?? null, places: game.establishing?.serialize() };
       },
       restore(d) {
         this.shrines = new Set(d?.shrines || []);
         game.race?.restore(d?.raceBest);
+        game.roofRun?.restore(d?.roofRun);
         game.establishing?.restore(d?.places);
       },
     };
@@ -148,6 +156,7 @@ export class Game {
     const pMocap = assets.track(fetch(M.character.mocap).then((r) => (r.ok ? r.json() : null)));
     const pMoves = M.character.moves ? assets.track(fetch(M.character.moves).then((r) => (r.ok ? r.json() : null))) : null;
     const pMoves2 = M.character.moves2 ? assets.track(fetch(M.character.moves2).then((r) => (r.ok ? r.json() : null))) : null;
+    const pMoves3 = M.character.moves3 ? assets.track(fetch(M.character.moves3).then((r) => (r.ok ? r.json() : null))) : null;
     const pBoat = assets.gltfAsync(M.boat);
     const pBoatLod = assets.gltfAsync(M.boatLod);
     const pTex = Object.fromEntries(Object.entries(M.textures).map(([k, url]) => [k, assets.image(url)]));
@@ -160,6 +169,7 @@ export class Game {
     // Renderer, scene, camera
     this.rs = new RenderSystem(this.canvas, this.settings);
     const renderer = this.rs.renderer;
+    assets.useRenderer(renderer);
     const scene = new THREE.Scene();
     // world matrices are updated once per frame in the loop, not again by every scene render
     // (the mirror and the main view): 3k objects, most of them crowd bones, ~2 ms a pass
@@ -184,6 +194,7 @@ export class Game {
       for (const t of Object.values(textures[k])) t.anisotropy = renderer.capabilities.getMaxAnisotropy();
     }
 
+    this.textures = textures; // (the surface sets, for missions that build: the drowned sanctum)
     ui.setLoading(0.8, 'Raising the ghats…');
     await new Promise((r) => setTimeout(r, 30));
     this.sky = new SkySystem(renderer, scene, this.rs.quality);
@@ -191,6 +202,7 @@ export class Game {
     this.world = buildWorld(scene, textures, physics);
     this.nav = new Navigation();
     this.water = new Water(renderer, scene, this.rs.quality);
+    this.water.drawSize = (v) => this.rs.renderSize(v); // (the mirror scales from the render, not the finer canvas)
 
     ui.setLoading(0.88, 'Lighting the lamps…');
     this.fire = new FireSystem(3200, 40);
@@ -257,6 +269,10 @@ export class Game {
     for (const j of moves?.clips || []) clips[j.name] = THREE.AnimationClip.parse(j);
     const moves2 = await pMoves2;
     for (const j of moves2?.clips || []) clips[j.name] = THREE.AnimationClip.parse(j);
+    // the small motions (turns on the spot, the brake out of a run, an idle break)
+    const moves3 = await pMoves3;
+    for (const j of moves3?.clips || []) clips[j.name] = THREE.AnimationClip.parse(j);
+    Object.assign(this.rootMotion, moves3?.rootMotion || {});
     for (const [k, p] of Object.entries(pClips)) {
       const g = await p;
       if (!clips[k] && g?.animations?.length) {
@@ -304,8 +320,9 @@ export class Game {
     scene.add(this.boat.object);
 
     // Kashi after dark: ghat diyas, festival lights, boat lanterns, Milky Way
-    this.night = new NightScene({ scene, layout: this.world.layout, fire: this.fire, lampPosts: this.world.props.lampPosts, moored: this.moored, boat: this.boat });
-    console.info(`[night] ${this.night.stats.diyas} diyas, ${this.night.stats.bulbs} festival bulbs`);
+    const q = this.rs.qualityName;
+    this.night = new NightScene({ scene, layout: this.world.layout, fire: this.fire, lampPosts: this.world.props.lampPosts, moored: this.moored, boat: this.boat, density: q === 'low' ? 0.35 : q === 'medium' ? 0.65 : 1 });
+    console.info(`[night] ${this.night.stats.diyas} diyas, ${this.night.stats.steps} on the steps for Dev Deepawali, ${this.night.stats.bulbs} festival bulbs`);
 
     // Player + camera
     const start = this.world.layout.playerStart;
@@ -361,12 +378,17 @@ export class Game {
     this.barks = new Barks(this);
     this.establishing = new Establishing(this);
     this.race = new BoatRace(this);
+    this.roofRun = new RoofRun(this);
+    this.guide = new Guide(this);
     this.riverAarti = new RiverAarti(this);
     this.audio.synth('ember-hiss', synthEmberHiss);
     this.audio.synth('howl', synthHowl);
     this.lockOn = new LockOn({ targets: this.targets, camRig: this.camRig, player: this.player, combat: this.combat, camera, ui });
     // what Prady earns and what he can do with it; how he gets over things; what is earned
     this.haptics = new Haptics(this.input);
+    this.dread = new Dread(this);
+    this.grahan = { blood: 0, target: 0 }; // the eclipse (WorldEvents.grahan): the moon to blood and back
+    this.handDiya = new HandDiya(this);
     this.achievements = new Achievements(this);
     this.siddhis = new Siddhis(this);
     this.projectiles = new Projectiles(this);
@@ -376,12 +398,15 @@ export class Game {
     this.cinematics = new Cinematics(this);
     this.traversal = new Traversal(this);
     this.player.traversal = this.traversal;
+    this.festival = new Festival(this);
+    this.player.footwork = new Footwork({ player: this.player, animator: this.animator, rootMotion: this.rootMotion, water: this.water });
+    this.player.footwork.blocked = () => this.asuras?.active || this.state !== 'play';
     this.player.onHardLanding = (impact, speed) => this.hardLanding(impact, speed);
     this.tracker = null; // what the journal pins: { label, x, y, z }
     this.audio.synth('damaru', synthDamaru);
     this.audio.synth('om', synthOm);
     this.audio.synth('fireball', synthFireball);
-    for (const [n, f] of [['whoosh', synthWhoosh], ['blade-whoosh', synthBladeWhoosh], ['thump', synthThump], ['blade-hit', synthBladeHit], ['blade-draw', synthDraw], ['blade-sheathe', synthSheathe], ['block', synthBlock], ['parry', synthParry], ['hurt', synthBodyHit], ['clay-knock', synthClayKnock], ['clay-break', synthClayBreak], ['brass-clang', synthBrassClang], ['wicker', synthWicker]]) this.audio.synth(n, f);
+    for (const [n, f] of [['whoosh', synthWhoosh], ['blade-whoosh', synthBladeWhoosh], ['thump', synthThump], ['blade-hit', synthBladeHit], ['blade-draw', synthDraw], ['blade-sheathe', synthSheathe], ['block', synthBlock], ['parry', synthParry], ['glint', synthGlint], ['hurt', synthBodyHit], ['clay-knock', synthClayKnock], ['clay-break', synthClayBreak], ['brass-clang', synthBrassClang], ['wicker', synthWicker]]) this.audio.synth(n, f);
     this.player.actions = this.actions;
     this.camRig.waterHeightAt = (x, z) => this.water.heightAt(x, z);
     const rat = this.world.layout.flames.find((f) => f.id === 'ratneshwar');
@@ -430,6 +455,7 @@ export class Game {
           smoke: this.smoke,
           moored: this.moored,
           renderer,
+          compile: (o, cam, async, target) => this.rs.compile(o, cam, async, target),
           camera,
           sun: this.sky.sun,
           exclude: this.player.collider,
@@ -464,7 +490,8 @@ export class Game {
     ui.setLoading(0.95, 'Compiling shaders…');
     this.update(0.016, true);
     scene.updateMatrixWorld();
-    renderer.compile(scene, camera);
+    this.rs.compile(scene, camera);
+    this.rs.renderAllPasses(this.sky.exposure);
     this.rs.render(this.sky.exposure);
     await pSound;
     ui.setLoading(1, 'Ready');
@@ -493,6 +520,7 @@ export class Game {
     this.registerFightJumps();
     this.registerRiverJumps();
     this.registerExtraJumps();
+    this.registerHorrorJumps();
     this.migrateSave();
     const last = loadJSON(LAST_KEY);
     const lastSave = last ? loadJSON(slotKey(last)) : null;
@@ -587,13 +615,40 @@ export class Game {
       else this.wake.emitters.delete('prady');
     }
     this.wake.update(dt, light);
+    // what pushes floating things aside: the hull (harder the faster it goes), the swell of its
+    // wake for a few seconds where it has been, a swimmer
     pushers[0].x = b.x;
     pushers[0].z = b.z;
     pushers[0].r = 3.4;
+    pushers[0].k = 1 + Math.min(2, Math.abs(b.speed || 0) * 0.5);
     const swim = this.player.state === 'swim' || this.player.state === 'dive';
     pushers[1].x = this.player.position.x;
     pushers[1].z = this.player.position.z;
     pushers[1].r = swim ? 1.1 : 0;
+    pushers[1].k = 1 + Math.min(1, this.player.speed * 0.4);
+    const trail = (this._wakeTrail ||= []);
+    this._wakeT = (this._wakeT || 0) - dt;
+    if (this._wakeT <= 0 && Math.abs(b.speed || 0) > 1) {
+      this._wakeT = 0.6;
+      trail.unshift({ x: b.x, z: b.z, t: 0, s: Math.abs(b.speed) });
+      if (trail.length > 3) trail.pop();
+    }
+    for (let i = 0; i < 3; i++) {
+      const w = trail[i];
+      if (w) w.t += dt;
+      pushers[2 + i] ||= { x: 0, z: 0, r: 0, k: 1 };
+      const P = pushers[2 + i];
+      if (!w || w.t > 4) {
+        P.r = 0;
+        continue;
+      }
+      // the swell spreading out from where the boat was, and dying
+      P.x = w.x;
+      P.z = w.z;
+      P.r = 2 + w.t * 1.6;
+      P.k = Math.min(1.5, w.s * 0.3) * (1 - w.t / 4);
+    }
+    this.riverPushers = pushers;
     this.flowers.update(dt, { camera: this.camera, pushers });
   }
 
@@ -763,6 +818,43 @@ export class Game {
     this.startIntro();
   }
 
+  /**
+   * The horror places, first in the test menu (and H in ?debug steps through them): each dark
+   * mission already under way, at its hour, Prady dropped where the fear starts (its `scare`),
+   * then the blood-moon eclipse.
+   */
+  registerHorrorJumps() {
+    const H = 'Horror · dark places';
+    this.testMenu.pinned.add(H);
+    this.horrorJumps = [];
+    const add = (label, sub, run) => {
+      const i = this.horrorJumps.length;
+      // (from the menu or from H: the next H goes on from this one)
+      this.testMenu.add(H, label, sub, (g) => {
+        this._hj = i;
+        return run(g);
+      });
+      this.horrorJumps.push(this.testMenu.entries.at(-1));
+    };
+    for (const def of this.missions.defs) {
+      if (!def.scare) continue;
+      add(def.scare.label, def.scare.sub, (g) => {
+        g.sky.setHours(def.scare.hours);
+        g.missions.done.delete(def.id);
+        g.missions.update(0);
+        g.missions.start(def);
+        const at = def.scare.at();
+        g.testMenu.place(at.x, at.y, at.z, at.yaw);
+      });
+    }
+    add('Grahan · the blood moon', 'Rahu swallows the moon over Dashashwamedh; three waves out of the river', (g) => {
+      g.sky.setHours(23);
+      g.testMenu.placeOnGhat('dashashwamedh', 40, 1, 0);
+      g.combat.setHasSword(true);
+      g.after(0.4, () => g.worldEvents.start('grahan') || g.ui.toast('Nothing fits here', '', 2));
+    });
+  }
+
   /** The test menu's jumps into the side missions: at the giver, at a good hour, already accepted. */
   registerMissionJumps() {
     for (const def of this.missions.defs) {
@@ -892,6 +984,15 @@ export class Game {
       const b = g.world.layout.buildings.filter((x) => x.row === 0 && x.kind === 'haveli').sort((a, c) => Math.abs(a.x - 30) - Math.abs(c.x - 30))[0];
       g.testMenu.place(b.x, b.baseY + b.h, b.z, Math.atan2(frameN(b.x).x, frameN(b.x).z) + Math.PI / 2);
     });
+    T.add(R, 'Chhat Daud · the rooftop run', 'Up a haveli and over five roofs against the clock (and your chhaya, once you have a best)', (g) => {
+      g.sky.setHours(9.5);
+      g.roofRun.begin();
+    });
+    T.add(R, 'The Chhat Daud flag', 'On the ghat at its start (E to run it)', (g) => {
+      g.sky.setHours(9.5);
+      const r = g.roofRun;
+      if (r.ok) g.testMenu.place(r.post.x + 1.6, r.post.y, r.post.z + 1.2, r.start.yaw + Math.PI * 0.75);
+    });
     T.add(R, 'Vaults on the landing', 'Run at a takht or a railing on Dashashwamedh’s first landing', (g) => {
       g.sky.setHours(10);
       g.testMenu.placeOnGhat('dashashwamedh', 20, 1, 0);
@@ -906,7 +1007,7 @@ export class Game {
         g.after(1.2, () => g.establishing.play(name));
       });
     }
-    T.add(R, 'Wall run to a ledge', 'Kaal Bhairav’s compound wall: Shift + W at it, Space to run up; A / D shimmy, W climbs over, S lets go', (g) => {
+    T.add(R, 'Wall run to a ledge', 'Kaal Bhairav’s compound wall: Shift + W at it, Space to run up; A / D shimmy, W leaps up or climbs over, S drops down or lets go, S + Space kicks off', (g) => {
       g.sky.setHours(10);
       const P = g.bhairav.L(4.5, 0, 5);
       const W = g.bhairav.L(4.5, 0, 0);
@@ -924,6 +1025,7 @@ export class Game {
       });
     ev('chor', 'Chor! The pickpocket', 'Catch the thief along the top of the ghats', (g) => g.testMenu.placeOnGhat('dashashwamedh', 30, 0, 0), 11);
     ev('bachao', 'Bachao! Someone in the river', 'Swim out and tow them back to the steps', (g) => g.testMenu.placeOnGhat('darbhanga', 40, 2, 0), 9);
+    ev('grahan', 'Grahan: the blood moon', 'Rahu swallows the moon; hold the ghat through three waves', (g) => g.testMenu.placeOnGhat('dashashwamedh', 40, 1, 0), 23);
     ev('ambush', 'Darkness at the boats', 'Asuras rise beside a boatman at night', (g) => g.testMenu.placeOnGhat('manmandir', 40, 2, 0), 22);
     ev('patang', 'Pench! A kite duel', 'Climb to the rooftops and cut a rival’s kite string', (g) => g.testMenu.placeOnGhat('dashashwamedh', 40, 0, 0), 15);
     T.add('World & test tools', 'Achievement banner', 'Show how an achievement looks when earned', (g) => g.ui.achievement('A Postcard from Kashi', 'Take a picture in photo mode.'));
@@ -970,6 +1072,7 @@ export class Game {
     this.encounters?.clear?.();
     this.asuras.clear();
     this.race?.stop();
+    this.roofRun?.stop();
     this.riverAarti?.stop();
     this.story?.stopForTest?.();
     this.worldEvents?.stop();
@@ -1119,6 +1222,7 @@ export class Game {
       this.water.renderReflection(this.camera);
       this.rs.render(this.sky.exposure * this.weather.exposureScale());
       if (this.state === 'play' || this.state === 'intro') this.rs.adapt(dt, (performance.now() - t0) / 1000);
+      this.rs.prewarm(this.scene, this.camera, dt); // (after adapt: its compile is not this frame's cost)
       if (this._snap) this.savePhoto();
       this.input.endFrame();
       this.countFps(dt);
@@ -1166,6 +1270,25 @@ export class Game {
     // Time of day + world uniforms
     this.sky.update(simDt, this.camera.position);
     WORLD_UNIFORMS.uTime.value += simDt;
+    {
+      // the wind: a gust now and then, swelling and dying over a few seconds (cloth, flags)
+      this._gustT = (this._gustT ?? 6) - simDt;
+      if (this._gustT <= 0) {
+        this._gustT = 8 + Math.random() * 14;
+        this._gustAge = 0;
+        this._gustAmp = 0.4 + Math.random() * 0.6;
+      }
+      if (this._gustAge !== undefined) {
+        this._gustAge += simDt;
+        WORLD_UNIFORMS.uGust.value = this._gustAmp * Math.max(0, Math.sin(Math.PI * Math.min(1, this._gustAge / 3.2)));
+      }
+      // Prady, for the cloth on the lines to part round
+      const pp = this.player?.renderPosition;
+      if (pp) {
+        WORLD_UNIFORMS.uPusher.value.set(pp.x, this.player.feetY, pp.z, this.player.state === 'ground' ? 0.75 : 0);
+        WORLD_UNIFORMS.uPushVel.value.set(this.player.velocity.x, 0, this.player.velocity.z);
+      }
+    }
     // what the camera must keep in view (umbrellas in the way fade): Prady, and the enemy he's
     // locked on to (or Andhaka, who fills the frame anyway)
     {
@@ -1181,7 +1304,8 @@ export class Game {
     this.weather.update(simDt, { sky: this.sky, underwater: this._under, hours: this.sky.hours });
     this.pradyWet.value = this.actions?.wet ?? 0;
     this.water.update(simDt, this.camera, this.sky);
-    this.world.city.setNight(this.sky.nightFactor);
+    // (a frightening night: the houses have shuttered up, their windows dim with the gloom)
+    this.world.city.setNight(this.sky.nightFactor * (1 - 0.88 * (this.sky.gloom || 0)));
     this.world.props.setNight?.(this.sky.nightFactor);
     this.ramnagar.setNight(this.sky.nightFactor);
     if (this.timeTween) {
@@ -1197,7 +1321,7 @@ export class Game {
     // interpolation between the last two steps.
     if (!paused) {
       const controlBoat = this.player.state === 'boat';
-      this.player.inputLocked = !playing || this.photo || controlBoat || !!this.missions?.dialogue || !!this.ui.rh || !!this.travelling || !!this.finishers?.active;
+      this.player.inputLocked = !playing || this.photo || controlBoat || !!this.missions?.dialogue || !!this.ui.rh || !!this.travelling || !!this.finishers?.active || !!this.roofRun?.holdInput;
       this.player.readInput(input, this.camRig);
       this.boat.readInput(input, controlBoat && playing && !this.photo && !this.race?.holdInput);
       this.simAcc = (this.simAcc || 0) + simDt;
@@ -1218,8 +1342,10 @@ export class Game {
     this.race.late(alpha);
     this.oars.update(simDt);
     this.player.lateUpdate(simDt, alpha);
+    this.handDiya?.late(simDt);
     this.combat?.late(simDt);
     this.powers?.late();
+    this.roofRun?.late(); // (records him, poses his chhaya: after every pose and IK)
     if (this.health) {
       const near = this.targets.enemies().some((e) => Math.hypot(e.pos.x - this.player.position.x, e.pos.z - this.player.position.z) < 25 && e.awake !== false);
       this.inCombat = near;
@@ -1229,11 +1355,31 @@ export class Game {
       else if (this.lockOn.active && this.state !== 'paused') this.lockOn.release();
     }
     this.world.akhara?.update(simDt);
+    {
+      // the temple's bells: he brushes through them, his hand (a blow) swings through them
+      const pl = this.player;
+      const bp = (this._bellPush ||= [{ x: 0, y: 0, z: 0, r: 0.45, vx: 0, vz: 0 }, { x: 0, y: 0, z: 0, r: 0.35, vx: 0, vz: 0 }]);
+      bp[0].x = pl.position.x;
+      bp[0].z = pl.position.z;
+      bp[0].y = pl.feetY + 1.6;
+      bp[0].vx = pl.velocity.x;
+      bp[0].vz = pl.velocity.z;
+      const h = this.animator.boneWorld?.('RightHand', this._bellH || (this._bellH = new THREE.Vector3()));
+      if (h) {
+        bp[1].vx = this._bellHp ? (h.x - this._bellHp.x) / Math.max(simDt, 1e-3) : 0;
+        bp[1].vz = this._bellHp ? (h.z - this._bellHp.z) / Math.max(simDt, 1e-3) : 0;
+        (this._bellHp ||= new THREE.Vector3()).copy(h);
+        bp[1].x = h.x;
+        bp[1].y = h.y;
+        bp[1].z = h.z;
+      }
+      if (Math.hypot(pl.position.x - this.bhairav.center.x, pl.position.z - this.bhairav.center.z) < 30) this.bhairav.updateBells(simDt, { pushers: bp, audio: this.audio });
+    }
     if (this.cloth && this.animator.boneWorld) {
       const pl = this.player;
       const hips = this.animator.boneWorld('Hips', this._hipW || (this._hipW = new THREE.Vector3()));
       const vel = pl.state === 'boat' ? ZERO_VEL : pl.velocity;
-      this.cloth.update(simDt, { vel, yawRate: pl.state === 'boat' ? 0 : pl.yawRate, hipY: hips ? hips.y : pl.feetY + 0.95, footY: this.footY(), facing: { x: Math.sin(pl.yaw), z: Math.cos(pl.yaw) }, swimming: pl.state === 'swim' || pl.state === 'dive' });
+      this.cloth.update(simDt, { vel, yawRate: pl.state === 'boat' ? 0 : pl.yawRate, hipY: hips ? hips.y : pl.feetY + 0.95, footY: this.footY(), facing: { x: Math.sin(pl.yaw), z: Math.cos(pl.yaw) }, swimming: pl.state === 'swim' || pl.state === 'dive', airborne: pl.state === 'air' });
     }
     this.moored.update(simDt, this.water, this.camera.position);
     this.quest.update(simDt, this.rs.pixelRatio, this.sky.nightFactor, playing ? this.player.position : null);
@@ -1241,9 +1387,15 @@ export class Game {
       const camOpts = this.player.state === 'boat' ? { distance: 8, height: 2.2 } : this.player.state === 'swim' || this.player.state === 'dive' ? { height: 1.0 } : {};
       const boss = this.asuras.list.find((a) => a.K.boss && a.alive && Math.hypot(a.pos.x - this.player.position.x, a.pos.z - this.player.position.z) < 28);
       if (boss && !camOpts.distance) camOpts.distance = this.camRig.targetDistance + 1.3;
+      // on a wall (running up it, hanging, leaping ledge to ledge, pulling over): the climbing view
+      const climb = this.traversal?.act?.type;
+      if (this.player.state === 'climb' && ['wallrun', 'hang', 'leap', 'drop', 'mantle'].includes(climb)) camOpts.climb = { yaw: this.player.yaw, up: climb === 'mantle' ? 0.2 : 0.75 };
       const camFocus = this.player.state === 'swim' || this.player.state === 'dive' ? new THREE.Vector3(this.player.position.x, this.character.position.y + 0.9, this.player.position.z) : this.character.position;
       this.cinematics?.update(dt);
       this.camRig.update(dt, input, camFocus, camOpts);
+      // (dread: a breath of unsteadiness in the follow camera)
+      const sway = this.dread?.sway(this.health?.time ?? 0) ?? 0;
+      if (sway && !this.camRig.override && !this.camRig.cinematic) this.camera.rotateZ(sway);
     } else {
       const s = this.world.layout.playerStart;
       this.camera.position.set(s.x - 40, 30, s.z + 60);
@@ -1263,7 +1415,8 @@ export class Game {
     this.birds.update(simDt);
     this.pigeons.update(simDt, { camera: this.camera, player: this.state === 'play' ? this.character.position : null, playerSpeed: this.player.speed, time: WORLD_UNIFORMS.uTime.value });
     // diyas float out from Dashashwamedh every evening and night (more once the aarti is restored)
-    this.diyas.update(simDt, this.quest.eveningAarti || this.quest.complete || this.sky.nightFactor > 0.6, this.ripples);
+    this.diyas.update(simDt, this.quest.eveningAarti || this.quest.complete || this.sky.nightFactor > 0.6, this.ripples, this.festival.tonight && this.sky.nightFactor > 0.45 ? this.camera.position : null, this.riverPushers);
+    this.festival.update(simDt);
     // dawn mist on the river (and a little more haze in the air with it); sun shafts
     const mist = this.mist.update(simDt, { hours: this.sky.hours, sky: this.sky, extra: this.weather?.mistExtra ?? 0 });
     if (this.scene.fog) this.scene.fog.density *= 1 + mist * 0.9;
@@ -1274,11 +1427,11 @@ export class Game {
       this.rs.updateGodRays(this.camera, this.sky.sunDir, this.sky.sunColor, amount);
     }
     this.world.street.update(1 - this.sky.nightFactor);
-    this.lanterns.update(simDt, { night: this.sky.nightFactor, festival: this.quest.complete, aarti: this.quest.eveningAarti || this.quest.aartiLit, hours: this.sky.hours });
-    this.fireworks.update(simDt, { camera: this.camera, pixelRatio: pr, night: this.sky.nightFactor, festival: this.quest.complete, raining: (this.weather?.rain ?? 0) > 0.3 });
+    this.lanterns.update(simDt, { night: this.sky.nightFactor, festival: this.festival.tonight, aarti: this.quest.eveningAarti || this.quest.aartiLit, hours: this.sky.hours });
+    this.fireworks.update(simDt, { camera: this.camera, pixelRatio: pr, night: this.sky.nightFactor, festival: this.festival.tonight, raining: (this.weather?.rain ?? 0) > 0.3 });
     // a big burst lights the ghats and the river for a moment
     if (this.fireworks.flash > 0.01) this.sky.hemi.intensity += this.fireworks.flash * 0.6;
-    this.night.update(simDt, { night: this.sky.nightFactor, festival: this.quest.complete, camera: this.camera, pixelRatio: pr, moonDir: this.sky.moonDir });
+    this.night.update(simDt, { night: this.sky.nightFactor, festival: this.festival.tonight, camera: this.camera, pixelRatio: pr, moonDir: this.sky.moonDir, dim: this.nightDim || 0 });
     if (this.missions && this.state === 'play') this.missions.update(simDt);
     if (!paused) this.worldEvents?.update(simDt);
     this.journal?.update();
@@ -1286,9 +1439,24 @@ export class Game {
     // the Asuras (and the people keeping well away from them)
     if (!paused) this.encounters.update(simDt);
     if (!paused) this.race.update(simDt);
+    if (!paused) this.roofRun.update(simDt);
+    if (!paused) this.guide.update(simDt);
     if (!paused) this.looseProps.update(simDt);
     if (!paused) this.riverAarti.update(simDt);
     this.score.update(Math.min(dt, 0.1));
+    this.dread.update(Math.min(dt, 0.1));
+    {
+      // Grahan: the moon goes to blood slowly and comes back slower
+      const G = this.grahan;
+      G.blood = damp(G.blood, G.target, G.target > G.blood ? 0.28 : 0.18, Math.min(dt, 0.1));
+      if (G.blood < 0.002 && !G.target) G.blood = 0;
+      this.sky.blood = G.blood;
+      if (G.blood > 0 || this._gloomFromGrahan) {
+        this.sky.gloom = Math.max(this.sky.gloom || 0, G.blood * 0.3);
+        this._gloomFromGrahan = G.blood > 0;
+        if (!this._gloomFromGrahan && !this.missions?.active) this.sky.gloom = 0;
+      }
+    }
     if (!paused) this.barks.update(simDt);
     if (!paused && !this.testSession) this.establishing.update(simDt);
     this.battleMusic.update(Math.min(dt, 0.1));
@@ -1303,7 +1471,7 @@ export class Game {
       danger = { x: P.x, z: P.z, r: 32 };
     }
     if (!warmup) this.animals?.update(simDt);
-    if (!warmup) this.crowd?.update(simDt, { hours: this.sky.hours, aarti: this.quest.aartiLit, festival: this.quest.complete, danger, playerPos: this.player.state === 'boat' ? null : this.character.position, playerVel: this.player.velocity });
+    if (!warmup) this.crowd?.update(simDt, { hours: this.sky.hours, aarti: this.quest.aartiLit, festival: this.festival.tonight, danger, playerPos: this.player.state === 'boat' ? null : this.character.position, playerVel: this.player.velocity });
 
     this.updateLightPool(dt);
     {
@@ -1313,7 +1481,20 @@ export class Game {
       const dz = cam.z - c.z;
       const l = Math.hypot(dx, dz) || 1;
       this.heroLight.position.set(c.x + (dx / l) * 1.6 - (dz / l) * 0.8, c.y + 2.3, c.z + (dz / l) * 1.6 + (dx / l) * 0.8);
-      this.heroLight.intensity = this.sky.nightFactor * (this._under ? 0.4 : 1) * (this.inCombat ? 3.2 : 2.2);
+      this.heroLight.intensity = this.sky.nightFactor * (this._under ? 0.4 : 1) * (this.inCombat ? 3.2 : 2.2) * (1 - 0.85 * (this.sky.gloom || 0));
+      // a diya in his hand: its flame is his light (low, warm, flickering)
+      const hd = this.handDiya;
+      if (hd?.carried) {
+        const k = hd.light(performance.now() * 0.001);
+        this.heroLight.position.copy(hd.flamePos).y += 0.12;
+        this.heroLight.color.setRGB(1.0, 0.62, 0.3);
+        this.heroLight.distance = this._under ? 13 : 10;
+        // (by day it barely shows; under the river it is all the light there is)
+        this.heroLight.intensity = k * (this._under ? 2.6 : 0.4 + 0.6 * this.sky.nightFactor);
+      } else if (this.heroLight.distance !== 7) {
+        this.heroLight.color.set(0xffc89a);
+        this.heroLight.distance = 7;
+      }
     }
 
     // Underwater camera
@@ -1343,7 +1524,11 @@ export class Game {
       if (this.rs.bloom.luminanceMaterial) this.rs.bloom.luminanceMaterial.threshold = lerp(3.2, 1.05, nf);
       this.fire.material.uniforms.uHalo.value = lerp(0.45, 0.85, nf);
     }
-    if (this.rs.grade) applyGrade(this.rs.grade, { sunElevation: this.sky.sunDir.y, purity: this.water.purity, underwater: under, filter: this.photo ? this.photoFilter || 0 : 0 });
+    if (this.rs.grade) {
+      // the Cinematic look (eased when the setting changes) and the mood of the place he is in
+      this.lookK = damp(this.lookK ?? 1, this.settings.look === 'natural' ? 0 : 1, 3, Math.min(dt, 0.1));
+      applyGrade(this.rs.grade, { sunElevation: this.sky.sunDir.y, purity: this.water.purity, underwater: under, filter: this.photo ? this.photoFilter || 0 : 0, dread: this.dread?.level ?? 0, pulse: this.dread?.pulse ?? 0, blood: (this.grahan?.blood ?? 0) * 0.8, look: this.lookK, place: this.placeMood(Math.min(dt, 0.1)) });
+    }
     if (this.photo && this.rs.dofLevel > 0) this.rs.dofTarget.copy(this.character.position).add(this._dofUp || (this._dofUp = new THREE.Vector3(0, 1.45, 0)));
     this.audio.setUnderwater(under);
     this.audio.updateListener(this.camera);
@@ -1400,12 +1585,33 @@ export class Game {
         for (const p of this.bhairav.lightSpots) if (p.distanceToSquared(cam) < 40 * 40) cands.push({ p, k: 0.5, fire: true });
         for (const p of this.night?.lightSpots ?? []) cands.push({ p, k: 0.7, fire: true });
       }
+      for (const l of this.extraLights || []) cands.push(l); // (a mission's own: the drowned sanctum's lamp)
+      // (lamps a place has put out: the dark lane)
+      if (this.lampFilter) for (let i = cands.length - 1; i >= 0; i--) if (!this.lampFilter(cands[i].p)) cands.splice(i, 1);
       for (const c of cands) c.d = c.p.distanceToSquared(cam);
       cands.sort((a, b) => a.d - b.d);
       this.lightChoice = this.lightPool.map((_, i) => (cands[i] && cands[i].d < 90 * 90 ? cands[i] : null));
     }
     const t = performance.now() * 0.001;
+    // in the dark (gloom) the last pool light is a faint cold fill on his back, camera side: the
+    // diya lights his front, and from behind he would be a black cut-out
+    const gloom = this.sky.gloom || 0;
     this.lightPool.forEach((l, i) => {
+      if (i === this.lightPool.length - 1 && gloom > 0.05) {
+        const c = this.character.position;
+        const cam = this.camera.position;
+        const dx = cam.x - c.x;
+        const dz = cam.z - c.z;
+        const d = Math.hypot(dx, dz) || 1;
+        l.position.set(c.x + (dx / d) * 1.8, c.y + 2.2, c.z + (dz / d) * 1.8);
+        l.color.setRGB(0.45, 0.58, 0.85);
+        l.distance = 5;
+        l.intensity = 0.55 * gloom * night;
+        return;
+      } else if (i === this.lightPool.length - 1 && l.distance !== 26) {
+        l.color.set(0xff9a48);
+        l.distance = 26;
+      }
       const c = this.lightChoice?.[i];
       if (!c) {
         l.intensity = 0;
@@ -1418,6 +1624,17 @@ export class Game {
     });
   }
 
+  /** Is a point (pos lifted by h) on screen and within `max` metres of the lens? (Masan's pret
+   *  move only while it isn't: a margin inside the frame's edge, so one at the very border counts
+   *  as unseen and creeps.) */
+  inView(pos, h = 1, max = 40) {
+    const c = this.camera;
+    const v = (this._iv ||= new THREE.Vector3()).set(pos.x, pos.y + h, pos.z);
+    if (v.distanceTo(c.position) > max) return false;
+    v.project(c);
+    return v.z < 1 && Math.abs(v.x) < 0.92 && Math.abs(v.y) < 0.95;
+  }
+
   currentInteraction() {
     const p = this.player;
     // E advances the open dialogue: no other prompt beside it
@@ -1425,12 +1642,40 @@ export class Game {
     // in a fight, an Asura that can be finished comes first
     const fin = this.finishers?.interaction();
     if (fin) return fin;
+    const hd = this.handDiya?.interact();
+    if (hd) return hd;
+    const pk = this.traversal?.parkour?.interaction();
+    if (pk) return pk;
+    // under one of Bhairav's bells: reach up and ring it
+    if (this.bhairav?.swing && p.state === 'ground' && !this.asuras?.active) {
+      for (const b of this.bhairav.swing) {
+        if (Math.hypot(p.position.x - b.top.x, p.position.z - b.top.z) < 0.85 && Math.abs(p.feetY + 3.4 - b.top.y) < 1.0) {
+          return {
+            prompt: 'Ring the bell',
+            action: () => {
+              this.animator.play('wave', { fadeIn: 0.15, fadeOut: 0.3, hold: 0.7 });
+              this.after(0.35, () => {
+                const c = Math.cos(this.bhairav.yaw);
+                const sn = Math.sin(this.bhairav.yaw);
+                const fx = Math.sin(p.yaw);
+                const fz = Math.cos(p.yaw);
+                b.vx += (fx * sn + fz * c) * 1.3;
+                b.vz -= (fx * c - fz * sn) * 1.3;
+                this.audio.play('bell', { volume: 0.85, rate: 1.1, at: b.top });
+              });
+            },
+          };
+        }
+      }
+    }
     const si = this.story?.interaction();
     if (si) return si;
     const mi = this.missions?.interaction();
     if (mi) return mi;
-    const ri = this.race?.interaction() || this.riverAarti?.interaction();
+    const ri = this.race?.interaction() || this.roofRun?.interaction() || this.riverAarti?.interaction();
     if (ri) return ri;
+    const wb = this.guide?.interaction();
+    if (wb) return wb;
     const ev = this.worldEvents?.interaction();
     if (ev) return ev;
     // (racing: E would only end it; no prompt over the stroke ring)
@@ -1462,8 +1707,16 @@ export class Game {
     if (type === 'hit' && data.enemy) {
       this.powers.gain(SHAKTI.hit * (data.k || 1) * (data.riposte ? 2 : 1));
       this.haptics.play(data.heavy || data.charged || data.riposte ? 'heavyHit' : 'hit');
-      // the weight of it on screen: a heavy, charged or killing blow jolts the frame
-      if (data.heavy || data.charged || data.riposte || data.killed) this.cinematics?.impact(data.charged || data.riposte ? 0.6 : data.killed ? 0.35 : 0.3, this.player.position);
+      // the weight of it on screen: every blow knocks the lens along the cut a little; a heavy,
+      // charged, final or killing blow jolts the frame (a punch of the lens, a shudder)
+      const big = data.heavy || data.charged || data.riposte || data.killed || data.final;
+      if (data.dir) this.camRig.kick(data.dir, big ? 0.05 : 0.022);
+      this.camRig.shake(data.killed ? 0.24 : big ? 0.17 : 0.07);
+      const at = data.at ? { x: data.at.x, y: data.at.y, z: data.at.z } : this.player.position;
+      if (big) this.cinematics?.impact(data.charged || data.riposte ? 0.6 : data.killed ? 0.45 : 0.3, at);
+      // a kill with more of them still standing: the world catches its breath for a moment
+      // (the last one gets the kill cam)
+      if (data.killed && !data.riposte && this.asuras?.active) this.slowMo(0.4, 0.16);
       if (data.riposte) {
         this.slowMo(0.35, 0.3);
         this.ui.toast('Pratyuttara', '', 1);
@@ -1577,7 +1830,7 @@ export class Game {
 
   /** Travel to a lit flame or an honoured shrine: a fade, the hour passes, he is there. */
   fastTravel(d) {
-    const why = this.asuras.active ? 'Not while the dark is near.' : this.race?.active ? 'Not in the middle of the race.' : this.missions.dialogue ? 'Finish the conversation first.' : this.story?.cut ? 'Not now.' : null;
+    const why = this.asuras.active ? 'Not while the dark is near.' : this.race?.active || this.roofRun?.active ? 'Not in the middle of the race.' : this.missions.dialogue ? 'Finish the conversation first.' : this.story?.cut ? 'Not now.' : null;
     if (why) return this.ui.toast('You cannot travel now', why, 3);
     this.closeJournal();
     this.travelling = true;
@@ -1595,6 +1848,28 @@ export class Game {
         this.ui.fadeBlack(false);
         this.travelling = false;
         this.ui.showRegion(d.label);
+      });
+    });
+  }
+
+  /** Fade out, stand him at (x, y, z) feet facing yaw, fade back in: a mission tried again, the
+   *  way back up after a fall. then() runs in the dark. */
+  warp(x, y, z, yaw, then) {
+    this.travelling = true;
+    this.ui.fadeBlack(true);
+    this.after(0.7, () => {
+      if (this.player.state === 'boat') this.player.exitBoat(x, y, z);
+      this.traversal.reset();
+      this.player.teleport(x, y + 0.05, z);
+      if (yaw !== undefined) {
+        this.player.yaw = this.player.prevYaw = yaw;
+        this.camRig.yaw = yaw;
+      }
+      this.camRig.first = true;
+      then?.();
+      this.after(0.35, () => {
+        this.ui.fadeBlack(false);
+        this.travelling = false;
       });
     });
   }
@@ -1743,7 +2018,9 @@ export class Game {
     if (atk) this.combat.attack();
     if (input.hit('Mouse2') || input.hit('Pad7')) this.combat.heavy();
     this.combat.heavyHeld = input.down('Mouse2') || input.gpButton(7);
-    if (input.hit('KeyR') || (input.hit('Pad3') && !lt)) this.combat.toggleSword();
+    // (on the rooftop run, R runs it again from the ghat)
+    if (input.hit('KeyR') && this.roofRun?.active) this.roofRun.restart();
+    else if (input.hit('KeyR') || (input.hit('Pad3') && !lt)) this.combat.toggleSword();
     // the guard: held, or (accessibility) toggled with a tap; a strike or a roll lowers a toggled guard
     if (this.settings.guardToggle) {
       if (input.hit('KeyQ')) this.guardOn = !this.guardOn;
@@ -1795,6 +2072,11 @@ export class Game {
         this.player.teleport(f.pos.x + 2.5, groundHeight(f.pos.x + 2.5, f.pos.z) + 0.2, f.pos.z);
       }
       if (input.hit('F4')) this.player.blessing = !this.player.blessing;
+      // H: the next horror place (the test menu's "Horror · dark places")
+      if (input.hit('KeyH') && this.horrorJumps?.length) {
+        this._hj = ((this._hj ?? -1) + 1) % this.horrorJumps.length;
+        this.testMenu.jump(this.horrorJumps[this._hj], 'play');
+      }
     }
   }
 
@@ -1835,6 +2117,45 @@ export class Game {
     }
   }
 
+  /**
+   * The grade's mood for where he is, eased in over a few seconds as he walks between places:
+   * the lanes (ochre, close, a little heavier), the burning ghats (smoke takes the colour), the
+   * open river (clean light). { shadow, high, sat, density } for applyGrade.
+   */
+  placeMood(dt) {
+    const M = (this._moods ||= {
+      w: { lanes: 0, smoke: 0, river: 0 },
+      out: { shadow: new THREE.Vector3(), high: new THREE.Vector3(), sat: 1, density: 0 },
+      lanes: { shadow: new THREE.Vector3(1.12, 1.0, 0.82), high: new THREE.Vector3(1.06, 0.99, 0.88), sat: 0.95, density: 0.1 },
+      smoke: { shadow: new THREE.Vector3(1.0, 0.98, 0.95), high: new THREE.Vector3(1.0, 0.97, 0.93), sat: 0.8, density: 0.04 },
+      river: { shadow: new THREE.Vector3(0.96, 1.0, 1.04), high: new THREE.Vector3(1.0, 1.0, 1.0), sat: 1.05, density: -0.03 },
+    });
+    const p = this.player.position;
+    const { v } = bankCoords(p.x, p.z);
+    const seg = segmentForX(p.x);
+    const low = this.player.feetY - groundHeight(p.x, p.z) < 4;
+    const want = {
+      lanes: v < -12 && low ? 1 : 0,
+      smoke: (seg?.id === 'manikarnika' || seg?.id === 'harishchandra') && v > -8 && v < 40 ? 1 : 0,
+      river: v > 45 ? 1 : 0,
+    };
+    const o = M.out;
+    o.shadow.set(1, 1, 1);
+    o.high.set(1, 1, 1);
+    o.sat = 1;
+    o.density = 0;
+    for (const k of ['lanes', 'smoke', 'river']) {
+      const w = (M.w[k] = damp(M.w[k], want[k], 0.8, dt));
+      if (w < 0.001) continue;
+      const m = M[k];
+      o.shadow.multiply(_moodV.set(1, 1, 1).lerp(m.shadow, w));
+      o.high.multiply(_moodV.set(1, 1, 1).lerp(m.high, w));
+      o.sat *= lerp(1, m.sat, w);
+      o.density += m.density * w;
+    }
+    return o;
+  }
+
   updateRegion() {
     const p = this.player.position;
     const { v } = bankCoords(p.x, p.z);
@@ -1844,7 +2165,7 @@ export class Game {
     else if (v > 60) name = 'Mother Ganga';
     else if (v > -6 && seg) name = seg.name;
     else if (v < -10) name = 'The Lanes of Kashi';
-    if (name && !this.race?.active) this.ui.showRegion(name);
+    if (name && !this.race?.active && !this.roofRun?.active) this.ui.showRegion(name);
     this.score.region(name);
     if (!this.testSession) this.establishing.arrive(name);
   }

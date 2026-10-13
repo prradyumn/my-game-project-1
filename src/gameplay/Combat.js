@@ -10,7 +10,7 @@ import { BladeTrail, makeTalwar } from './Talwar.js';
 //                               sword:   rising slash -> second slash -> lunging thrust
 //   RMB  a heavy blow           unarmed: roundhouse kick   sword: two-handed overhead cut
 //   Q    (hold) block; raised just as a blow lands it is a parry that staggers the attacker
-//   C    dodge roll (a moment of grace inside it)      R  draw or sheathe the talwar
+//   C    dodge roll (a moment of grace inside it); standing still, a backflip      R  draw or sheathe the talwar
 // Every move is motion capture (CMU: a boxer, a karate practitioner, swordplay, a woodcutter's
 // chop; see tools/retarget.js). Strikes carry their own root motion, applied through the
 // character controller so a lunge plants its feet. Hits land on whatever can be struck (the
@@ -22,18 +22,24 @@ const MOVES = {
   oneTwo: { hits: [{ t: 0.4, limb: 'LeftHand', k: 0.6 }, { t: 0.57, limb: 'RightHand', k: 0.8 }], cancel: 0.82, ts: 1.15 },
   bodyShot: { hits: [{ t: 0.48, limb: 'RightHand', k: 0.9 }], cancel: 0.78, ts: 1.1 },
   frontKick: { hits: [{ t: 0.65, limb: 'RightFoot', k: 1.1 }], cancel: 1.02, ts: 1.05, kick: true },
-  roundKick: { hits: [{ t: 0.68, limb: 'RightFoot', k: 1.3 }], cancel: 1.1, ts: 1.1, kick: true },
+  // (the roundhouse is from video capture: a head-high chamber-and-snap, the leg held out a beat)
+  roundKick: { hits: [{ t: 0.84, limb: 'RightFoot', k: 1.3 }], cancel: 1.9, ts: 1.6, kick: true },
+  // (video capture too: a head-high side kick, the combo's last blow every other round)
+  sideKick: { hits: [{ t: 0.7, limb: 'RightFoot', k: 1.15 }], cancel: 1.25, ts: 1.45, kick: true },
   slashA: { hits: [{ t: 0.57, blade: true, k: 1.0 }], cancel: 0.86, ts: 1.15, sword: true },
   slashB: { hits: [{ t: 0.6, blade: true, k: 1.0 }], cancel: 0.88, ts: 1.15, sword: true },
   thrust: { hits: [{ t: 0.67, blade: true, k: 1.1 }], cancel: 1.0, ts: 1.1, sword: true, wrist: 1.45 }, // a punch turned into a thrust: the blade down the line of the arm
   heavyCut: { hits: [{ t: 0.72, blade: true, k: 1.6 }], cancel: 1.1, ts: 1.15, sword: true, heavy: true, track: 1.0 },
   // the Fourth Strike siddhi: the combo ends in the overhead cut (fists: the roundhouse), quicker
   comboCut: { clip: 'heavyCut', hits: [{ t: 0.72, blade: true, k: 1.35 }], cancel: 1.1, ts: 1.32, sword: true, heavy: true, track: 1.4 },
-  comboKick: { clip: 'roundKick', hits: [{ t: 0.68, limb: 'RightFoot', k: 1.15 }], cancel: 1.1, ts: 1.25, kick: true, heavy: true },
+  comboKick: { clip: 'roundKick', hits: [{ t: 0.84, limb: 'RightFoot', k: 1.15 }], cancel: 1.9, ts: 1.8, kick: true, heavy: true },
 };
 export { MOVES };
 const COMBO = { armed: ['slashA', 'slashB', 'thrust'], unarmed: ['oneTwo', 'bodyShot', 'frontKick'] };
 const COMBO4 = { armed: [...COMBO.armed, 'comboCut'], unarmed: [...COMBO.unarmed, 'comboKick'] };
+// bare-handed, every other round ends in the side kick instead of the front kick
+const KICK2 = (l) => l.map((n) => (n === 'frontKick' ? 'sideKick' : n));
+const COMBO_ALT = { 3: KICK2(COMBO.unarmed), 4: KICK2(COMBO4.unarmed) };
 const HEAVY = { armed: 'heavyCut', unarmed: 'roundKick' };
 const LEG = 0.88; // Prady's hip height above the foot (m): root motion is baked in these units
 const WINDOW = 0.085; // a strike connects within this much clip time of its peak
@@ -113,6 +119,7 @@ export class Combat {
     this.armed = false;
     this.move = null; // { name, t, start, yaw, i, queued, struck:Set }
     this.combo = 0;
+    this.rounds = 0; // combos begun (the bare-handed finish alternates)
     this.lastEnd = -10;
     this.time = 0;
     this.stanceUntil = 0;
@@ -152,6 +159,7 @@ export class Combat {
 
   /** The combo in hand (three blows, four with the Fourth Strike siddhi). */
   comboList() {
+    if (!this.armed && this.rounds % 2 && this.anim.clipActions.sideKick) return COMBO_ALT[this.perks.combo4 ? 4 : 3];
     return (this.perks.combo4 ? COMBO4 : COMBO)[this.armed ? 'armed' : 'unarmed'];
   }
 
@@ -223,6 +231,7 @@ export class Combat {
     }
     if (!this.canFight() || this.blocking) return;
     if (this.time - this.lastEnd > 0.7) this.combo = 0;
+    if (this.combo % this.comboList().length === 0) this.rounds++;
     const list = this.comboList();
     this.start(list[this.combo % list.length]);
   }
@@ -353,13 +362,16 @@ export class Combat {
     const l = Math.hypot(dx, dz) || 1;
     dx /= l;
     dz /= l;
-    // a forward roll toward the way he dodges; a hop backwards when he only wants distance
+    // a forward roll toward the way he dodges; a backflip when he only wants distance (a hop
+    // backwards without that clip)
     const back = !wish;
-    const clip = back && this.anim.clipActions.dodgeBack ? 'dodgeBack' : this.anim.clipActions.dodgeRoll ? 'dodgeRoll' : null;
-    // a dive roll is ~1 s of the 1.55 s take played fast; the backstep ~0.65 s
-    const dur = clip ? (back ? 0.65 : 0.95) : 0.55;
+    const flip = back && !!this.anim.clipActions.backFlip;
+    const clip = flip ? 'backFlip' : back && this.anim.clipActions.dodgeBack ? 'dodgeBack' : this.anim.clipActions.dodgeRoll ? 'dodgeRoll' : null;
+    // a dive roll is ~1 s of the 1.55 s take played fast; the backstep ~0.65 s; the backflip 1 s
+    // (a slow-motion take: in the air from 12% to 72% of it, and he only travels then)
+    const dur = clip ? (flip ? 1.0 : back ? 0.65 : 0.95) : 0.55;
     const far = this.perks.windStep ? 1.3 : 1;
-    this.roll = { t: 0, dur, dir: { x: dx, z: dz }, dist: (back ? 2.2 : 3.6) * far, yaw: back ? p.yaw : Math.atan2(dx, dz), clip, done: 0 };
+    this.roll = { t: 0, dur, dir: { x: dx, z: dz }, dist: (flip ? 2.4 : back ? 2.2 : 3.6) * far, yaw: back ? p.yaw : Math.atan2(dx, dz), clip, done: 0, air: flip ? [0.12, 0.72] : null };
     if (clip) this.anim.play(clip, { fadeIn: 0.08, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: this.anim.clipActions[clip].getClip().duration / dur });
     this.audio.play('whoosh', { volume: 0.35, rate: 0.7 });
     this.onEvent('dodge', {});
@@ -477,7 +489,10 @@ export class Combat {
       const far = groundHeight(p.position.x + (dx / l) * 0.6, p.position.z + (dz / l) * 0.6);
       if (Math.min(ahead, far) < -0.45 && Math.min(ahead, far) < p.feetY - 0.05) return;
     }
-    _v.set(dx, -0.02, dz);
+    // (flat: a downward push in the same controller call makes Rapier drop whole frames of the
+    // move at random, ~1 in 8 here, a stutter in every roll; settle() and snap-to-ground keep
+    // his feet down. Player.js's walk had the same.)
+    _v.set(dx, 0, dz);
     p.kcc.computeColliderMovement(p.collider, _v, undefined, GROUPS.mover);
     const d = p.kcc.computedMovement();
     p.position.x += d.x;
@@ -629,7 +644,8 @@ export class Combat {
       const r = this.roll;
       r.t += dt;
       const k = Math.min(1, r.t / r.dur);
-      const ease = 1 - Math.pow(1 - k, 2.4); // fast out of the gate, slowing into the recovery
+      // fast out of the gate, slowing into the recovery (a flip: steady through the air)
+      const ease = r.air ? THREE.MathUtils.clamp((k - r.air[0]) / (r.air[1] - r.air[0]), 0, 1) : 1 - Math.pow(1 - k, 2.4);
       const step = (ease - r.done) * r.dist;
       r.done = ease;
       p.yaw = dampAngle(p.yaw, r.yaw, 18, dt);
@@ -806,6 +822,7 @@ export class Combat {
       return true;
     }
     if (ct >= m.cancel && (mv.queued || mv.queuedHeavy)) {
+      if (!mv.queuedHeavy && (mv.i + 1) % this.comboList().length === 0) this.rounds++; // (round again)
       const list = this.comboList();
       const next = mv.queuedHeavy ? HEAVY[this.armed ? 'armed' : 'unarmed'] : list[(mv.i + 1) % list.length];
       this.combo = mv.queuedHeavy ? 0 : mv.i + 1;
@@ -1155,7 +1172,12 @@ export class Combat {
         const dir = { x: t.pos.x - p.position.x, z: t.pos.z - p.position.z };
         const heavy = !!m.heavy || mv.name === HEAVY.unarmed;
         const charged = !!mv.chargedFx;
-        const res = t.hit({ k: h.k * (charged ? 1.25 : 1), dir, at: pt, sword: !!h.blade, heavy, kick: !!m.kick, move: mv.name, combo: mv.i, riposte: !!mv.riposte, charged });
+        // the way the edge was travelling (a cut from his right turns the body the other way)
+        const sweep = h.blade && this.armed && pb && pb.mv === mv ? { x: _tip.x - pb.tip.x, z: _tip.z - pb.tip.z } : null;
+        // the last blow of a full combo (its final hit, for a move with more than one)
+        const list = this.comboList();
+        const final = !heavy && mv.i !== undefined && list.length > 1 && mv.i % list.length === list.length - 1 && hi === m.hits.length - 1;
+        const res = t.hit({ k: h.k * (charged ? 1.25 : 1), dir, at: pt, sweep, sword: !!h.blade, heavy, kick: !!m.kick, move: mv.name, combo: mv.i, final, riposte: !!mv.riposte, charged });
         if (res === 'blocked') {
           // the Kavacha's shield: the blow rings off it and throws his arm back
           const l = Math.hypot(dir.x, dir.z) || 1;
@@ -1170,8 +1192,12 @@ export class Combat {
           break;
         }
         this.hitStop = (h.k > 1.2 ? 0.09 : 0.055) + (mv.riposte || charged ? 0.05 : 0);
+        // the last cut of a combo and a killing blow are held a beat longer
+        if (final) this.hitStop += 0.035;
+        if (res === 'killed') this.hitStop += 0.04;
+        t.freeze?.(this.hitStop * 1.1);
         if (!t.enemy) this.audio.play(h.blade ? 'blade-hit' : 'thump', { volume: 0.5 + h.k * 0.3, rate: 0.9 + Math.random() * 0.2, at: pt });
-        this.onEvent('hit', { move: mv.name, heavy, sword: !!h.blade, kick: !!m.kick, target: t.kind, enemy: !!t.enemy, k: h.k, riposte: !!mv.riposte, charged, killed: res === 'killed' });
+        this.onEvent('hit', { move: mv.name, heavy, sword: !!h.blade, kick: !!m.kick, target: t.kind, enemy: !!t.enemy, k: h.k, riposte: !!mv.riposte, charged, killed: res === 'killed', final, at: pt, dir });
         break;
       }
     });
@@ -1309,6 +1335,18 @@ export function synthParry(ctx) {
       const scrape = hp * Math.exp(-t * 25) * 0.5;
       const ring = [2210, 3315, 4870, 6620, 8130].reduce((a, f, k) => a + Math.sin(2 * Math.PI * f * t * (1 + 0.002 * Math.sin(t * 30))) / (k + 1.2), 0) * Math.exp(-t * 3.2) * 0.2;
       d[i] = scrape + ring;
+    }
+  });
+}
+
+/** The parry cue: a thin bright glint of light off a claw (a tiny high shimmer, swelling in). */
+export function synthGlint(ctx) {
+  return noiseBuf(ctx, 0.42, (d, sr, n) => {
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      const env = Math.min(1, t * 90) * Math.exp(-t * 9);
+      const sh = [5280, 7040, 9390].reduce((a, f, k) => a + Math.sin(2 * Math.PI * f * t * (1 + 0.004 * Math.sin(t * 44 + k))) / (k + 1), 0);
+      d[i] = sh * env * 0.16;
     }
   });
 }

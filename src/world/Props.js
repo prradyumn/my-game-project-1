@@ -383,7 +383,8 @@ function flagMesh(positions) {
   const mat = new THREE.MeshStandardMaterial({ color: 0xff6a12, side: THREE.DoubleSide, roughness: 0.8, emissive: 0x3a1000 });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = WORLD_UNIFORMS.uTime;
-    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;').replace(
+    shader.uniforms.uGust = WORLD_UNIFORMS.uGust;
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uGust;').replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
       float fx = uv.x;
@@ -391,7 +392,8 @@ function flagMesh(positions) {
       #ifdef USE_INSTANCING
         ipos = instanceMatrix[3].xyz;
       #endif
-      transformed.z += sin(uTime * 6.0 - fx * 7.0 + ipos.x) * 0.18 * fx;
+      // (a gust: the pennant streams out flatter and snaps faster)
+      transformed.z += sin(uTime * (6.0 + uGust * 4.0) - fx * 7.0 + ipos.x) * 0.18 * fx * (1.0 + uGust * 0.8);
       transformed.y += cos(uTime * 4.0 - fx * 5.0 + ipos.z) * 0.05 * fx;`
     );
   };

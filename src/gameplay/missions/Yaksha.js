@@ -67,7 +67,7 @@ export default function yaksha(game) {
       const s = m.state;
       const h = game.sky.hours;
       if (h > 5 && h < 20 && !s.finale) {
-        m.fail('With the dawn the blue lantern fades. Baba Bholenath will be there again tonight.');
+        m.fail('With the dawn the blue lantern fades. Baba Bholenath will be there again tonight.', { retry: false });
         return;
       }
       s.t += dt;

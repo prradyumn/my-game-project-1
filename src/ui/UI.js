@@ -160,8 +160,11 @@ export class UI {
       el.style.opacity = Math.abs(rel) < Math.PI / 2 ? 1 : 0;
     };
     for (const d of this.compassDirs) place(d.el, d.ang);
+    // the distance under the one that matters most: the task in hand, else the nearest flame
+    const RANK = { mission: 0, story: 1, event: 2, track: 3, flame: 4 };
     let nearest = null;
     let nd = Infinity;
+    let nr = 9;
     for (const m of this.compassMarks) {
       if (m.hidden) {
         m.el.style.opacity = 0;
@@ -171,12 +174,14 @@ export class UI {
       place(m.el, ang);
       const d = Math.hypot(m.pos.x - playerPos.x, m.pos.z - playerPos.z);
       m.el.dataset.dist = '';
-      if (m.kind === 'flame' && d < nd) {
+      const r = RANK[m.kind] ?? 9;
+      if (r < nr || (r === nr && d < nd)) {
         nd = d;
-        nearest = m;
+        nr = r;
+        nearest = r < 9 ? m : null;
       }
     }
-    if (nearest) nearest.el.dataset.dist = `${Math.round(nd)}m`;
+    if (nearest) nearest.el.dataset.dist = nd < 1000 ? `${Math.round(nd)}m` : `${(nd / 1000).toFixed(1)}km`;
   }
 
   setObjectives(flames, complete) {
@@ -376,15 +381,20 @@ export class UI {
   }
 
   // ------------------------------------------------------------- the boat race
-  /** { pos, of, time, gate, gates, board: [{ name, you, done }] } or null */
+  /** { title, pos, of, time, gate, gates, board: [{ name, you, done }] } or null (pos null: a
+   *  run against the clock alone, no placing) */
   setRace(r) {
     const el = this.els.race;
     el.classList.toggle('hidden', !r);
     this.root.classList.toggle('racing', !!r);
     if (!r) return;
     const ord = (n) => `${n}${['th', 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'th'}`;
-    el.querySelector('.pos b').textContent = ord(r.pos);
-    el.querySelector('.pos .of').textContent = `of ${r.of}`;
+    el.querySelector('h4').textContent = r.title || 'Nauka Daud';
+    el.querySelector('.pos b').hidden = el.querySelector('.pos .of').hidden = r.pos == null;
+    if (r.pos != null) {
+      el.querySelector('.pos b').textContent = ord(r.pos);
+      el.querySelector('.pos .of').textContent = `of ${r.of}`;
+    }
     el.querySelector('.time').textContent = r.time;
     el.querySelector('.gate').textContent = r.gate;
     const key = r.board.map((b) => `${b.name}${b.done ? '*' : ''}`).join('|');
@@ -731,6 +741,7 @@ export class UI {
       el.oninput = el.onchange = () => handlers.onSetting(key, type === 'check' ? el.checked : type === 'select' ? el.value : parseFloat(el.value));
     };
     bind('#set-quality', 'quality', 'select');
+    bind('#set-look', 'look', 'select');
     bind('#set-adaptive', 'adaptiveResolution', 'check');
     bind('#set-music', 'musicVolume');
     bind('#set-sfx', 'sfxVolume');
@@ -751,6 +762,7 @@ export class UI {
     bind('#set-guardtoggle', 'guardToggle', 'check');
     bind('#set-flash', 'reduceFlashes', 'check');
     bind('#set-rumble', 'rumble', 'check');
+    bind('#set-hints', 'hints', 'check');
     $('#btn-resume', p).onclick = handlers.onResume;
     $('#btn-ptest', p).onclick = () => handlers.onTest?.();
     $('#btn-controls', p).onclick = () => handlers.onControls?.();
@@ -869,6 +881,7 @@ const TEMPLATE = /* html */ `
     <h2>Paused</h2>
     <div class="grid">
       <label>Graphics quality <select id="set-quality"></select></label>
+      <label>Look <select id="set-look"><option value="cinematic">Cinematic (film print)</option><option value="natural">Natural</option></select></label>
       <label class="check"><input type="checkbox" id="set-adaptive"> Adaptive resolution (keeps FPS smooth)</label>
       <label>Music <input type="range" id="set-music" min="0" max="1" step="0.05"></label>
       <label>Sound effects <input type="range" id="set-sfx" min="0" max="1" step="0.05"></label>
@@ -885,6 +898,7 @@ const TEMPLATE = /* html */ `
       <label class="check"><input type="checkbox" id="set-guardtoggle"> Guard toggles (tap Q) instead of hold</label>
       <label class="check"><input type="checkbox" id="set-flash"> Reduce flashes</label>
       <label class="check"><input type="checkbox" id="set-rumble"> Gamepad vibration</label>
+      <label class="check"><input type="checkbox" id="set-hints"> First-time hints</label>
     </div>
     <div class="timeofday">
       <span>Time of day</span>

@@ -42,6 +42,19 @@ export class CameraRig {
     this.trauma = Math.min(1, this.trauma + amount * this.shakeScale);
   }
 
+  /** A blow's jolt: the lens is knocked a few centimetres along `dir` (world, xz) and springs
+   *  back, with a twitch of roll. Sharper than the shake: one beat, not a rumble. */
+  kick(dir, amount) {
+    const a = amount * this.shakeScale;
+    const l = Math.hypot(dir.x, dir.z) || 1;
+    this.kickV = this.kickV || new THREE.Vector3();
+    this.kickP = this.kickP || new THREE.Vector3();
+    this.kickV.x += (dir.x / l) * a * 40;
+    this.kickV.z += (dir.z / l) * a * 40;
+    this.kickV.y -= a * 18;
+    this.rollV = (this.rollV || 0) + a * (Math.random() < 0.5 ? -1 : 1) * 6;
+  }
+
   get forward() {
     return new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
   }
@@ -99,6 +112,17 @@ export class CameraRig {
 
     const look = input.look();
     const s = 0.0022 * this.sensitivity;
+    // the climbing view (a wall run, a hang, ledge to ledge): in closer and a little below him,
+    // looking up the face to where he is going, squared to the wall behind him. A touch of the
+    // mouse gives the view back to the player for a moment.
+    if (Math.abs(look.dx) + Math.abs(look.dy) > 0.5) this.userLook = 1.6;
+    this.userLook = Math.max(0, (this.userLook || 0) - dt);
+    const climb = opts.climb && !this.lockAt ? opts.climb : null;
+    this.climbW = damp(this.climbW || 0, climb ? 1 : 0, climb ? 2.4 : 1.6, dt);
+    if (climb && this.userLook <= 0) {
+      this.pitch = damp(this.pitch, -0.04, 2.0, dt);
+      this.yaw = dampAngle(this.yaw, climb.yaw, 1.8, dt);
+    }
     this.lockW = damp(this.lockW, this.lockAt ? 1 : 0, 5, dt);
     if (this.lockAt) {
       // turn to frame the enemy: aim past the hero at it, looking a little down on both
@@ -107,7 +131,7 @@ export class CameraRig {
       const d = Math.hypot(dx, dz);
       if (d > 0.6) this.yaw = dampAngle(this.yaw, Math.atan2(dx, dz), 6.5, dt);
       const big = Math.max(0, this.lockH - 1.9);
-      const wantPitch = clamp(0.3 - d * 0.008 + (focus.y + 1.5 - this.lockAt.y) * 0.08 + big * 0.03, 0.1, 0.52);
+      const wantPitch = clamp(0.24 - d * 0.008 + (focus.y + 1.5 - this.lockAt.y) * 0.08 + big * 0.05, 0.08, 0.52);
       this.pitch = damp(this.pitch, wantPitch, 3.5, dt);
     } else {
       this.yaw -= look.dx * s;
@@ -115,13 +139,14 @@ export class CameraRig {
     }
     this.pitch = clamp(this.pitch, -0.55, 1.2);
     if (input.wheel) this.targetDistance = clamp(this.targetDistance + input.wheel * 0.6, 1.8, 12);
-    const want = (opts.distance ?? this.targetDistance) + this.lockW * (0.9 + Math.max(0, this.lockH - 1.9) * 0.85);
+    // locked on: in tight on the two of them (a giant still needs the lens further back)
+    const want = ((opts.distance ?? this.targetDistance) + this.lockW * (0.3 + Math.max(0, this.lockH - 1.9) * 0.95)) * (1 - this.climbW * 0.12);
     this.distance = damp(this.distance, want, 6, dt);
 
     // Follow target (head height) through a critically damped spring: tight horizontally, softer
     // vertically so step-ups and the swim bob don't jolt the view.
     this.target.copy(focus);
-    this.target.y += opts.height ?? 1.55;
+    this.target.y += (opts.height ?? 1.55) + this.climbW * (opts.climb?.up ?? 0.5);
     if (this.first) {
       this.smoothedTarget.copy(this.target);
       this.spring = {};
@@ -180,6 +205,19 @@ export class CameraRig {
       cam.z += Math.sin(this.shakeT * 1.3 + 2.1) * sh;
     }
     this.camera.lookAt(pivot.x, pivot.y + 0.05, pivot.z);
+    // the blow's kick (a stiff spring: out and back inside a tenth of a second)
+    if (this.kickV) {
+      const K = this.kickP;
+      this.kickV.addScaledVector(K, -420 * dt).multiplyScalar(Math.max(0, 1 - 26 * dt));
+      K.addScaledVector(this.kickV, dt);
+      this.rollV += (-420 * (this.roll || 0)) * dt;
+      this.rollV *= Math.max(0, 1 - 26 * dt);
+      this.roll = (this.roll || 0) + this.rollV * dt;
+      if (K.lengthSq() > 1e-8 || Math.abs(this.roll) > 1e-5) {
+        cam.add(K);
+        this.camera.rotateZ(this.roll);
+      }
+    }
     if (this.blend) {
       const b = this.blend;
       b.t += dt;

@@ -6,6 +6,7 @@
 //   ?game=1            play through the game's CharacterAnimator (in-place + speed)
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { ASSET_MANIFEST } from '../src/core/Assets.js';
 import { CharacterAnimator } from '../src/gameplay/CharacterAnimator.js';
@@ -30,7 +31,7 @@ scene.add(sun);
 const grid = new THREE.GridHelper(20, 40, 0x8a7a66, 0x4a4038);
 scene.add(grid);
 
-const loader = new GLTFLoader();
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder); // (the manifest's models are meshopt copies)
 const M = ASSET_MANIFEST.character;
 // ?mocap=walk plays a baked clip from public/assets/characters/prady-mocap.json instead
 const mocapName = params.get('mocap');

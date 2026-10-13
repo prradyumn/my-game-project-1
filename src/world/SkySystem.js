@@ -17,8 +17,8 @@ const FOG_KEYS = [
   [-0.02, C(0x6b4f5a)],
   [0.05, C(0xe0a072)],
   [0.16, C(0xe9c39a)],
-  [0.4, C(0xcfd3cf)],
-  [1.0, C(0xc4d1d8)],
+  [0.4, C(0xc6d0d2)],
+  [1.0, C(0xb4c6d4)], // (a blue distance at noon: the old near-white haze bleached the far ghats)
 ];
 const HEMI_SKY = [
   [-0.3, C(0x22325a)],
@@ -38,6 +38,13 @@ function sampleKeys(keys, x, out) {
   }
   return out.copy(keys[keys.length - 1][1]);
 }
+
+const _mistCol = new THREE.Color(0.085, 0.1, 0.108); // (moonlit mist: a little paler than the dark it hangs in)
+const _bloodLight = new THREE.Color(1.0, 0.28, 0.18);
+const _bloodSky = new THREE.Color(0.28, 0.05, 0.04);
+const _bloodFog = new THREE.Color(0.16, 0.03, 0.025);
+const _moonWhite = new THREE.Color(1, 1, 1);
+const _bloodMoon = new THREE.Color(1.0, 0.18, 0.08);
 
 export class SkySystem {
   constructor(renderer, scene, quality) {
@@ -173,6 +180,9 @@ export class SkySystem {
   }
 
   update(dt, focus) {
+    this.gloom ??= 0;
+    this.mist ??= 0;
+    this.blood ??= 0;
     if (!this.frozen) this.hours = (this.hours + (dt * this.timeSpeed) / (60 * TIME.minutesPerHour)) % 24;
     const theta = ((this.hours - 6) / 12) * Math.PI; // 0 sunrise, PI sunset
     this.sunDir.set(-0.38 * Math.sin(theta), Math.sin(theta) * 0.93, Math.cos(theta)).normalize();
@@ -194,7 +204,7 @@ export class SkySystem {
     moonDir.y = Math.max(moonDir.y, 0.25);
     moonDir.normalize();
     const lightDir = day > 0.02 ? this.sunDir : moonDir;
-    this.sun.intensity = day > 0.02 ? lerp(0.0, 3.0, day) : 0.75 * night;
+    this.sun.intensity = day > 0.02 ? lerp(0.0, 3.4, day) : 0.75 * night; // (a bright noon over deep shade)
     if (day <= 0.02) this.sunColor.setRGB(0.6, 0.72, 1.0); // cool moonlight against warm lamps
     this.sun.color.copy(this.sunColor);
     this.sun.position.copy(focus).addScaledVector(lightDir, 180);
@@ -213,12 +223,15 @@ export class SkySystem {
 
     sampleKeys(HEMI_SKY, elev, this.hemi.color);
     this.hemi.groundColor.setRGB(0.42, 0.34, 0.26).multiplyScalar(lerp(0.15, 1, day));
-    this.hemi.intensity = lerp(0.42, 0.45, day);
+    // (in full day less of the sky fills the sun's shadows: at 0.45 they came out a third as
+    // bright as sunlit stone and the whole picture read hazy and flat. Not much less: in the
+    // afternoon the ghats stand in the city's shade, lit by this sky alone)
+    this.hemi.intensity = lerp(0.42, 0.39, day);
 
     sampleKeys(FOG_KEYS, elev, this.fogColor);
     this.scene.fog.color.copy(this.fogColor).multiplyScalar(0.85);
     // Height fog: a low river mist at dawn and dusk, clearer at noon, thin blue haze at night.
-    this.scene.fog.density = lerp(0.0017, 0.0034, this.goldenFactor) + night * 0.0006;
+    this.scene.fog.density = lerp(0.0013, 0.0034, this.goldenFactor) + night * 0.0006;
     FOG.params.x = lerp(0.03, 0.055, this.goldenFactor); // denser near the water when the sun is low
     FOG.params.y = 0;
     FOG.params.z = lerp(6, 10, this.goldenFactor);
@@ -233,6 +246,29 @@ export class SkySystem {
     this.horizonColor.copy(this.fogColor);
     this.zenithColor.copy(this.hemi.color);
 
+    // ---- the frightening nights (Dread's places, the eclipse): set by them, eased here
+    //   gloom  the moon dims and the sky's light with it (the dark lanes, Masan)
+    //   mist   a thick fog rolls up off the river and lies on the steps (Masan)
+    //   blood  Grahan: Rahu has the moon; its light, the sky and the haze go to blood
+    const gl = this.gloom * night;
+    if (gl > 0.001 || this.mist > 0.001 || this.blood > 0.001) {
+      if (day <= 0.02) this.sun.intensity *= 1 - 0.82 * gl;
+      this.hemi.intensity *= 1 - 0.7 * gl;
+      const m = this.mist;
+      this.scene.fog.density += m * 0.02;
+      FOG.params.x = lerp(FOG.params.x, 0.11, m); // (it hugs the water and the low steps)
+      FOG.params.w *= 1 - 0.6 * m;
+      this.scene.fog.color.multiplyScalar(1 - 0.5 * gl * (1 - m)).lerp(_mistCol, m * night * 0.9);
+      const b = this.blood * night;
+      if (b > 0.001) {
+        this.sun.color.lerp(_bloodLight, b);
+        this.sun.intensity *= 1 - 0.35 * b;
+        this.hemi.color.lerp(_bloodSky, b * 0.8);
+        this.scene.fog.color.lerp(_bloodFog, b * 0.7);
+      }
+    }
+    this.moon.material.color?.copy?.(_moonWhite).lerp(_bloodMoon, this.blood);
+
     this.starMat.uniforms.uOpacity.value = smoothstep(0.35, 0.9, night);
     this.starMat.uniforms.uTime.value += dt;
     this.stars.position.copy(focus);
@@ -240,7 +276,8 @@ export class SkySystem {
     this.moon.material.opacity = smoothstep(0.2, 0.7, night);
     this.moon.visible = this.moon.material.opacity > 0.01 && !this.underwater;
 
-    this.scene.environmentIntensity = lerp(0.1, 0.4, day);
+    this.scene.environmentIntensity = lerp(0.1, 0.34, day);
+    this._metalK = lerp(0.1, 0.4, day) * 3.3; // (the metals keep the sky's full reflection)
 
     // Refresh the environment map when the sun has moved enough to matter.
     if (Math.abs(elev - this.lastEnvSunY) > 0.02 || Math.abs(oc - this.lastEnvOvercast) > 0.08) {
@@ -253,7 +290,7 @@ export class SkySystem {
     }
     // the metals: the same sky, reflected as metal reflects it (materials.js METALS)
     const env = this.scene.environment;
-    const metalK = this.scene.environmentIntensity * 3.3;
+    const metalK = this._metalK ?? this.scene.environmentIntensity * 3.3;
     for (const m of METALS) {
       if (m.envMap !== env) {
         if (!m.envMap) m.needsUpdate = true; // (first time: the shader gains its envmap)

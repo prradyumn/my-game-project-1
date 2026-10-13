@@ -3,9 +3,11 @@
 // window.__bake (JSON) and previewed side by side. Save them with tools/bake-mocap.mjs.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { BVHLoader } from 'three/addons/loaders/BVHLoader.js';
 import { ASSET_MANIFEST } from '../src/core/Assets.js';
 import { cmuKey, retargetClip } from '../src/gameplay/Retarget.js';
+import { jointsToClip } from './joints-to-clip.js';
 
 const SOURCES = [
   // (only what the game plays: the sneak/sad/soldier/agree/headShake clips were never used)
@@ -83,9 +85,42 @@ const MOVES2 = [
   // hanging from a bar by both hands, the legs loose, a little sway (a playground take)
   { name: 'hang', file: '01_12', start: 1.9, end: 3.2, lockY: true, loopBlend: 0.35 },
 ];
+// Prady's fourth file (public/assets/characters/prady-moves3.json): the small motions between
+// the big ones. ?set=moves3
+//   turnL / turnR: a quarter turn on the spot, stepping round (the turn itself is taken out of
+//   the take, rootYaw, and the game turns him by it, so his feet stay planted)
+//   runStop: a jog braking hard to a standstill, the hips dropping into the plant (root motion)
+//   akimbo: hands on the hips, waiting (an idle break)
+// ?set=video: motion from video (Motion2MixamoRig / GVHMR joints, source-assets/m2mr/<file>.json;
+// the video-to-mocap skill). Whole takes for now: ranges once a take is judged worth keeping.
+const VIDEO = [
+  // Mixkit 49634: a head-high roundhouse with the right leg (chamber 1.6 s, impact 2.44 s, down by 4.2 s)
+  { name: 'roundKick', file: 'mixkit-49634-roundkick', start: 1.6, end: 4.3, rootMotion: true, strike: { t: 0.84, bone: 'RightFoot' } },
+  // (tried and kept out: a one-two from Mixkit 49632's kata and a low punch from 49633. Kata
+  // punches snap out and hold, and the take jittered; the CMU boxer's suit a brawl better)
+  // Mixkit 12971: a head-high side kick with the right leg (peak 2.30 s)
+  { name: 'sideKick', file: 'mixkit-12971-kickdemo', start: 1.6, end: 3.3, rootMotion: true, strike: { t: 0.7, bone: 'RightFoot' } },
+  // Mixkit 1222 (beach, handheld): a standing tucked backflip, take-off 6.3 s, landed 7.9 s. Its
+  // travel is noise (the camera moves), so in place: the game moves him. Floor from its own span;
+  // the take is about 2x slow motion (1.3 s in the air), so the flight is rebuilt as a 0.65 s arc.
+  { name: 'backFlip', file: 'mixkit-1222-backflip', start: 5.95, end: 8.2, floor: true, air: { from: 6.23, to: 7.57, speed: 2 } },
+];
+// ?set=videoPreview: whole takes, travel kept, to look at before cutting (never shipped)
+const VIDEO_PREVIEW = ['49635-punches', '49633-karate', '49632-kata', '12971-kickdemo', '12973-highkick', '21756-walljump', '41017-cartwheels', '1222-backflip'].map((f) => ({ name: `pv_${f.split('-')[1]}`, file: `mixkit-${f}`, start: 0, end: 600, inPlace: false }));
+const MOVES3 = [
+  { name: 'turnL', file: '69_17', start: 0.9, end: 2.3, rootYaw: true, inPlace: 'sway' },
+  { name: 'turnR', file: '69_19', start: 0.85, end: 2.45, rootYaw: true, inPlace: 'sway' },
+  { name: 'runStop', file: '16_08', start: 0.5, end: 1.9, rootMotion: true },
+  { name: 'akimbo', file: '40_11', start: 20.6, end: 24.0 },
+];
 const SET = new URLSearchParams(location.search).get('set');
+// ?src=ue: each CMU take as Unreal's IK Retargeter put it onto Prady (Desktop/PradyAnim: IK goals on
+// hands and feet, pelvis scaled to his legs; exported per take as /ue-export/P_<take>.glb, served by
+// tools/bake-mocap.mjs), shaped here exactly as the BVH path does (ranges, loops, root motion)
+const SRC = new URLSearchParams(location.search).get('src');
+const ueKey = (n) => n.replace(/^mixamorig_?/, '');
 
-const loader = new GLTFLoader();
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder); // (the manifest's models are meshopt copies)
 const prady = (await loader.loadAsync(ASSET_MANIFEST.character.model)).scene;
 prady.updateMatrixWorld(true); // fresh load = rest pose
 prady.traverse((o) => o.isBone && (o.userData.rest = { q: o.quaternion.clone(), p: o.position.clone() }));
@@ -104,7 +139,7 @@ const facing = (root) => {
 const pFacing = facing(prady);
 
 const baked = [];
-for (const src of SET === 'moves' || SET === 'moves2' ? [] : SOURCES) {
+for (const src of SET === 'moves' || SET === 'moves2' || SET === 'moves3' || SET === 'video' || SET === 'videoPreview' ? [] : SOURCES) {
   const g = await loader.loadAsync(src.url);
   const root = g.scene;
   if (facing(root) !== pFacing) root.rotation.y = Math.PI;
@@ -117,19 +152,33 @@ for (const src of SET === 'moves' || SET === 'moves2' ? [] : SOURCES) {
   }
 }
 const bvh = new BVHLoader();
-for (const m of SET === 'moves' ? MOVES : SET === 'moves2' ? MOVES2 : CMU) {
-  const res = bvh.parse(await (await fetch(`/source-assets/cmu/${m.file}.bvh`)).text());
-  const root = new THREE.Group();
-  root.add(res.skeleton.bones[0]);
-  const out = retargetClip({ root, clip: res.clip, keyOf: cmuKey, restTime: 0, start: m.start, end: m.end, restHipY: m.restHipY }, prady, {
+for (const m of SET === 'moves' ? MOVES : SET === 'moves2' ? MOVES2 : SET === 'moves3' ? MOVES3 : SET === 'video' ? VIDEO : SET === 'videoPreview' ? VIDEO_PREVIEW : CMU) {
+  let source;
+  if (SET === 'video' || SET === 'videoPreview') {
+    // Prady himself, posed frame by frame from the joints (tools/joints-to-clip.js)
+    const g = await loader.loadAsync(ASSET_MANIFEST.character.model);
+    const data = await (await fetch(`/source-assets/m2mr/${m.file}.json`)).json();
+    source = { root: g.scene, clip: jointsToClip(g.scene, data, m.name, { floor: m.floor && [m.start, m.end], air: m.air }), start: m.start, end: m.end };
+  } else if (SRC === 'ue') {
+    // (already on Prady's skeleton, standing in its bind pose: that is the rest)
+    const g = await loader.loadAsync(`/ue-export/P_${m.file}.glb`);
+    source = { root: g.scene, clip: g.animations[0], keyOf: ueKey, start: m.start, end: m.end };
+  } else {
+    const res = bvh.parse(await (await fetch(`/source-assets/cmu/${m.file}.bvh`)).text());
+    const root = new THREE.Group();
+    root.add(res.skeleton.bones[0]);
+    source = { root, clip: res.clip, keyOf: cmuKey, restTime: 0, start: m.start, end: m.end, restHipY: m.restHipY };
+  }
+  const out = retargetClip(source, prady, {
     fps: 30,
     name: m.name,
-    inPlace: true,
+    inPlace: m.inPlace ?? true,
     loopBlend: m.loopBlend,
     faceForward: true,
     pitch: m.pitch || 0,
     lockY: !!m.lockY,
     rootMotion: !!m.rootMotion,
+    rootYaw: !!m.rootYaw,
     staticKeys: /Hand(Thumb|Index|Middle|Ring|Pinky)/,
   });
   // where the blow lands, seen from the hips at the moment of impact: fighting stances stand
@@ -151,5 +200,5 @@ for (const m of SET === 'moves' ? MOVES : SET === 'moves2' ? MOVES2 : CMU) {
   baked.push(out);
 }
 const rootMotion = Object.fromEntries(baked.filter((c) => c.userData.rootMotion).map((c) => [c.name, c.userData.rootMotion]));
-window.__bake = JSON.stringify({ source: 'three.js examples (Mixamo mocap) + CMU motion capture, retargeted onto Prady', clips: baked.map((c) => THREE.AnimationClip.toJSON(c)), rootMotion });
+window.__bake = JSON.stringify({ source: SRC === 'ue' ? 'three.js examples (Mixamo mocap) + CMU motion capture, retargeted onto Prady by Unreal Engine 5.8 (IK Retargeter)' : 'three.js examples (Mixamo mocap) + CMU motion capture, retargeted onto Prady', clips: baked.map((c) => THREE.AnimationClip.toJSON(c)), rootMotion });
 document.getElementById('info').textContent = `baked ${baked.length} clips: ${baked.map((c) => `${c.name} ${c.duration.toFixed(2)}s`).join(', ')}`;

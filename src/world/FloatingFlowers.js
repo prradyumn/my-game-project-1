@@ -174,7 +174,7 @@ export class FloatingFlowers {
         const d2 = hx * hx + hz * hz;
         if (d2 < h.r * h.r && d2 > 1e-6) {
           const d = Math.sqrt(d2);
-          const k = (1 - d / h.r) * 2.2;
+          const k = (1 - d / h.r) * 2.2 * (h.k ?? 1);
           f.px += (hx / d) * k * dt * 4;
           f.pz += (hz / d) * k * dt * 4;
         }

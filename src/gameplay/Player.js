@@ -92,6 +92,7 @@ export class Player {
     this.swimMul = 1; // Ganga's Child siddhi
     this.traversal = null; // Traversal.js (vaults, ledges, ladders)
     this.powers = null; // Powers.js (casting the damaru, the trishul)
+    this.footwork = null; // Footwork.js (turning on the spot, braking out of a run)
     if (animator.loco?.ok) animator.loco.onFootstep = (side) => this.onFootstep(side);
   }
 
@@ -107,6 +108,7 @@ export class Player {
     this.velocity.set(0, 0, 0);
     this.state = 'ground';
     this.visualY = y;
+    this.animator.loco?.unpin?.();
   }
 
   enterBoat(boat) {
@@ -158,6 +160,9 @@ export class Player {
     if (this.powers?.fixed(dt)) return;
     if (this.actions?.fixed(dt)) return;
     if (this.combat?.fixed(dt)) return;
+    // the small motions: a turn on the spot holds him back, braking out of a run sets his speed
+    const fw = this.footwork;
+    fw?.fixed(dt);
     const c = this.cmd;
     const vel = this.velocity;
 
@@ -186,7 +191,8 @@ export class Player {
       const wading = clamp((depth - 0.3) / 1.0, 0, 1);
       const base = this.walkMode ? PLAYER.walkSpeed : c.sprint ? PLAYER.sprintSpeed : PLAYER.runSpeed;
       const landSlow = this.landTimer > 0 ? 0.55 : 1;
-      const targetSpeed = base * c.mag * (1 - wading * 0.45) * this.climbFactor * landSlow;
+      // (on a beam: careful steps)
+      const targetSpeed = Math.min(this.traversal?.onBeam ? 1.25 : 99, base * c.mag * (1 - wading * 0.45) * this.climbFactor * landSlow * (fw?.speedScale ?? 1));
       const tx = c.wish.x * targetSpeed;
       const tz = c.wish.z * targetSpeed;
       // Acceleration-limited approach (m/s^2): snappy but physical, harder braking when reversing.
@@ -194,7 +200,10 @@ export class Player {
       if (this.state === 'air') rate = M.airAccel;
       else if (tx * vel.x + tz * vel.z < 0 && Math.hypot(vel.x, vel.z) > 1) rate = M.turnDecel;
       else rate = tx * tx + tz * tz > vel.x * vel.x + vel.z * vel.z ? M.accel : M.decel;
-      approach2(vel, tx, tz, rate * dt);
+      if (fw?.stopVel && this.state === 'ground') {
+        vel.x = fw.stopVel.x;
+        vel.z = fw.stopVel.z;
+      } else approach2(vel, tx, tz, rate * dt);
 
       if (this.state === 'ground') {
         if (this.grounded) this.coyote = M.coyote;
@@ -278,6 +287,13 @@ export class Player {
       if (hit && hit.ny > 0.6) desired.y = -(hit.nx * hx + hit.nz * hz) / hit.ny;
       this.groundNy = hit ? hit.ny : 1;
     } else if (!this.grounded) this.groundNy = 1;
+    // (the controller's slope limit stops a walker going up a wall; in the air it would also stop
+    // him rising past one he touches: a wall jump, a jump beside a wall. Lifted while airborne.)
+    const airborne = this.state === 'air';
+    if (airborne !== this._airSlope) {
+      this._airSlope = airborne;
+      this.kcc.setMaxSlopeClimbAngle(airborne ? Math.PI / 2 - 0.01 : (52 * Math.PI) / 180);
+    }
     this.kcc.computeColliderMovement(this.collider, desired, undefined, GROUPS.mover);
     let mvd = this.kcc.computedMovement();
     // Stepping from a landing onto the stair ramp: the ground under the centre is still flat
@@ -304,7 +320,8 @@ export class Player {
     this.grounded = this.kcc.computedGrounded();
     if (this.state === 'ground' && !this.traversal?.check(dt)) this.actions?.checkClimb(dt);
     // in the air beside a wall: a ledge in reach is caught (Traversal: hang, shimmy, pull up)
-    if (this.state === 'air' && this.traversal?.airGrab()) return;
+    // in the air: a wall to kick off, a rope or a pole to catch (Parkour), else a ledge
+    if (this.state === 'air' && (this.traversal?.parkour?.air() || this.traversal?.airGrab())) return;
     if (this.state === 'climb') return;
 
     if (this.state === 'ground' || this.state === 'air') {
@@ -378,7 +395,8 @@ export class Player {
     this.speed = this.state === 'swim' || this.state === 'dive' ? Math.hypot(vel.x - current.x, vel.z - current.z) : Math.hypot(vel.x, vel.z);
     this.accel = damp(this.accel, (this.speed - this.prevSpeed) / dt, 10, dt);
     const before = this.yaw;
-    if (this.speed > 0.15 && c.mag > 0.05) this.yaw = dampAngle(this.yaw, Math.atan2(c.wish.x, c.wish.z), this.state === 'ground' ? 11 : 5, dt);
+    if (this.footwork?.yawOwned) this.yaw = this.footwork.yaw;
+    else if (this.speed > 0.15 && c.mag > 0.05) this.yaw = dampAngle(this.yaw, Math.atan2(c.wish.x, c.wish.z), this.state === 'ground' ? 11 : 5, dt);
     this.yawRate = damp(this.yawRate, wrapAngle(this.yaw - before) / dt, 12, dt);
   }
 
@@ -408,12 +426,21 @@ export class Player {
     const climbing = this.state === 'climb';
     const animState = this.state === 'waterrun' || climbing ? 'ground' : this.state;
     const animSpeed = this.state === 'waterrun' ? PLAYER.runSpeed * 1.25 : climbing ? 0 : this.speed;
+    this.footwork?.late(alpha);
     this.animator.update(dt, animState, animSpeed, {
       lean: climbing ? 0 : this.lean,
       lookYaw: climbing ? 0 : wrapAngle(this.camYaw - yaw),
       groundY: this.model.position.y,
       rayDown: this.state === 'ground' ? (x, y, z) => this.rayDown(x, y, z) : null,
     });
+    // a plank bridge bowing under him: he goes down with it
+    const dip = this.traversal?.plankSag?.(dt) || 0;
+    if (dip > 0.0005) {
+      this.model.position.y -= dip;
+      this.model.updateMatrixWorld(true);
+    }
+    // on a beam: arms out, balancing, rocking when pushed sideways
+    this.traversal?.parkour?.balance(dt, !!this.traversal?.onBeam && this.state === 'ground', this.cmd.mv.x);
     // (before the hands are placed on a ledge, so they still reach it)
     this.clearWall(dt, yaw);
     this.actions?.late(dt);
@@ -471,14 +498,15 @@ export class Player {
     return hit === null ? null : y - hit;
   }
 
-  onFootstep() {
+  onFootstep(side) {
+    this.lastStep = side; // (Footwork: the foot that comes down next takes a brake step)
     if (this.state !== 'ground' || !this.grounded || this.speed < 0.3) return;
     const p = this.renderPosition;
     const surface = this.water.heightAt(p.x, p.z);
     if (surface - (p.y - FEET) > 0.05) this.fx.wade(p.x, surface, p.z);
     else {
       this.fx.footstep(this.speed);
-      this.fx.footprint?.(arguments[0]);
+      this.fx.footprint?.(side);
     }
   }
 

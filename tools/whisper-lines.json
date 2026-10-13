@@ -1,0 +1,50 @@
+[
+  {
+    "out": "public/assets/audio/whisper/prady-1.mp3",
+    "voice": "Charon",
+    "style": "a hoarse, breathy whisper from the dark, slow and eerie",
+    "text": "प्रदी... प्रदी... कहाँ जा रहा है..."
+  },
+  {
+    "out": "public/assets/audio/whisper/laut-ja.mp3",
+    "voice": "Algenib",
+    "style": "a ghost whispering a warning, cold and breathy, almost no voice, slow",
+    "text": "लौट जा... लौट जा..."
+  },
+  {
+    "out": "public/assets/audio/whisper/diya-bujhega.mp3",
+    "voice": "Kore",
+    "style": "a soft, breathy, teasing whisper, slow, eerie",
+    "text": "तेरा दीया बुझेगा..."
+  },
+  {
+    "out": "public/assets/audio/whisper/hum-yahin.mp3",
+    "voice": "Enceladus",
+    "style": "many voices whispering together, hollow and breathy, slow, very quiet",
+    "text": "हम यहीं हैं..."
+  },
+  {
+    "out": "public/assets/audio/whisper/jala-do.mp3",
+    "voice": "Algenib",
+    "style": "the hoarse pleading whisper of the unburned dead, desperate and breathy",
+    "text": "हमें भी जला दो..."
+  },
+  {
+    "out": "public/assets/audio/whisper/moksha.mp3",
+    "voice": "Leda",
+    "style": "a woman ghost whispering slowly and sorrowfully, soft and breathy",
+    "text": "हमें मोक्ष दे दो..."
+  },
+  {
+    "out": "public/assets/audio/whisper/koi-nahi-aaya.mp3",
+    "voice": "Enceladus",
+    "style": "an old ghost's sorrowful whisper, breathy, slow, hollow",
+    "text": "कोई नहीं आया..."
+  },
+  {
+    "out": "public/assets/audio/whisper/gehre.mp3",
+    "voice": "Algenib",
+    "style": "a drowned voice whispering, gurgling and breathy, beckoning, slow",
+    "text": "गहरे... और गहरे..."
+  }
+]

@@ -13,7 +13,7 @@ const TRAIL = 15;
 const STARS = 120;
 const SUB = 3; // each star draws itself at three moments, a short streak behind it
 const PER = 1 + TRAIL + STARS * SUB;
-const ROCKETS = 14;
+const ROCKETS = 36; // (a rocket's flight and its stars last ~6 s: the festival's show keeps ~16 up, its finale 18 more)
 
 const VS = /* glsl */ `
 attribute vec4 aLaunch; // xyz launch point, w launch time
@@ -208,6 +208,14 @@ export class Fireworks {
     this.last = { x: apex.x, y: apex.y, z: apex.z };
   }
 
+  /** The festival's show (Festival.js): `secs` of quick volleys all along the front, then the
+   *  finale, every launcher at once. */
+  show(secs) {
+    this.showUntil = this.time + secs;
+    this.finale = false;
+    this.volleyTimer = 0;
+  }
+
   /** festival: a full show over the river; night: an occasional wedding in the lanes. */
   update(dt, { camera, pixelRatio, night, festival, raining }) {
     this._cam = camera.position;
@@ -219,10 +227,32 @@ export class Fireworks {
     this.points.visible = this.time < (this.liveUntil || 0);
     for (const q of this.queue) if (q.at <= this.time) this.flash = Math.min(1, this.flash + 0.35 * q.size);
     this.queue = this.queue.filter((q) => q.at > this.time);
-    if (night < 0.7 || raining) return;
+    const showing = festival && this.showUntil !== undefined && (this.time < this.showUntil || !this.finale);
+    if ((night < (showing ? 0.4 : 0.7)) || raining) return;
     this.volleyTimer -= dt;
     if (this.volleyTimer > 0) return;
     const rng = this.rng;
+    if (showing) {
+      const c = this.festivalCentre;
+      if (this.time < this.showUntil) {
+        // the show: volleys tumbling over each other along the whole front
+        this.volleyTimer = rng.range(0.8, 1.8);
+        const n = rng.int(2, 5);
+        for (let i = 0; i < n; i++) {
+          const from = { x: c.x + rng.range(-200, 200), y: 0.6, z: c.z + rng.range(-30, 30) };
+          this.launch(from, { x: from.x + rng.range(-10, 10), y: rng.range(50, 105), z: from.z + rng.range(-10, 10) }, { size: rng.chance(0.25) ? 0.5 : 1, delay: i * rng.range(0.1, 0.45) });
+        }
+      } else {
+        // the finale: the whole line goes up together, then the sky is left to the lanterns
+        this.finale = true;
+        this.volleyTimer = rng.range(14, 20);
+        for (let i = 0; i < 18; i++) {
+          const from = { x: c.x - 220 + (440 * i) / 17 + rng.range(-8, 8), y: 0.6, z: c.z + rng.range(-20, 20) };
+          this.launch(from, { x: from.x + rng.range(-6, 6), y: rng.range(80, 115), z: from.z + rng.range(-6, 6) }, { size: 1, delay: rng.range(0, 0.6) + (i % 3) * 0.25 });
+        }
+      }
+      return;
+    }
     if (festival) {
       this.volleyTimer = rng.range(5, 12);
       const n = rng.int(2, 5);

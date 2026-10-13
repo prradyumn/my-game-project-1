@@ -3,10 +3,12 @@ import { GHAT_TOP } from '../config.js';
 import { RNG } from '../utils/math.js';
 import { GHAT_SEGMENTS, ghatToWorld, LANDING_1, LANDING_2, LANES_V, PROFILE, frameAtX, frameToWorld, ghatById } from './WorldLayout.js';
 import { WORLD_UNIFORMS } from './materials.js';
+import { DiyaField } from './DiyaField.js';
 
 // Kashi after dark:
 //   * rows of clay diyas along the ghat steps, lit in a wave spreading from Dashashwamedh
-//     (every ghat lights up — Dev Deepawali — once the Maha Aarti has been performed)
+//     (every ghat lights up — Dev Deepawali — once the Maha Aarti has been performed), and on
+//     Dev Deepawali a diya on every step of every ghat besides (DiyaField.js)
 //   * strings of festival bulbs: swagged between the terrace lamp posts, running down from the
 //     temple spires, outlining the palace rooftops
 //   * lanterns on every moored boat and on your boat
@@ -17,7 +19,7 @@ const _m = new THREE.Matrix4();
 const _v = new THREE.Vector3();
 
 export class NightScene {
-  constructor({ scene, layout, fire, lampPosts, moored, boat }) {
+  constructor({ scene, layout, fire, lampPosts, moored, boat, density = 1 }) {
     this.fire = fire;
     this.moored = moored;
     this.boat = boat;
@@ -191,7 +193,10 @@ export class NightScene {
       ...bulbs.filter((_, i) => i % 6 === 0).map((b) => ({ p: new THREE.Vector3(b.p.x, b.p.y - 2.5, b.p.z), r: 3.5, i: festive ? 0.06 : 0.035, c: [1.0, 0.6, 0.3] })),
       ...this.laneLamps.map((l) => ({ p: new THREE.Vector3(l.pos.x, GHAT_TOP + 0.8, l.pos.z), r: 10, i: 0.4, c: [1.0, 0.7, 0.4] })),
     ];
-    this.lightMaps = { nightly: bakeLightMap(lamps(false)), festival: bakeLightMap(lamps(true)) };
+    // ------------------------------------------------ Dev Deepawali: every step lit
+    this.field = new DiyaField({ density });
+    this.group.add(this.field.points);
+    this.lightMaps = { nightly: bakeLightMap(lamps(false)), festival: bakeLightMap(lamps(true), this.field.strips) };
     WORLD_UNIFORMS.uNLBounds.value.set(LM.x0, LM.z0, LM.w, LM.h);
     WORLD_UNIFORMS.uNLMap.value = this.lightMaps.nightly.color;
     WORLD_UNIFORMS.uNLHeight.value = this.lightMaps.nightly.height;
@@ -200,10 +205,10 @@ export class NightScene {
     this.clock = 0;
     this.switchedAt = -100;
     this.lightSpots = [];
-    this.stats = { diyas: this.diyas.length, bulbs: bulbs.length };
+    this.stats = { diyas: this.diyas.length, bulbs: bulbs.length, steps: this.field.count };
   }
 
-  update(dt, { night, festival, camera, pixelRatio, moonDir }) {
+  update(dt, { night, festival, camera, pixelRatio, moonDir, dim = 0 }) {
     if (moonDir) this.sky.material.uniforms.uMoonDir.value.copy(moonDir);
     this.clock += dt;
     const on = night > 0.5;
@@ -215,9 +220,10 @@ export class NightScene {
     // Diyas: light (or put out) in a wave
     let changed = false;
     for (const l of this.laneLamps) {
+      // (a lamp the dark put out stays out: AndheriGali relights it)
       if (l.lit !== on) {
         l.lit = on;
-        this.fire.setLit(l.id, on ? 1 : 0);
+        if (!l.dead) this.fire.setLit(l.id, on ? 1 : 0);
       }
     }
     for (const d of this.diyas) {
@@ -262,7 +268,7 @@ export class NightScene {
     WORLD_UNIFORMS.uNLMap.value = maps.color;
     WORLD_UNIFORMS.uNLHeight.value = maps.height;
     const lightTarget = on ? Math.min(1, since / 4) : Math.max(0, 1 - since / 2);
-    WORLD_UNIFORMS.uNightLight.value += (lightTarget * Math.min(1, night * 1.3) - WORLD_UNIFORMS.uNightLight.value) * Math.min(1, dt * 3);
+    WORLD_UNIFORMS.uNightLight.value += (lightTarget * Math.min(1, night * 1.3) * (1 - dim) - WORLD_UNIFORMS.uNightLight.value) * Math.min(1, dt * 3);
     // Milky Way follows the camera, fades with the dark
     this.sky.position.copy(camera.position);
     this.sky.material.uniforms.uNight.value = Math.max(0, (night - 0.55) / 0.45);
@@ -270,13 +276,14 @@ export class NightScene {
     this.sky.visible = this.sky.material.uniforms.uNight.value > 0.002;
     this.bulbs.visible = this.bulbMat.uniforms.uOn.value > 0.01;
     this.cups.visible = night > 0.2;
+    this.field.update(dt, { festival, night, camera });
   }
 }
 
 // Light-map footprint: the ghats and every lane behind them (~0.45 m a texel).
 const LM = { x0: -460, z0: -112, w: 920, h: 170, W: 2048, H: 384 };
 
-function bakeLightMap(lamps) {
+function bakeLightMap(lamps, strips = []) {
   const mk = () => {
     const c = document.createElement('canvas');
     c.width = LM.W;
@@ -299,7 +306,24 @@ function bakeLightMap(lamps) {
     hgt.ctx.arc(l.p.x, l.p.z, l.r * 0.9, 0, Math.PI * 2);
     hgt.ctx.fill();
   }
+  // (a lit tread: its own height, so the light falls off from it and not from the flight's top)
+  const poly = (ctx, pts) => {
+    ctx.beginPath();
+    pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.z) : ctx.moveTo(p.x, p.z)));
+    ctx.closePath();
+    ctx.fill();
+  };
+  for (const st of strips) {
+    const v = Math.round(((st.y + 5) / 40) * 255);
+    hgt.ctx.fillStyle = `rgb(${v},${v},${v})`;
+    poly(hgt.ctx, st.corners);
+  }
   col.ctx.globalCompositeOperation = 'lighter';
+  for (const st of strips) {
+    const [r, gg, b] = st.c.map((x) => Math.round(x * 255));
+    col.ctx.fillStyle = `rgba(${r},${gg},${b},${st.i})`;
+    poly(col.ctx, st.corners);
+  }
   for (const l of lamps) {
     const g = col.ctx.createRadialGradient(l.p.x, l.p.z, 0, l.p.x, l.p.z, l.r);
     const [r, gg, b] = l.c.map((x) => Math.round(x * 255));

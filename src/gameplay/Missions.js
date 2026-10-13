@@ -9,6 +9,9 @@ import cleanGanga from './missions/CleanGanga.js';
 import lostChild from './missions/LostChild.js';
 import yaksha from './missions/Yaksha.js';
 import akhara from './missions/Akhara.js';
+import andheriGali from './missions/AndheriGali.js';
+import masan from './missions/Masan.js';
+import drownedSanctum from './missions/DrownedSanctum.js';
 
 // Side missions: people of Kashi who ask Prady for help. Each mission lives in its own file
 // (src/gameplay/missions/) and is a plain object:
@@ -71,10 +74,11 @@ class MissionRun {
     this.sys.complete(this);
   }
 
-  fail(reason) {
+  /** It went wrong (opts.retry false: set aside by choice, not failed: no "try again"). */
+  fail(reason, opts = {}) {
     if (this.finished) return;
     this.finished = true;
-    this.sys.abandon(this, reason);
+    this.sys.abandon(this, reason, opts.retry !== false);
   }
 
   get player() {
@@ -94,7 +98,7 @@ class MissionRun {
 export class Missions {
   constructor(game, saved = null) {
     this.g = game;
-    this.defs = [ferry, lens, bell, diyas, marigolds, cleanGanga, lostChild, yaksha, akhara].map((f) => f(game));
+    this.defs = [ferry, lens, bell, diyas, marigolds, cleanGanga, lostChild, yaksha, akhara, andheriGali, masan, drownedSanctum].map((f) => f(game));
     this.done = new Set(saved?.done || []);
     this.punya = saved?.punya || 0;
     this.perks = saved?.perks || {};
@@ -226,9 +230,21 @@ export class Missions {
     else finish();
   }
 
-  abandon(run, reason) {
+  abandon(run, reason, retry = false) {
     this.cleanup(run);
-    if (reason) this.g.ui.toast(run.def.title, reason, 4);
+    if (reason) this.g.ui.toast(run.def.title, retry ? `${reason} · E to try again` : reason, 5);
+    // a failed task: for a while, E starts it over at its giver (no walk back, no asking again)
+    this.retry = retry && reason ? { def: run.def, t: 14 } : null;
+  }
+
+  /** Try a failed task again: back to its giver, under way at once. */
+  again(def) {
+    this.retry = null;
+    const at = def.giver.at();
+    this.g.warp(at.x + Math.sin(at.yaw) * 2.2, at.y, at.z + Math.cos(at.yaw) * 2.2, at.yaw + Math.PI, () => {
+      this.update(0);
+      if (!this.active) this.start(def);
+    });
   }
 
   cleanup(run) {
@@ -246,7 +262,7 @@ export class Missions {
     this.talk([['Prady', `${run.def.title}: ${run.text}`]], {
       choices: [
         { key: 'E', label: 'Keep going', then: () => {} },
-        { key: 'Q', label: 'Set it aside for now', then: () => run.fail('Set aside. Its giver will be waiting at the same place.') },
+        { key: 'Q', label: 'Set it aside for now', then: () => run.fail('Set aside. Its giver will be waiting at the same place.', { retry: false }) },
       ],
     });
   }
@@ -268,6 +284,8 @@ export class Missions {
       if (x) return x;
     }
     if (run) return null;
+    const R = this.retry;
+    if (R && !this.g.inCombat && !this.g.combat?.dead) return { prompt: `Try again: ${R.def.title}`, action: () => this.again(R.def) };
     const p = this.g.player.position;
     for (const def of this.defs) {
       const a = this.givers.get(def.id);
@@ -279,6 +297,7 @@ export class Missions {
 
   update(dt) {
     const g = this.g;
+    if (this.retry && ((this.retry.t -= dt) <= 0 || this.active)) this.retry = null;
     if (!g.crowd) return this.markers.begin(), this.markers.end(dt);
     // givers: at their spots during their hours (while no other task is in hand)
     for (const def of this.defs) {
@@ -315,6 +334,7 @@ export class Missions {
     // the story's signs too (one marker pass for everything)
     for (const mk of this.g.story?.run?.marks || []) this.markers.add(mk.kind, mk.kind === 'giver' ? _v.set(mk.pos.x, (mk.pos.y ?? 0) + 2.35, mk.pos.z) : mk.pos, 1, 0.3);
     for (const mk of this.g.race?.marks || []) this.markers.add(mk.kind, mk.pos, 1, 0.5);
+    for (const mk of this.g.roofRun?.marks || []) this.markers.add(mk.kind, mk.pos, 1, 0.5);
     // a call for help nearby, and whatever the journal tracks
     for (const mk of this.g.worldEvents?.marks || []) this.markers.add('objective', _v.set(mk.pos.x, (mk.pos.y ?? 0) + 2.3, mk.pos.z), 1, 0.7);
     const T = this.g.tracker;

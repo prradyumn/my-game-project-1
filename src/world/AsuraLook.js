@@ -283,8 +283,12 @@ export class AsuraEyes {
         uniforms: this.uniforms,
         vertexShader: /* glsl */ `attribute float aGlow; attribute float aWarn; attribute vec3 aTint; uniform float uPixelRatio; varying float vG; varying float vW; varying vec3 vT;
           void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; vG = aGlow; vW = aWarn; vT = aTint;
-            gl_PointSize = aGlow > 0.0 ? clamp(aGlow * 0.09 * 600.0 * uPixelRatio / max(-mv.z, 0.4), 2.0, 40.0 * uPixelRatio) : 0.0; }`,
-        fragmentShader: /* glsl */ `uniform vec3 uWarnColor; varying float vG; varying float vW; varying vec3 vT; void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = exp(-d * d * 6.0) * min(vG, 1.5); if (a < 0.02) discard;
+            float g = abs(aGlow); float star = aGlow < 0.0 ? 2.2 : 1.0;
+            gl_PointSize = g > 0.0 ? clamp(g * star * 0.09 * 600.0 * uPixelRatio / max(-mv.z, 0.4), 2.0, 40.0 * star * uPixelRatio) : 0.0; }`,
+        // (a negative glow is the parry glint: a four-point star of light, not a soft dot)
+        fragmentShader: /* glsl */ `uniform vec3 uWarnColor; varying float vG; varying float vW; varying vec3 vT; void main(){ vec2 c = (gl_PointCoord - 0.5) * 2.0; float d = length(c);
+          if (vG < 0.0) { float g = -vG; float rays = exp(-abs(c.x) * 26.0) * exp(-abs(c.y) * 2.6) + exp(-abs(c.y) * 26.0) * exp(-abs(c.x) * 2.6); float a = (rays + exp(-d * d * 30.0)) * min(g, 2.5) * 0.7; if (a < 0.02) discard; gl_FragColor = vec4(mix(uWarnColor, vec3(3.0), 0.55) * a, a); return; }
+          float a = exp(-d * d * 6.0) * min(vG, 1.5); if (a < 0.02) discard;
           vec3 base = vec3(3.0, 0.9, 0.3) * vT;
           gl_FragColor = vec4(mix(base, uWarnColor, vW) * a + vec3(1.0) * pow(a, 4.0), a); }`,
         transparent: true,
