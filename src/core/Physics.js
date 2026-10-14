@@ -111,14 +111,14 @@ export class Physics {
 
   // Returns distance along dir to the first hit, or null.
   castRay(origin, dir, maxDist, excludeCollider, groups) {
-    const ray = new this.RAPIER.Ray(origin, dir);
+    const ray = this.ray(origin, dir);
     const hit = this.world.castRay(ray, maxDist, true, undefined, groups, excludeCollider);
     return hit ? hit.timeOfImpact : null;
   }
 
   // Ray that also reports the surface normal: { toi, nx, ny, nz } or null.
   castRayNormal(origin, dir, maxDist, excludeCollider, groups) {
-    const ray = new this.RAPIER.Ray(origin, dir);
+    const ray = this.ray(origin, dir);
     const hit = this.world.castRayAndGetNormal(ray, maxDist, true, undefined, groups, excludeCollider);
     return hit ? { toi: hit.timeOfImpact, nx: hit.normal.x, ny: hit.normal.y, nz: hit.normal.z } : null;
   }
@@ -143,8 +143,27 @@ export class Physics {
     return hit ? hit.time_of_impact : null;
   }
 
+  /** One ray, reused for every query (a new Ray per cast was garbage on every frame). */
+  ray(origin, dir) {
+    const r = (this._ray ||= new this.RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }));
+    r.origin.x = origin.x;
+    r.origin.y = origin.y;
+    r.origin.z = origin.z;
+    r.dir.x = dir.x;
+    r.dir.y = dir.y;
+    r.dir.z = dir.z;
+    return r;
+  }
+
   step(dt) {
-    this.world.timestep = Math.min(dt, 1 / 30);
-    this.world.step();
+    const w = this.world;
+    w.timestep = Math.min(dt, 1 / 30);
+    // The pipeline itself, without World.step()'s bookkeeping after it: Rapier 0.21 then walks
+    // every collider and body (~4,900 here) through JS callbacks to find ones the engine made or
+    // removed on its own, which this game never has (everything is created and removed through
+    // the API, which keeps those maps itself). That walk was ~46 MB/s of garbage in a fight.
+    const P = w.physicsPipeline;
+    if (P?.step && w.ccdSolver) P.step(w.gravity, w.integrationParameters, w.islands, w.broadPhase, w.narrowPhase, w.bodies, w.colliders, w.softBodies, w.impulseJoints, w.multibodyJoints, w.ccdSolver, undefined, undefined);
+    else w.step();
   }
 }

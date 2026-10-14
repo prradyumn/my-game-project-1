@@ -48,8 +48,8 @@ const mergeGeos = (list) => mergeGeometries(list.map((g) => (g.index ? g.toNonIn
 // (vein: the colour of its cracks; eye: a tint on its eyes)
 export const ASURA_KINDS = {
   shade: { label: 'Asura', scale: 1.1, hp: 60, poise: 50, speed: 1.6, run: 3.6, ring: [3.4, 4.6], dmg: 0.72, attacks: ['swipe', 'lunge', 'swipe', 'smash'], smoke: 1 },
-  brute: { label: 'Rakshasa', scale: 1.32, hp: 140, poise: 110, speed: 1.3, run: 2.9, ring: [3.8, 5.2], dmg: 1.2, attacks: ['smash', 'swipe', 'smash'], smoke: 1.4 },
-  pishacha: { label: 'Pishacha', scale: 1.04, hp: 52, poise: 40, speed: 1.75, run: 3.8, ring: [7.5, 10], dmg: 0.8, attacks: ['hurl', 'hurl', 'swipe'], smoke: 0.8, ranged: true, vein: [0.2, 1.0, 0.72], eye: [0.25, 1.1, 0.85], skin: [0.022, 0.038, 0.034], horns: 0.65 },
+  brute: { label: 'Rakshasa', scale: 1.32, hp: 140, poise: 110, speed: 1.3, run: 2.9, ring: [3.8, 5.2], dmg: 1.2, attacks: ['smash', 'swipe', 'slam'], smoke: 1.4 },
+  pishacha: { label: 'Pishacha', scale: 1.04, hp: 52, poise: 40, speed: 1.75, run: 3.8, ring: [7.5, 10], dmg: 0.8, attacks: ['hurl', 'volley', 'swipe'], smoke: 0.8, ranged: true, vein: [0.2, 1.0, 0.72], eye: [0.25, 1.1, 0.85], skin: [0.022, 0.038, 0.034], horns: 0.65 },
   kavacha: { label: 'Kavacha', scale: 1.24, hp: 110, poise: 150, speed: 1.25, run: 2.8, ring: [3.4, 4.4], dmg: 1.0, attacks: ['bash', 'smash', 'swipe'], smoke: 1.1, shield: true, vein: [1.0, 0.62, 0.14], eye: [1.1, 0.8, 0.4], skin: [0.06, 0.04, 0.028], horns: 1.2 },
   vetala: { label: 'Vetala', scale: 1.0, hp: 70, poise: 45, speed: 2.2, run: 4.8, ring: [5.5, 7.5], dmg: 0.85, attacks: ['pounce', 'swipe', 'pounce'], smoke: 0.6, leaper: true, vein: [0.5, 0.78, 1.0], eye: [0.55, 0.85, 1.4], skin: [0.13, 0.12, 0.12], horns: 0.45 },
   boss: { label: 'Andhaka', scale: 3.0, hp: 760, poise: 360, speed: 1.15, run: 2.4, ring: [5.5, 7.5], dmg: 0.65, attacks: ['sweep', 'smash', 'lunge'], smoke: 3, boss: true },
@@ -65,6 +65,11 @@ const ATTACKS = {
   stomp: { clip: 'heavy', hit: 0.52, reach: 3.2, arc: Math.PI, dmg: 26, lunge: 0, heavy: true, unblockable: true, speed: 0.75, shock: true },
   // a Pishacha's throw: fire leaves the hand at the hook's peak (Projectiles.js)
   hurl: { clip: 'attackA', hit: 0.48, reach: 16, arc: Math.PI, dmg: 11, lunge: 0, speed: 0.78, ranged: true },
+  // a Pishacha's volley: three fires one after another (each one can be parried back at it)
+  volley: { clip: 'attackA', hit: 0.42, reach: 16, arc: Math.PI, dmg: 8, lunge: 0, speed: 0.7, ranged: true, volley: 3 },
+  // a Rakshasa's ground slam: both fists into the stone, a burning ring outward (no guard turns
+  // it: roll through it, or be in the air when it lands)
+  slam: { clip: 'heavy', hit: 0.52, reach: 2.3, arc: Math.PI, dmg: 22, lunge: 0.3, heavy: true, unblockable: true, speed: 0.82, shock: true, jumpable: true },
   // a Kavacha drives in behind its shield
   bash: { clip: 'attackB', hit: 0.49, reach: 2.1, arc: 0.8, dmg: 13, lunge: 1.6, heavy: true, speed: 1.0 },
   // a Vetala's pounce: crouch, leap (the clip's take-off), land on him claws first
@@ -533,9 +538,11 @@ export class Asura {
           if (Math.random() < dt * 0.3) this.circleDir *= -1;
           const close = dist < 3.2;
           if (this.stateT > 1.0 && this.cool <= 0 && this.t > (this.stunUntil ?? 0) && dist < 18 && sys.requestToken(this, !close)) {
-            this.nextAttack = close ? 'swipe' : 'hurl';
+            // (one throw in three a volley)
+            const far = Math.random() < 0.35 ? 'volley' : 'hurl';
+            this.nextAttack = close ? 'swipe' : far;
             if (close) this.setState('approach');
-            else this.beginAttack(ATTACKS.hurl);
+            else this.beginAttack(ATTACKS[far]);
           }
         } else {
           // pace round him: tangent + a pull in when he backs off. It never backs away from him
@@ -668,9 +675,23 @@ export class Asura {
         if (!this.struck && k >= atk.hit) {
           this.struck = true;
           this.resolveHit(atk, dist, toP);
+          this.volleyLeft = (atk.volley || 1) - 1;
+          this.volleyT = 0.24;
         }
-        if (k >= 0.98 || this.stateT > 3.5) {
+        // the rest of a volley, a beat apart (the hand flares again before each)
+        if (this.struck && this.volleyLeft > 0) {
+          this.volleyT -= dt;
+          const hand = this.handPos(_w);
+          if (hand) sys.g.projectiles?.charge(hand, clamp(1 - this.volleyT / 0.24, 0, 1));
+          if (this.volleyT <= 0) {
+            this.volleyLeft--;
+            this.volleyT = 0.24;
+            this.resolveHit(atk, dist, toP);
+          }
+        }
+        if ((k >= 0.98 && !(this.volleyLeft > 0)) || this.stateT > 3.5) {
           this.attack = null;
+          this.volleyLeft = 0;
           this.releaseToken();
           const ag = sys.diff.aggression;
           this.cool = ((K.boss ? 3.0 : K.ranged ? 2.6 : 2.0) + Math.random() * (K.boss ? 1.5 : 2.5)) / ag;
@@ -812,7 +833,7 @@ export class Asura {
       if (this.K.boss && this.rage > 0.5 && Math.random() < 0.35) name = 'stomp';
       if (dist > 3.2 * Math.sqrt(this.scale) && list.includes('lunge')) name = 'lunge';
       if (this.K.leaper) name = dist > 3.6 ? 'pounce' : 'swipe';
-      if (this.K.ranged) name = dist > 3.2 ? 'hurl' : 'swipe';
+      if (this.K.ranged) name = dist > 3.2 ? (Math.random() < 0.35 ? 'volley' : 'hurl') : 'swipe';
       this.nextAttack = name;
     }
     return this.nextAttack;
@@ -916,6 +937,8 @@ export class Asura {
           H.phase = 'cling';
           H.t = 0;
           this.play('idle', 0.12);
+          // a hiss off the stone above him: the only warning of where the pounce comes from
+          sys.audio.play('naga-hiss', { at: this.pos, volume: 0.7, rate: 1.35 + Math.random() * 0.2, ref: 10 });
         } else {
           this.airborne = false;
           this.hopS = null;
@@ -1020,6 +1043,7 @@ export class Asura {
     this.glinted = false;
     this.whooshed = false;
     this.lastLunge = 0;
+    this.volleyLeft = 0;
     this.setState('attack');
     this.play(this.has(atk.clip) ? atk.clip : 'attackA', 0.12, { once: true, speed: atk.speed * (this.K.boss ? 0.72 : this.mini ? 0.88 : 1) });
     // a stomp is announced on the ground: a burning ring where it will land
@@ -1036,6 +1060,8 @@ export class Asura {
       return;
     }
     if (atk.shock) sys.shockwave(this.pos, reach * 1.6);
+    // (a slam runs along the ground: in the air over it, he is clear)
+    if (atk.jumpable && sys.player.state === 'air' && sys.player.feetY - groundHeight(sys.player.position.x, sys.player.position.z) > 0.25) return;
     const off = Math.abs(wrapAngle(toP - this.yaw));
     const pf = sys.player.feetY;
     // a claw reaches his legs a step above it, and swings over him a long way below
@@ -1179,7 +1205,8 @@ export class Asura {
     if (this.moveSpeed > 0 && this.wantDir) {
       let sx = 0;
       let sz = 0;
-      for (const o of sys.list) {
+      for (let j = 0; j < sys.list.length; j++) {
+        const o = sys.list[j];
         if (o === this || !o.alive) continue;
         const ox = this.pos.x - o.pos.x;
         const oz = this.pos.z - o.pos.z;
@@ -1640,15 +1667,20 @@ export class AsuraSystem {
       o.layers.enable(2);
       // (a villain's horns, tusks and claws: horn, not skin; they go with the body's burn)
       if (vil && o.material?.name === 'horn') {
-        o.material = this.hornMat;
+        // (its own copy: one material on skinned and rigid meshes swaps shader programs every
+        // frame, three.js rebuilding their descriptions each time)
+        this.hornMatSkinned ||= this.hornMat.clone();
+        o.material = this.hornMatSkinned;
         sculptedHorns = o;
         return;
       }
       if (vil && (o.material?.name === 'armor' || o.material?.name === 'cloth')) {
         if (o.material.name === 'armor') {
-          // (the Kavacha's bronze: the shield's own)
-          this.shieldMat ||= new THREE.MeshStandardMaterial({ color: 0x6b4a22, metalness: 0.85, roughness: 0.38, emissive: 0x2a0d00, emissiveIntensity: 0.5, side: THREE.DoubleSide });
-          o.material = this.shieldMat;
+          // (the Kavacha's bronze: the shield's)
+          // (a copy: the shield itself is a rigid mesh, the armour skinned)
+          // (darker, duller than the shield: lit by a fire, the plates glowed like orange balloons)
+          this.armorMat ||= new THREE.MeshStandardMaterial({ color: 0x3e2a14, metalness: 0.8, roughness: 0.5, emissive: 0x120500, emissiveIntensity: 0.35, side: THREE.DoubleSide });
+          o.material = this.armorMat;
         } else {
           this.clothMat ||= new THREE.MeshStandardMaterial({ color: 0x3a0c08, roughness: 0.9, side: THREE.DoubleSide });
           o.material = this.clothMat;

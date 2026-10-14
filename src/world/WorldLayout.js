@@ -108,6 +108,13 @@ export function ghatToWorld(g, u, v) {
 }
 
 // (x,z) -> bank coordinates. v is what matters for heights.
+/** bankCoords(x, z).v without the object (hot paths: the river current, every floating thing). */
+export function bankV(x, z) {
+  const g = segmentForX(x);
+  if (g) return (x - g.S.x) * g.N.x + (z - g.S.z) * g.N.z;
+  return (z - bankZ(x)) / Math.hypot(1, bankSlope(x));
+}
+
 export function bankCoords(x, z) {
   const g = segmentForX(x);
   if (g) {

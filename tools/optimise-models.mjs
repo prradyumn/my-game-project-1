@@ -23,7 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, KHRTextureBasisu } from '@gltf-transform/extensions';
@@ -31,7 +31,7 @@ import { meshopt, prune, dedup } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
 import { encodeToKTX2 } from 'ktx2-encoder';
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'public', 'assets');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'assets'); // (decoded: the project's path has spaces)
 const MODELS = [
   ...fs.readdirSync(path.join(ROOT, 'people')).filter((f) => f.endsWith('.glb')).map((f) => `people/${f}`),
   'characters/prady-game-2k.glb',

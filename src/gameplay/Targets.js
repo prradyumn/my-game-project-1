@@ -60,6 +60,38 @@ export class Targets {
     return best;
   }
 
+  /**
+   * The foe a strike should go for among several: near and along the aim, but the one winding up
+   * a blow at him wins (meet it first, from further round him), and the one he is already fighting
+   * keeps his attention over a slightly nearer one (no flicking between two side by side).
+   */
+  best(from, range, yaw, cone, feetY, prev = null) {
+    let best = null;
+    let bs = Infinity;
+    const L = this.list;
+    for (let i = 0; i < L.length; i++) {
+      const t = L[i];
+      if (!t.alive || !t.enemy) continue;
+      const dx = t.pos.x - from.x;
+      const dz = t.pos.z - from.z;
+      const d = Math.hypot(dx, dz) - (t.radius ?? 0.3) * 0.5;
+      if (d > range || Math.abs(t.pos.y - feetY) > Math.max(2.6, (t.height ?? 2) * 0.7)) continue;
+      const da = Math.abs(((Math.atan2(dx, dz) - yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      const threat = t.state === 'attack' && !t.struck && d < 4.2;
+      if (da > (threat ? 2.2 : cone)) continue;
+      // (a radian off the aim weighs like two metres)
+      let s = d + da * 2;
+      if (threat) s -= 1.8 + Math.max(0, 1 - (t.toHit ?? 1)) * 1.5;
+      if (t === prev) s -= 1.2;
+      if (t.maxHp && t.hp / t.maxHp < 0.25) s -= 0.6;
+      if (s < bs) {
+        best = t;
+        bs = s;
+      }
+    }
+    return best;
+  }
+
   enemies() {
     return this.list.filter((t) => t.enemy && t.alive);
   }

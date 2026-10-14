@@ -122,15 +122,16 @@ export const TIME = { startHour: 6.35, minutesPerHour: 1.0 };
 export const QUALITY_PRESETS = {
   low: { label: 'Low', pixelRatio: 0.7, dprCap: 1.25, shadows: 0, reflection: 0, ao: false, bloom: true, smaa: false, waterSegments: 120, sharpen: 0.5 },
   medium: { label: 'Medium', pixelRatio: 0.9, dprCap: 1.25, shadows: 1024, reflection: 0.33, ao: false, bloom: true, smaa: true, waterSegments: 180, sharpen: 0.45 },
-  high: { label: 'High', pixelRatio: 1.0, dprCap: 1.25, shadows: 2048, reflection: 0.5, ao: true, aoMode: 'Low', bloom: true, smaa: true, waterSegments: 220, sharpen: 0.42 },
+  high: { label: 'High', pixelRatio: 1.0, dprCap: 1.25, shadows: 2048, reflection: 0.5, ao: true, aoMode: 'Low', bloom: true, smaa: true, waterSegments: 220, sharpen: 0.42, minScale: 0.9 },
   // between High and Ultra: sharper than High (more pixels + sharpening) and kept smooth by a
   // lighter ambient-occlusion mode (AO is the most expensive effect at these resolutions)
   // (Very High: 1.6x on a Retina screen and the AO at full resolution: at 1.4x with half-res AO the
   // browser's stretch blurred Prady and the AO's blotches, sharpened, read as grain on his skin;
   // the river's mirror keeps the pixel count it had at 1.4x: 0.45 * 1.4 / 1.6. Under load the
-  // adaptive resolution may ease it back to 1.4x (minScale 0.875), never below: the old picture)
-  veryhigh: { label: 'Very High', pixelRatio: 1.0, dprCap: 1.6, shadows: 2048, reflection: 0.39, ao: true, aoMode: 'Performance', aoHalfRes: false, bloom: true, smaa: true, waterSegments: 240, sharpen: 0.22, minScale: 0.875 },
-  ultra: { label: 'Ultra', pixelRatio: 1.0, dprCap: 2, shadows: 4096, reflection: 0.75, ao: true, aoMode: 'Low', aoHalfRes: false, bloom: true, smaa: true, waterSegments: 260, sharpen: 0.12 },
+  // adaptive resolution never lowers it (minScale 1): a drop under load read as the picture going
+  // soft now and then; frame time is won back by cutting waste instead)
+  veryhigh: { label: 'Very High', pixelRatio: 1.0, dprCap: 1.6, shadows: 2048, reflection: 0.39, ao: true, aoMode: 'Performance', aoHalfRes: true, bloom: true, smaa: true, waterSegments: 240, sharpen: 0.45, minScale: 1 },
+  ultra: { label: 'Ultra', pixelRatio: 1.0, dprCap: 2, shadows: 4096, reflection: 0.75, ao: true, aoMode: 'Low', aoHalfRes: false, bloom: true, smaa: true, waterSegments: 260, sharpen: 0.12, minScale: 1 },
 };
 
 export const DEFAULT_SETTINGS = {

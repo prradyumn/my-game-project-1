@@ -237,8 +237,9 @@ export class Combat {
       return;
     }
     if (this.move) {
-      // a press during the move queues the next strike of the combo
-      if (this.move.t > 0.3 && !this.move.force && !MOVES[this.move.name].heavy && this.move.name !== HEAVY.unarmed) this.move.queued = true;
+      // a press during the move queues the next strike of the combo (from early in it: a
+      // mashed button isn't lost)
+      if (this.move.t > 0.15 && !this.move.force && !MOVES[this.move.name].heavy && this.move.name !== HEAVY.unarmed) this.move.queued = true;
       return;
     }
     // on a wall run: kick off the wall onto the nearest one
@@ -749,9 +750,9 @@ export class Combat {
     if (L?.alive && Math.hypot(L.pos.x - p.position.x, L.pos.z - p.position.z) < (L.K?.boss ? 12 : 9)) return L;
     const T = this.targets;
     if (!T) return null;
+    const prev = this.lastTgt?.alive ? this.lastTgt : null;
     return (
-      T.nearest(p.position, 4.2, camYaw, 2.2, (t) => t.enemy && t.state === 'attack' && !t.struck, p.feetY) ||
-      T.nearest(p.position, 7, camYaw, 0.75, (t) => t.enemy, p.feetY) ||
+      T.best(p.position, 7, camYaw, 0.75, p.feetY, prev) ||
       T.nearest(p.position, 4.6, camYaw, 1.9, null, p.feetY) ||
       T.nearest(p.position, 2.8, camYaw, Math.PI, (t) => t.enemy, p.feetY)
     );
@@ -774,6 +775,7 @@ export class Combat {
     let yaw = camYaw - la;
     let approach = 0;
     const tt = forced || this.pickTarget(camYaw);
+    if (tt?.enemy) this.lastTgt = tt;
     const t = tt?.pos;
     if (t) {
       const ty = Math.atan2(t.x - p.position.x, t.z - p.position.z);

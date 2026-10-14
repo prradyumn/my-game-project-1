@@ -60,7 +60,8 @@ export class HeatShimmerEffect extends Effect {
     for (const s of sources) {
       if (s.amt <= 0.01) continue;
       const d = camera.position.distanceTo(_p.set(s.x, s.y, s.z));
-      if (d > 45 || d < 0.8) continue;
+      // (within 25 m: further off the shimmer is under a pixel, and the pass costs the whole frame)
+      if (d > 25 || d < 0.8) continue;
       near.push({ s, d });
     }
     near.sort((a, b) => a.d - b.d);
@@ -75,7 +76,7 @@ export class HeatShimmerEffect extends Effect {
       const h = _p.y * 0.5 + 0.5 - by;
       if (h < 0.01) continue;
       src[n].set(bx, by, h, d);
-      amt[n] = s.amt * (1 - THREE.MathUtils.smoothstep(d, 30, 45));
+      amt[n] = s.amt * (1 - THREE.MathUtils.smoothstep(d, 16, 25));
       n++;
     }
     this.uniforms.get('uCount').value = n;

@@ -7,6 +7,7 @@ import { ghatById, ghatToWorld, PROFILE_LEN } from './WorldLayout.js';
 // set on the water at the ghats. They drift downstream with the current, bob on the waves and
 // part around a boat or a swimmer. One InstancedMesh (one shape, scaled and tinted per kind).
 
+const NONE = []; // (no pushers: one shared empty list, not a new one per call)
 const KINDS = [
   // weight, scale (x, y, z), colours
   { w: 0.55, s: [1, 1, 1], cols: [[1.0, 0.55, 0.06], [1.0, 0.68, 0.1], [0.98, 0.45, 0.04]] }, // marigold
@@ -150,7 +151,7 @@ export class FloatingFlowers {
   }
 
   /** pushers: [{x, z, r}] — a hull or a swimmer parting the flowers. */
-  update(dt, { camera, pushers = [] }) {
+  update(dt, { camera, pushers = NONE }) {
     const cam = camera.position;
     let recolor = false;
     for (let i = 0; i < this.items.length; i++) {
@@ -168,7 +169,8 @@ export class FloatingFlowers {
       if (!far) this.water.currentAt(f.x, f.z, _cur);
       else _cur.x = _cur.z = 0.3;
       // parted by hulls and swimmers
-      for (const h of pushers) {
+      for (let j = 0; j < pushers.length; j++) {
+        const h = pushers[j];
         const hx = f.x - h.x;
         const hz = f.z - h.z;
         const d2 = hx * hx + hz * hz;

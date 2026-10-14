@@ -86,6 +86,8 @@ export class Quest {
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
     this._s = new THREE.Vector3();
+    this._e = new THREE.Euler();
+    this._p = new THREE.Vector3();
     this.t = 0;
   }
 
@@ -192,8 +194,8 @@ export class Quest {
     const m = this._m;
     this.beads.forEach((b, i) => {
       const s = b.taken ? 0 : 1;
-      this._q.setFromEuler(new THREE.Euler(0.3, this.t * 1.5 + b.phase, 0));
-      m.compose(new THREE.Vector3(b.x, b.y + Math.sin(this.t * 2 + b.phase) * 0.08, b.z), this._q, this._s.setScalar(s));
+      this._q.setFromEuler(this._e.set(0.3, this.t * 1.5 + b.phase, 0)); // (reused: 108 beads a frame)
+      m.compose(this._p.set(b.x, b.y + Math.sin(this.t * 2 + b.phase) * 0.08, b.z), this._q, this._s.setScalar(s));
       this.beadMesh.setMatrixAt(i, m);
     });
     this.beadMesh.instanceMatrix.needsUpdate = true;

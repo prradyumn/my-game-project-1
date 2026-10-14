@@ -232,7 +232,10 @@ export class BhairavTemple {
         return g.toNonIndexed();
       };
       const geo = mergeGeometries([col(rope, C('#3a2a1a')), col(bell, C('#d1a24a'))]);
-      this.bellMesh = new THREE.InstancedMesh(geo, matsOf.find(([b]) => b === brass)[1], this.swing.length);
+      // (the bells' own brass: the same material on the merged temple and these instances swapped
+      // shader programs every frame)
+      const bellBrass = shiny(makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.9 })));
+      this.bellMesh = new THREE.InstancedMesh(geo, bellBrass, this.swing.length);
       this.bellMesh.castShadow = true;
       this.yaw = yaw;
       this.placeBells();

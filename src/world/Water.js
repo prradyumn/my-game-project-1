@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FAR_BANK_V, RIVER, WATER_LEVEL, WORLD } from '../config.js';
-import { bankCoords, frameAtX, groundHeight, PROFILE_LEN } from './WorldLayout.js';
+import { bankSlope, bankV, groundHeight, PROFILE_LEN } from './WorldLayout.js';
 import { WORLD_UNIFORMS } from './materials.js';
 import { waterNormalTexture } from '../utils/textures.js';
 import { clamp, lerp, smoothstep } from '../utils/math.js';
@@ -336,7 +336,8 @@ export class Water {
     for (let it = 0; it < 3; it++) {
       let dx = 0;
       let dz = 0;
-      for (const w of WAVE_DATA) {
+      for (let i = 0; i < WAVE_DATA.length; i++) {
+        const w = WAVE_DATA[i];
         const qa = w.q * w.a * Math.cos(w.k * (w.dx * x0 + w.dz * z0 - w.c * t));
         dx += w.dx * qa;
         dz += w.dz * qa;
@@ -350,9 +351,28 @@ export class Water {
   }
 
   heightAt(x, z, t = this.time) {
-    const p = this.undisplaced(x, z, t);
+    // (the undisplaced point solved in locals, not through _u: this runs thousands of times a
+    // frame, and every number stored on an object was a fresh heap allocation)
+    let x0 = x;
+    let z0 = z;
+    const n = WAVE_DATA.length;
+    for (let it = 0; it < 3; it++) {
+      let dx = 0;
+      let dz = 0;
+      for (let i = 0; i < n; i++) {
+        const w = WAVE_DATA[i];
+        const qa = w.q * w.a * Math.cos(w.k * (w.dx * x0 + w.dz * z0 - w.c * t));
+        dx += w.dx * qa;
+        dz += w.dz * qa;
+      }
+      x0 = x - dx;
+      z0 = z - dz;
+    }
     let h = 0;
-    for (const w of WAVE_DATA) h += w.a * Math.sin(w.k * (w.dx * p.x + w.dz * p.z - w.c * t));
+    for (let i = 0; i < n; i++) {
+      const w = WAVE_DATA[i];
+      h += w.a * Math.sin(w.k * (w.dx * x0 + w.dz * z0 - w.c * t));
+    }
     return WATER_LEVEL + h;
   }
 
@@ -362,7 +382,8 @@ export class Water {
     let gx = 0;
     let gz = 0;
     let lift = 0;
-    for (const w of WAVE_DATA) {
+    for (let i = 0; i < WAVE_DATA.length; i++) {
+      const w = WAVE_DATA[i];
       const f = w.k * (w.dx * p.x + w.dz * p.z - w.c * t);
       const wa = w.k * w.a;
       gx += wa * Math.cos(f) * w.dx;
@@ -375,15 +396,16 @@ export class Water {
   // Surface water velocity (m/s) - the Ganga's current. Fastest mid-river, slack at the banks,
   // following the bank tangent, with an eddy swirling behind the sunken temple.
   currentAt(x, z, out = { x: 0, z: 0 }) {
-    const { v } = bankCoords(x, z);
+    const v = bankV(x, z); // (no objects: this runs for every flower, boat and swimmer each frame)
     const span = FAR_BANK_V - PROFILE_LEN;
     const across = clamp((v - PROFILE_LEN) / span, 0, 1);
     const profile = Math.pow(Math.sin(Math.PI * across), 0.6) * smoothstep(PROFILE_LEN - 1, PROFILE_LEN + 6, v);
     const pulse = 1 + 0.12 * Math.sin(this.time * 0.09 + x * 0.013);
     const sp = RIVER.flowSpeed * (0.25 + 1.05 * profile) * pulse * smoothstep(PROFILE_LEN - 1, PROFILE_LEN + 2, v);
-    const T = frameAtX(x).T;
-    out.x = T.x * sp;
-    out.z = T.z * sp;
+    const slope = bankSlope(x);
+    const tl = Math.hypot(1, slope);
+    out.x = sp / tl;
+    out.z = (slope / tl) * sp;
     if (this.eddy) {
       const dx = x - this.eddy.x;
       const dz = z - this.eddy.z;

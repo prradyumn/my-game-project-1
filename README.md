@@ -134,9 +134,10 @@ counter is always shown in debug.
 - **Readable fights:** a blow or a ball of fire coming from off-screen shows as a chevron at the
   screen's edge, pointing at it (ember, or blue with the colour-blind option); an Asura brought low
   reels a moment, and the finisher's E rises over it.
-- **The dark has more faces:** Pishachas hurl ghost fire from afar (parry it back at them),
-  Kavachas fight behind bronze shields (heavy cuts and kicks break the guard), Vetalas bound off
-  walls and pounce. Chapters II–IV each end with a named champion: Mahodara, Agnimukha, the
+- **The dark has more faces:** Pishachas hurl ghost fire from afar, sometimes three in a row
+  (parry each back at them), Kavachas fight behind bronze shields (heavy cuts and kicks break the
+  guard), Vetalas bound onto walls, hiss from the stone above you and pounce. A Rakshasa's ground
+  slam marks a burning ring before it lands: no guard turns it, so roll through it or jump. Chapters II–IV each end with a named champion: Mahodara, Agnimukha, the
   Corpse-Rider of Manikarnika.
 - **Rooftops:** vault parapets and low walls at a run, scramble up ledges, climb bamboo ladders
   from the lanes onto the havelis, cross plank bridges between the roofs; a long drop is a roll if

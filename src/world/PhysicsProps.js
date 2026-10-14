@@ -105,7 +105,9 @@ export class PhysicsProps {
       this.meshes[k] = mesh;
     }
     // shards of broken matkas: a small pool, each a short-lived body
-    this.shardMesh = new THREE.InstancedMesh(shardGeometry(), mat, SHARDS);
+    // (the shards' own material: the pots' carries per-instance colours and theirs doesn't, and one
+    // material across both swapped shader programs every frame)
+    this.shardMesh = new THREE.InstancedMesh(shardGeometry(), makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }), { puddles: false }), SHARDS);
     this.shardMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.shardMesh.castShadow = true;
     this.shardMesh.frustumCulled = false;

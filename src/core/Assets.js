@@ -55,12 +55,12 @@ export const ASSET_MANIFEST = {
     // share: how many of that kind wear it (the rest keep the old body: a mixed host, its loops
     // steadied the same way: person).
     villains: {
-      shade: { body: `${A}/villains/chhaya.glb`, clips: `${A}/villains/chhaya-motions.json`, share: 0.5 },
-      brute: { body: `${A}/villains/rakshasa.glb`, clips: `${A}/villains/rakshasa-motions.json` },
-      pishacha: { body: `${A}/villains/pishacha.glb`, clips: `${A}/villains/pishacha-motions.json` },
-      kavacha: { body: `${A}/villains/kavacha.glb`, clips: `${A}/villains/kavacha-motions.json` },
-      vetala: { body: `${A}/villains/vetala.glb`, clips: `${A}/villains/vetala-motions.json` },
-      boss: { body: `${A}/villains/andhaka.glb`, clips: `${A}/villains/andhaka-motions.json` },
+      shade: { body: `${A}/opt/villains/chhaya.glb`, clips: `${A}/villains/chhaya-motions.json`, share: 0.5 },
+      brute: { body: `${A}/opt/villains/rakshasa.glb`, clips: `${A}/villains/rakshasa-motions.json` },
+      pishacha: { body: `${A}/opt/villains/pishacha.glb`, clips: `${A}/villains/pishacha-motions.json` },
+      kavacha: { body: `${A}/opt/villains/kavacha.glb`, clips: `${A}/villains/kavacha-motions.json` },
+      vetala: { body: `${A}/opt/villains/vetala.glb`, clips: `${A}/villains/vetala-motions.json` },
+      boss: { body: `${A}/opt/villains/andhaka.glb`, clips: `${A}/villains/andhaka-motions.json` },
     },
     personClips: `${A}/villains/person-motions.json`,
     // ('-name': the clip played backwards)

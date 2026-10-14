@@ -432,9 +432,11 @@ export class Game {
     // shape against the river): warm, no shadows, riding above his shoulder on the camera side.
     this.heroLight = new THREE.PointLight(0xffc89a, 0, 7, 2);
     scene.add(this.heroLight);
-    // Four pooled point lights give real warm light around the nearest flames and lamps.
+    // Four pooled point lights give real warm light around the nearest flames and lamps (every
+    // lit pixel loops over all of them: 8 lights cost ~2.3 ms a frame at Very High; the farther
+    // flames keep their glow and bloom)
     this.lightPool = [];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 4; i++) {
       const l = new THREE.PointLight(0xff9a48, 0, 26, 2);
       scene.add(l);
       this.lightPool.push(l);
@@ -1461,6 +1463,9 @@ export class Game {
     if (!paused) this.riverAarti.update(simDt);
     this.score.update(Math.min(dt, 0.1));
     this.dread.update(Math.min(dt, 0.1));
+    // (depth of field only while something asks for it: a shot cut short by a skip, a test jump or
+    // a death never got to switch it off, and the picture stayed soft)
+    if (this.rs.dofLevel > 0 && !this.photo && !this.cinematics?.shot && !this.establishing?.playing && !this.story?.cut) this.rs.setDof(0, null);
     {
       // Grahan: the moon goes to blood slowly and comes back slower
       const G = this.grahan;

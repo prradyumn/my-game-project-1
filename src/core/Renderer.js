@@ -6,8 +6,9 @@ import { clamp } from '../utils/math.js';
 import { ColorGradeEffect } from './Grading.js';
 import { HeatShimmerEffect } from './HeatShimmer.js';
 import { ImpactEffect } from './Impact.js';
-import { SharpenEffect } from './Sharpen.js';
 import { UpscalePass } from './Upscale.js';
+
+const _gv = new THREE.Vector3();
 
 // Renderer + post stack (pmndrs/postprocessing): optional N8AO ambient occlusion, bloom for
 // flames and sun glitter, SMAA, AgX tone mapping and a soft vignette.
@@ -75,18 +76,16 @@ export class RenderSystem {
       // AO under them is the faint AO of what lies behind: side by side it looks identical.
       ao.configuration.transparencyAware = false;
       ao.setQualityMode(q.aoMode || 'Low');
-      // a thorough blur of the half-resolution AO: with N8AO's 4-sample denoise it crawled as
-      // grain over faces and clothes (most visible on Prady close up)
-      ao.configuration.denoiseSamples = 8;
-      ao.configuration.denoiseRadius = 10;
-      if (q.aoMode === 'Performance') ao.configuration.aoSamples = 12;
-      // full resolution where the preset can afford it: no blotches to blur away on a face, and
-      // so a light denoise is enough (the thorough one above is for the half-resolution AO)
+      // half resolution, upsampled along depth edges, two light denoise passes: side by side at
+      // 100% on Prady's back it matches the full-resolution AO (no blotches, no grain in the
+      // creases) for ~3.7 ms less a frame at Very High (2026-10-14). The old half-res setting, one
+      // wide blur, crawled as grain over faces; full resolution cost 8 ms.
       ao.configuration.halfRes = q.aoHalfRes ?? true;
-      if (!ao.configuration.halfRes) {
-        ao.configuration.denoiseSamples = 4;
-        ao.configuration.denoiseRadius = 6;
-      }
+      ao.configuration.depthAwareUpsampling = true;
+      ao.configuration.denoiseSamples = 4;
+      ao.configuration.denoiseRadius = 6;
+      ao.configuration.denoiseIterations = 2;
+      if (q.aoMode === 'Performance') ao.configuration.aoSamples = 16;
       composer.addPass(ao);
       this.ao = ao;
     } else this.ao = null;
@@ -115,7 +114,8 @@ export class RenderSystem {
       composer.addPass(this.godRaysPass);
     } else this.godRays = this.godRaysPass = null;
     if (q.bloom) {
-      this.bloom = new BloomEffect({ intensity: 0.9, luminanceThreshold: 3.2, luminanceSmoothing: 0.8, mipmapBlur: true, radius: 0.6, levels: 6 });
+      // (at half resolution: a glow loses nothing by it, and it was a full-size pass)
+      this.bloom = new BloomEffect({ intensity: 0.9, luminanceThreshold: 3.2, luminanceSmoothing: 0.8, mipmapBlur: true, radius: 0.6, levels: 6, resolutionScale: 0.5 });
       effects.push(this.bloom);
     }
     this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
@@ -131,10 +131,9 @@ export class RenderSystem {
     this.impactPass.enabled = false;
     composer.addPass(this.impactPass);
     composer.addPass(new EffectPass(camera, ...effects));
-    // last: restore the detail lost to upscaling (its own pass: it reads neighbouring pixels)
-    if (q.sharpen > 0) composer.addPass(new EffectPass(camera, new SharpenEffect(q.sharpen)));
-    // last of all: up to the screen's own resolution (Upscale.js)
-    composer.addPass(new UpscalePass());
+    // last: up to the screen's own resolution, sharpened in the same pass (Upscale.js; it was a
+    // pass of its own, a whole frame's reads and writes for nothing)
+    composer.addPass((this.upscalePass = new UpscalePass(q.sharpen || 0)));
     this.composer = composer;
     this.resize();
   }
@@ -231,9 +230,13 @@ export class RenderSystem {
     m.position.copy(camera.position).addScaledVector(sunDir, 1400);
     m.scale.setScalar(62);
     m.material.color.copy(sunColor);
+    // (only with the sun in front of the lens: behind it the rays add nothing but still cost a
+    // radial blur of the whole frame, ~1-4 ms)
+    camera.getWorldDirection(_gv);
+    const facing = _gv.dot(sunDir) > 0.2;
     this.godRays.godRaysMaterial.exposure = 0.78 * amount;
-    this.godRays.blendMode.opacity.value = amount > 0.01 ? 1 : 0;
-    this.godRaysPass.enabled = amount > 0.01;
+    this.godRays.blendMode.opacity.value = amount > 0.01 && facing ? 1 : 0;
+    this.godRaysPass.enabled = amount > 0.01 && facing;
   }
 
   /** chroma: the colour split, blur: the streak toward (cx, cy) (screen uv); 0, 0 switches it off. */

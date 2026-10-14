@@ -20,6 +20,15 @@ FAST = '--fast' in ARGS
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FBX = os.path.join(ROOT, 'source-assets/rocketbox/Male_Adult_11/Male_Adult_11.fbx')
 K = 0.779  # metaball surface radius / element radius (stiffness 10, threshold 0.6: blends only near the surface)
+# (measured at threshold 0.6: a softer element blends further into its neighbours)
+_KS = [(2.0, 0.574), (3.0, 0.6434), (4.0, 0.6837), (6.0, 0.7313), (10.0, 0.779)]
+
+
+def k_of(stiff):
+    for (s0, k0), (s1, k1) in zip(_KS, _KS[1:]):
+        if stiff <= s1:
+            return k0 + (k1 - k0) * (max(stiff, s0) - s0) / (s1 - s0)
+    return _KS[-1][1]
 FWD = Vector((0, -1, 0))
 UP = Vector((0, 0, 1))
 
@@ -30,6 +39,7 @@ VILLAINS = {
     # Rakshasa: a hulking man-eater. Massive shoulders and traps, a thick neck sunk between them,
     # long heavy arms, clawed hands, curling ram horns and tusks, a heavy brow over deep sockets.
     'rakshasa': dict(
+        skin='scales',
         len={'Clavicle': 1.35, 'UpperArm': 1.12, 'Forearm': 1.12, 'Hand': 1.15, 'Finger': 1.25, 'Neck': 0.55, 'Spine2': 1.1},
         m=dict(chest=1.5, belly=1.15, traps=2.0, delt=1.6, arm=1.55, fore=1.5, thigh=1.6, calf=1.5, neck=1.8, glute=1.0, abs=1.1, lat=1.5),
         skull=1.05, jaw=1.35, brow=1.4, snout=0.6, ears=1.0, socket=1.0,
@@ -40,6 +50,7 @@ VILLAINS = {
     # Chhaya, the shade: the common Asura. Gaunt and long-limbed, ash-dark, swept-back horns and a
     # ridge of spines down the back, long clawed fingers. Many come at once: a light mesh.
     'chhaya': dict(
+        skin='ash',
         len={'UpperArm': 1.14, 'Forearm': 1.16, 'Hand': 1.1, 'Finger': 1.35, 'Neck': 1.1},
         m=dict(chest=1.0, belly=0.75, traps=1.05, delt=1.0, arm=0.95, fore=0.95, thigh=0.95, calf=0.95, neck=0.9, glute=0.75, abs=1.05, lat=1.0),
         skull=0.95, jaw=1.0, brow=1.2, snout=0.2, ears=1.2, socket=1.15,
@@ -50,6 +61,7 @@ VILLAINS = {
     # Pishacha, the flesh-eater: starved to the bone, ribs and a hollow belly, a long skull, a long
     # narrow jaw, long bony fingers (it hurls ghost-fire).
     'pishacha': dict(
+        skin='wrinkled',
         len={'UpperArm': 1.12, 'Forearm': 1.15, 'Hand': 1.15, 'Finger': 1.5, 'Neck': 1.25},
         m=dict(chest=0.8, belly=0.5, traps=0.75, delt=0.72, arm=0.65, fore=0.7, thigh=0.72, calf=0.7, neck=0.65, glute=0.6, abs=0.5, lat=0.7),
         skull=1.0, jaw=0.9, brow=1.0, snout=0.0, ears=1.4, socket=1.35, crlen=1.3, jawlen=1.4,
@@ -60,6 +72,7 @@ VILLAINS = {
     # Kavacha, the armoured: an Asura warrior in bronze: a horned helm, pauldrons, a breastplate,
     # bracers, a belt, greaves (and the game's shield on its arm).
     'kavacha': dict(
+        skin='weathered',
         len={'Clavicle': 1.15, 'UpperArm': 1.05, 'Forearm': 1.05, 'Finger': 1.15},
         m=dict(chest=1.2, belly=1.0, traps=1.3, delt=1.25, arm=1.2, fore=1.2, thigh=1.2, calf=1.15, neck=1.3, glute=1.0, abs=1.0, lat=1.2),
         skull=1.0, jaw=1.15, brow=1.3, snout=0.3, ears=0.9, socket=1.0,
@@ -70,6 +83,7 @@ VILLAINS = {
     # Vetala, the corpse-rider: a leaper. Wasted, very long arms and talons, great bat ears, a spined
     # back, no horns: it clings to walls and drops on him.
     'vetala': dict(
+        skin='veined',
         len={'UpperArm': 1.2, 'Forearm': 1.25, 'Hand': 1.2, 'Finger': 1.6, 'Neck': 1.15},
         m=dict(chest=0.88, belly=0.6, traps=0.9, delt=0.85, arm=0.78, fore=0.8, thigh=0.82, calf=0.8, neck=0.75, glute=0.65, abs=0.75, lat=0.85),
         skull=0.98, jaw=1.05, brow=1.1, snout=0.5, ears=2.2, bat=True, socket=1.25, crlen=1.1,
@@ -80,6 +94,7 @@ VILLAINS = {
     # Andhaka, the Blind Darkness: a four-armed giant (the second pair below the first), a crown
     # of horns, empty sockets, a loincloth and bronze at the wrists and waist.
     'andhaka': dict(
+        skin='scarred',
         len={'Clavicle': 1.3, 'UpperArm': 1.1, 'Forearm': 1.1, 'Hand': 1.15, 'Finger': 1.25, 'Neck': 0.7},
         m=dict(chest=1.45, belly=1.15, traps=1.7, delt=1.5, arm=1.45, fore=1.4, thigh=1.45, calf=1.35, neck=1.6, glute=1.0, abs=1.1, lat=1.45),
         skull=1.05, jaw=1.25, brow=1.5, snout=0.3, ears=0.8, socket=1.5, blind=True, arms2=True,
@@ -177,11 +192,12 @@ def joints(arm):
 
 # ---------------------------------------------------------------- metaball sculpting
 class Sculpt:
-    def __init__(self, res):
-        self.mb = bpy.data.metaballs.new('body')
+    def __init__(self, res, name='body'):
+        # (its own name: Blender fuses metaball objects that share a base name into one family)
+        self.mb = bpy.data.metaballs.new(name)
         self.mb.resolution = res
         self.mb.threshold = 0.6
-        self.obj = bpy.data.objects.new('body', self.mb)
+        self.obj = bpy.data.objects.new(name, self.mb)
         bpy.context.scene.collection.objects.link(self.obj)
 
     def frame(self, u, fwd=FWD):
@@ -195,11 +211,12 @@ class Sculpt:
 
     def ell(self, c, a, b, d, rot=None, neg=False, stiff=10.0):
         """An ellipsoid with semi-axes a (local X), b (Y), d (Z)."""
-        R = max(a, b, d) / K
+        k = k_of(stiff)
+        R = max(a, b, d) / k
         e = self.mb.elements.new(type='ELLIPSOID')
         e.co = c
         e.radius = R
-        e.size_x, e.size_y, e.size_z = a / (K * R), b / (K * R), d / (K * R)
+        e.size_x, e.size_y, e.size_z = a / (k * R), b / (k * R), d / (k * R)
         e.stiffness = stiff
         e.use_negative = neg
         if rot is not None:
@@ -211,7 +228,7 @@ class Sculpt:
         d = q - p
         e = self.mb.elements.new(type='CAPSULE')
         e.co = (p + q) / 2
-        e.radius = r / K
+        e.radius = r / k_of(stiff)
         e.size_x = max(1e-4, d.length / 2)
         e.stiffness = stiff
         e.use_negative = neg
@@ -336,6 +353,9 @@ def sculpt_body(P, res):
     return S
 
 
+CUTS = []  # the face's cavities (sockets, nostrils, mouth): cut from the head as booleans
+
+
 def sculpt_head(S, P):
     """The skull: a long cranium, a heavy brow over deep sockets, a broad flat nose, a heavy
     jutting jaw split by a wide mouth, pointed ears swept back."""
@@ -348,36 +368,44 @@ def sculpt_head(S, P):
     cl = V.get('crlen', 1.0)  # (a long skull, swept back)
     S.ell(c + Vector((0, 0.01, 0.01)) * sk, 0.082 * sk, 0.1 * sk, 0.095 * sk, X)  # cranium
     S.ell(c + Vector((0, 0.055 * cl, 0.02 * (cl - 1) * 3)) * sk, 0.075 * sk, 0.075 * sk * cl, 0.08 * sk, X)  # the back of the skull
-    # the brow: an angry V, two heavy ridges from the temples down to a knot between the eyes
+    # A face that frightens reads as a skull: deep sockets under a sharp brow, no fleshy nose,
+    # thin hard cheekbones, a lipless mouth of bared teeth (the teeth: add_details). Small,
+    # sharp forms; rounded blobs of one size read as a cartoon.
+    sn = V['snout']
     for sx in (-1, 1):
-        S.cap(c + Vector((0.07 * sx, -0.075, 0.02)) * sk, c + Vector((0.012 * sx, -0.097, -0.012)) * sk, 0.017 * br)
-    S.cap(c + Vector((0, -0.095, -0.01)) * sk, c + Vector((0, -0.07, 0.07)) * sk, 0.011 * br)  # a crest up the forehead
-    for sx in (-1, 1):
-        # cheekbones: hard ledges under the eyes, angled back toward the ears
-        S.cap(c + Vector((0.03 * sx, -0.088, -0.055)) * sk, c + Vector((0.075 * sx, -0.04, -0.045)) * sk, 0.014)
-        # the eye sockets, deep under the brow (the coal eyes burn in them)
-        S.ell(c + Vector((0.034 * sx, -0.094, -0.03)) * sk, 0.022 * V['socket'], 0.024, 0.014 * V['socket'], X, neg=True)
-        # pointed ears swept back
+        # the brow: a sharp ridge from the temple down to a knot over the nose (an angry V)
+        S.cap(c + Vector((0.068 * sx, -0.072, 0.016)) * sk, c + Vector((0.012 * sx, -0.099, -0.008)) * sk, 0.0125 * br, stiff=3.5)
+        # the sockets: deep and dark under it (the coal eyes burn in them)
+        CUTS.append((c + Vector((0.035 * sx, -0.092, -0.03)) * sk, (0.022 * V['socket'], 0.03, 0.017 * V['socket'])))
+        # cheekbones: thin hard ridges, swept back
+        S.cap(c + Vector((0.03 * sx, -0.09, -0.058)) * sk, c + Vector((0.06 * sx, -0.06, -0.05)) * sk, 0.0075, stiff=3.5)
+        # under them the face falls away (hollow cheeks)
+        S.ell(c + Vector((0.05 * sx, -0.074, -0.092)) * sk, 0.02, 0.016, 0.022, X, neg=True, stiff=3.0)
+        # the jawline: a hard edge from under the ear to the chin
+        jl = V.get('jawlen', 1.0)
+        S.cap(c + Vector((0.062 * sx * jw ** 0.5, -0.03, -0.09)) * sk, c + Vector((0.02 * sx, -0.095 * jw ** 0.3, -0.09 - 0.066 * jl)) * sk, 0.011 * jw ** 1.3, stiff=3.0)
+        # pointed ears swept back, or a bat's great leaves
         e0 = c + Vector((0.08 * sx, 0.015, -0.03)) * sk
         if V.get('bat'):
-            # great bat ears: a broad leaf out and up from the side of the head
             tip = e0 + Vector((0.07 * sx, 0.02, 0.1)) * V['ears'] * 0.6
             S.ell(e0.lerp(tip, 0.5), 0.022, 0.012, 0.075 * V['ears'] * 0.6, S.frame(tip - e0, Vector((sx, 0, 0))))
             S.cap(e0, tip, 0.008)
         else:
-            S.cap(e0, e0 + Vector((0.045 * sx, 0.075, 0.06)) * V['ears'], 0.011)
-        # the jawline: from under the ear down to the chin, a hard edge
-        jl = V.get('jawlen', 1.0)
-        S.cap(c + Vector((0.07 * sx * jw ** 0.5, -0.02, -0.09)) * sk, c + Vector((0.022 * sx, -0.1 * jw ** 0.3, -0.09 - 0.07 * jl)) * sk, 0.02 * jw)
-    # a flat, broad nose (no bridge), flared nostrils carved in
-    S.ell(c + Vector((0, -0.108 - 0.012 * V['snout'], -0.068)) * sk, 0.024, 0.013 + 0.008 * V['snout'], 0.024, X)
-    for sx in (-1, 1):
-        S.ell(c + Vector((0.012 * sx, -0.118 - 0.012 * V['snout'], -0.082)) * sk, 0.007, 0.009, 0.005, X, neg=True)
-    # the muzzle under the nose, and a square chin
-    S.ell(c + Vector((0, -0.095, -0.105)) * sk, 0.045 * jw, 0.025, 0.03, X)
-    S.ell(c + Vector((0, -0.1 * jw ** 0.3, -0.088 - 0.07 * V.get('jawlen', 1.0))) * sk, 0.03 * jw, 0.022, 0.022, X)
-    # the mouth: a wide cut, a little open (the fangs and tusks show in it)
-    S.ell(c + Vector((0, -0.118, -0.122)) * sk, 0.042 * jw, 0.03, 0.007, X, neg=True)
+            S.cap(e0, e0 + Vector((0.045 * sx, 0.075, 0.06)) * V['ears'], 0.009)
+        # nostrils: two slits, no fleshy nose
+        CUTS.append((c + Vector((0.009 * sx, -0.112 - 0.012 * sn, -0.076)) * sk, (0.0045, 0.012, 0.008)))
+        # veins standing out on the temples
+        t0 = c + Vector((0.074 * sx, -0.04, 0.02)) * sk
+        S.cap(t0, t0 + Vector((0.004 * sx, 0.02, 0.035)) * sk, 0.0028)
+    S.cap(c + Vector((0, -0.095, 0.0)) * sk, c + Vector((0, -0.07, 0.07)) * sk, 0.0085 * br, stiff=3.5)  # a crest up the forehead
+    # the bridge: a short hard ridge down from the brow's knot, a flat snout under it
+    S.cap(c + Vector((0, -0.1, -0.018)) * sk, c + Vector((0, -0.108 - 0.012 * sn, -0.06)) * sk, 0.0095, stiff=3.5)
+    S.ell(c + Vector((0, -0.1 - 0.01 * sn, -0.075)) * sk, 0.02, 0.012 + 0.006 * sn, 0.016, X)
+    # the muzzle under it, and a square chin
+    S.ell(c + Vector((0, -0.092, -0.103)) * sk, 0.04 * jw, 0.02, 0.026, X)
+    S.ell(c + Vector((0, -0.095 * jw ** 0.3, -0.087 - 0.07 * V.get('jawlen', 1.0))) * sk, 0.026 * jw, 0.017, 0.019, X)
+    # the mouth: a wide lipless cut (the teeth stand in it)
+    CUTS.append((c + Vector((0, -0.118, -0.118)) * sk, (0.04 * jw, 0.03, 0.0085)))
     return c
 
 
@@ -491,6 +519,14 @@ def add_details(P, crown):
             L = sp['length'] * (0.6 + 0.8 * math.sin(math.pi * min(1, t * 1.1)))
             bone = ['Bip01 Spine', 'Bip01 Spine1', 'Bip01 Spine2'][seg]
             parts.append((bone, horn_mesh('spike', [base - Vector((0, 0.02, 0)), base + Vector((0, 0.6, 0.55)).normalized() * L * 0.5, base + Vector((0, 0.75, 0.75)).normalized() * L], 0.014, 0.001, rings=False, seg=6)))
+    # a row of teeth bared in the lipless mouth, upper and lower, the canines longest
+    jw = V['jaw']
+    for row, (z0, dz) in enumerate(((-0.111, -1.0), (-0.126, 1.0))):
+        for k in range(-4, 5):
+            u = k / 4
+            base = crown + Vector((u * 0.036 * jw, -0.117 + 0.012 * u * u, z0)) * V['skull']
+            L = (0.011 if abs(k) == 3 else 0.007) * (1.15 if row == 0 else 1.0)
+            parts.append(('Bip01 Head', horn_mesh('tooth', [base, base + Vector((0, -0.001, dz * L * 0.6)), base + Vector((0, -0.002, dz * L))], 0.0032, 0.0006, rings=False, seg=6)))
     if V.get('claws'):
         for s in ('L', 'R') + (('L2', 'R2') if V.get('arms2') else ()):
             for i in range(5):
@@ -641,7 +677,7 @@ def dress(P, crown):
 
 
 # ---------------------------------------------------------------- previews
-def preview(objs, prefix):
+def preview(objs, prefix, face=None):
     sc = bpy.context.scene
     lo = Vector((1e9,) * 3)
     hi = Vector((-1e9,) * 3)
@@ -664,9 +700,10 @@ def preview(objs, prefix):
     sc.render.resolution_x = 600
     sc.render.resolution_y = 800
     for name, ang, zf in [('front', 0, 0.05), ('side', 90, 0.05), ('q', 35, 0.05), ('face', 25, 0.0)]:
-        r = h * (1.7 if name != 'face' else 0.42)
+        r = h * 1.7 if name != 'face' else 0.62
         t = math.radians(ang)
-        tgt = ctr if name != 'face' else Vector((ctr.x, ctr.y, hi.z - 0.22 * h))
+        # (the face: framed on the skull itself; horns would pull a box-based aim up and away)
+        tgt = ctr if name != 'face' else (face - Vector((0, 0.02, 0.06)) if face is not None else Vector((ctr.x, ctr.y, hi.z - 0.22 * h)))
         cam.location = (tgt.x + r * math.sin(t), tgt.y - r * math.cos(t), tgt.z + h * zf)
         cam.rotation_euler = (tgt - cam.location).to_track_quat('-Z', 'Y').to_euler()
         sc.render.filepath = f'{prefix}-{name}.png'
@@ -691,18 +728,34 @@ def modifier_apply(o, kind, **kw):
     return o
 
 
+SKINS = {
+    # each: (texture kind, noise scale, strength, mid level) layers, after the lumps
+    'scales': [('VORONOI', 0.03, 0.006, 0.15)],             # a Rakshasa's hide: coarse plates
+    'ash': [('VORONOI', 0.018, 0.005, 0.15)],               # a shade: cracked like dried earth
+    'wrinkled': [('STUCCI', 0.012, 0.0032, 0.5), ('VORONOI', 0.03, 0.002, 0.15)],  # a ghoul's hide
+    'veined': [('MARBLE', 0.05, 0.003, 0.5), ('VORONOI', 0.02, 0.002, 0.15)],      # a Vetala's
+    'weathered': [('VORONOI', 0.012, 0.002, 0.15), ('STUCCI', 0.02, 0.002, 0.5)],  # under armour
+    'scarred': [('WOOD', 0.06, 0.004, 0.5), ('VORONOI', 0.025, 0.004, 0.15)],      # Andhaka's
+}
+
+
 def detail(high):
-    """Skin worth looking at closely: lumps and knots, and fine cracks like dried earth."""
+    """Skin worth looking at closely: lumps and knots, then the villain's own surface (plates,
+    cracks, wrinkles, veins, scars)."""
     d = V.get('displace', {})
     t1 = bpy.data.textures.new('lumps', 'CLOUDS')
     t1.noise_scale = 0.045
     t1.noise_depth = 3
     modifier_apply(high, 'DISPLACE', texture=t1, strength=d.get('cloud', 0.005), mid_level=0.5, texture_coords='GLOBAL')
-    t2 = bpy.data.textures.new('cracks', 'VORONOI')
-    t2.noise_scale = 0.018
-    t2.distance_metric = 'DISTANCE'
-    t2.color_mode = 'INTENSITY'
-    modifier_apply(high, 'DISPLACE', texture=t2, strength=d.get('crack', 0.004), mid_level=0.15, texture_coords='GLOBAL')
+    for i, (kind, scale, strength, mid) in enumerate(SKINS[V.get('skin', 'ash')]):
+        t = bpy.data.textures.new(f'skin{i}', kind)
+        t.noise_scale = scale
+        if kind == 'VORONOI':
+            t.distance_metric = 'DISTANCE'
+            t.color_mode = 'INTENSITY'
+        if kind in ('MARBLE', 'WOOD'):
+            t.turbulence = 8.0
+        modifier_apply(high, 'DISPLACE', texture=t, strength=strength, mid_level=mid, texture_coords='GLOBAL')
 
 
 def game_mesh(base, faces):
@@ -825,7 +878,8 @@ def rig(arm, skin, extras, crown):
             e.parent = arm
             e.parent_type = 'BONE'
             e.parent_bone = 'Bip01 Head'
-            e.matrix_world = Matrix.Translation(crown + Vector((0.034 * sx, -0.105, -0.03)) * V['skull'])
+            # (inside the cut socket, a little behind its rim: the coal burns in the hollow)
+            e.matrix_world = Matrix.Translation(crown + Vector((0.035 * sx, -0.088, -0.03)) * V['skull'])
 
 
 def export(arm, objs):
@@ -839,12 +893,37 @@ edit_proportions(arm)
 P = joints(arm)
 res = 0.012 if FAST else 0.006
 S = sculpt_body(P, res)
-crown = sculpt_head(S, P)
+# (the head in its own, finer sculpt: the face's small forms need it; fused with the body below)
+Hs = Sculpt(res * 0.55, 'skull')
+crown = sculpt_head(Hs, P)
 body = S.mesh()
+head = Hs.mesh()
+# metaball ridges join the skull as glued-on tubes: a smoothing pass melts them in; then the
+# cavities are cut crisp and deep (negative metaballs barely dented the skull's strong field)
+modifier_apply(head, 'REMESH', mode='VOXEL', voxel_size=0.0045 if FAST else 0.003)
+modifier_apply(head, 'SMOOTH', factor=0.9, iterations=12)
+for i, (cc, (ax, ay, az)) in enumerate(CUTS):
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=20, v_segments=14, radius=1.0)
+    for v in bm.verts:
+        v.co = cc + Vector((v.co.x * ax, v.co.y * ay, v.co.z * az))
+    cut = _obj(f'cut{i}', bm)
+    select_only([head])
+    m = head.modifiers.new('cut', 'BOOLEAN')
+    m.operation = 'DIFFERENCE'
+    m.object = cut
+    m.solver = 'EXACT'
+    bpy.ops.object.modifier_apply(modifier=m.name)
+    bpy.data.objects.remove(cut, do_unlink=True)
+select_only([body, head], active=body)
+bpy.ops.object.join()
+body = bpy.context.view_layer.objects.active
+if not FAST:
+    modifier_apply(body, 'REMESH', mode='VOXEL', voxel_size=0.0038)
 body.name = 'body'
 parts = [('horn', bone, o) for bone, o in add_details(P, crown)] + dress(P, crown)
 if PREVIEW:
-    preview([body] + [o for _, _, o in parts], PREVIEW)
+    preview([body] + [o for _, _, o in parts], PREVIEW, crown)
 if OUT != '-':
     skin = game_mesh(body, V.get('faces', 16000))
     if not FAST:

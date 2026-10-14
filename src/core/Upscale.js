@@ -5,11 +5,13 @@ import { Pass } from 'postprocessing';
 // Retina screen's native resolution (Very High at 1.6x of 2x) and the browser used to stretch the
 // canvas up with a plain bilinear filter: a soft, smeared picture. Here the canvas is native and
 // the stretch is a Catmull-Rom bicubic (nine bilinear taps), clamped to the four nearest texels
-// so a hard edge can't ring. About one cheap full-screen pass at native resolution.
+// so a hard edge can't ring. Then contrast-adaptive sharpening (after AMD's CAS) against the same
+// four texels: the detail the render scale lost, without ringing. One pass at native resolution.
 
 const fragmentShader = /* glsl */ `
 uniform sampler2D tInput;
 uniform vec2 uSize;
+uniform float uSharpness;
 varying vec2 vUv;
 void main() {
   vec2 inv = 1.0 / uSize;
@@ -39,7 +41,20 @@ void main() {
   vec3 b = texture2D(tInput, p + vec2(inv.x, 0.0)).rgb;
   vec3 d = texture2D(tInput, p + vec2(0.0, inv.y)).rgb;
   vec3 e = texture2D(tInput, p + inv).rgb;
-  c = clamp(c, min(min(a, b), min(d, e)), max(max(a, b), max(d, e)));
+  vec3 mn = min(min(a, b), min(d, e));
+  vec3 mx = max(max(a, b), max(d, e));
+  c = clamp(c, mn, mx);
+  if (uSharpness > 0.0) {
+    // CAS on display-referred values (the sqrt), weaker where contrast is already high
+    vec3 pc = sqrt(max(c, 0.0));
+    vec3 pmn = sqrt(max(mn, 0.0));
+    vec3 pmx = sqrt(max(mx, 0.0));
+    vec3 amp = sqrt(clamp(min(pmn, 1.0 - pmx) / max(pmx, 1e-4), 0.0, 1.0));
+    vec3 w = amp * (-1.0 / mix(8.0, 4.6, uSharpness));
+    vec3 sum = sqrt(max(a, 0.0)) + sqrt(max(b, 0.0)) + sqrt(max(d, 0.0)) + sqrt(max(e, 0.0));
+    vec3 r = clamp((sum * w + pc) / (1.0 + 4.0 * w), 0.0, 1.0);
+    c = r * r;
+  }
   gl_FragColor = vec4(c, 1.0);
   #include <colorspace_fragment>
 }`;
@@ -52,11 +67,11 @@ void main() {
 }`;
 
 export class UpscalePass extends Pass {
-  constructor() {
+  constructor(sharpness = 0) {
     super('UpscalePass');
     this.fullscreenMaterial = new THREE.ShaderMaterial({
       name: 'Upscale',
-      uniforms: { tInput: { value: null }, uSize: { value: new THREE.Vector2(1, 1) } },
+      uniforms: { tInput: { value: null }, uSize: { value: new THREE.Vector2(1, 1) }, uSharpness: { value: sharpness } },
       vertexShader,
       fragmentShader,
       depthTest: false,

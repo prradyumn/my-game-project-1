@@ -388,10 +388,12 @@ export class Crowd {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const mt of mats) for (const k of ['map', 'normalMap', 'roughnessMap']) if (mt[k]) this.renderer?.initTexture?.(mt[k]);
     });
-    av.ready = true;
-    // compile each new material layout (with / without hair cards) off the critical path
+    // compile each new material layout (with / without hair cards) off the critical path; the
+    // person appears once it is ready (spawned mid-compile, the first people froze the first
+    // frame of play for a third of a second)
     const sig = g.scene.getObjectsByProperty('isMesh', true).length;
     this._compiled = this._compiled || new Set();
+    av.ready = this._compiled.has(sig) || !this.renderer?.compileAsync;
     if (!this._compiled.has(sig) && this.renderer?.compileAsync) {
       this._compiled.add(sig);
       const b = new Body(av);
@@ -404,6 +406,7 @@ export class Crowd {
       const done = () => {
         both.remove(b.holder, solid.holder);
         av.free.push(b, solid);
+        av.ready = true;
       };
       (this.compile ? this.compile(both, this.camera, true, this.scene) : this.renderer.compileAsync(both, this.camera, this.scene)).then(done, done);
     }
