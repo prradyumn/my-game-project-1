@@ -49,6 +49,20 @@ export const ASSET_MANIFEST = {
     // thrown flat and up again (Shiva's Damaru), the Vetala's leap, the Kavacha's guard
     pack2: `${A}/opt/people/motions-asura2.glb`,
     bossBody: null,
+    // Villains sculpted for their kind (tools/blender/villain.py: the same skeleton, a demon's own
+    // anatomy, horns / tusks / claws), the motions above carried onto each (tools/bake-villains.mjs).
+    // A kind without one wears the person's body above.
+    // share: how many of that kind wear it (the rest keep the old body: a mixed host, its loops
+    // steadied the same way: person).
+    villains: {
+      shade: { body: `${A}/villains/chhaya.glb`, clips: `${A}/villains/chhaya-motions.json`, share: 0.5 },
+      brute: { body: `${A}/villains/rakshasa.glb`, clips: `${A}/villains/rakshasa-motions.json` },
+      pishacha: { body: `${A}/villains/pishacha.glb`, clips: `${A}/villains/pishacha-motions.json` },
+      kavacha: { body: `${A}/villains/kavacha.glb`, clips: `${A}/villains/kavacha-motions.json` },
+      vetala: { body: `${A}/villains/vetala.glb`, clips: `${A}/villains/vetala-motions.json` },
+      boss: { body: `${A}/villains/andhaka.glb`, clips: `${A}/villains/andhaka-motions.json` },
+    },
+    personClips: `${A}/villains/person-motions.json`,
     // ('-name': the clip played backwards)
     roles: {
       idle: ['asuraIdle', 'wait', 'idle'],
@@ -77,7 +91,7 @@ export const ASSET_MANIFEST = {
     // skeleton by tools/retarget.html (src/gameplay/Retarget.js). Preferred over the clips below.
     // (v2: four clips, oneTwo / roundKick / parry / guard, from the same CMU takes put onto him by
     // Unreal Engine 5.8's IK Retargeter: 16-42% less foot slip, same poses; tools/merge-clips.mjs)
-    mocap: `${A}/characters/prady-mocap-v4.json`, // (video motion capture, Motion2MixamoRig: tools/joints-to-clip.js. v3: the roundhouse; v4: + the side kick and the backflip)
+    mocap: `${A}/characters/prady-mocap-v5.json`, // (video motion capture, Motion2MixamoRig: tools/joints-to-clip.js. v3: the roundhouse; v4: + the side kick and the backflip; v5: + the aerials)
     // + traversal (CMU, tools/retarget.js ?set=moves): the vault, the scramble up a ledge, a ladder
     moves: `${A}/characters/prady-moves.json`,
     // + hanging from a ledge (CMU 01_12, tools/retarget.js ?set=moves2)
@@ -94,7 +108,7 @@ export const ASSET_MANIFEST = {
       guard: 'guard', oneTwo: 'oneTwo', bodyShot: 'bodyShot', frontKick: 'frontKick', roundKick: 'roundKick', sideKick: 'sideKick',
       thrust: 'thrust', parry: 'parry', swordStance: 'swordStance', slashA: 'slashA', slashB: 'slashB', heavyCut: 'heavyCut',
       // defence (CMU): dodge roll / backstep, knockdown + get up, the fall
-      dodgeRoll: 'dodgeRoll', dodgeBack: 'dodgeBack', backFlip: 'backFlip', knockdown: 'knockdown', getUp: 'getUp', death: 'death',
+      dodgeRoll: 'dodgeRoll', dodgeBack: 'dodgeBack', backFlip: 'backFlip', aerialL: 'aerialL', aerialR: 'aerialR', knockdown: 'knockdown', getUp: 'getUp', death: 'death',
     },
     // Fallback clips (Genex / Uthana) used if the mocap file is missing.
     clips: {

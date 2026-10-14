@@ -204,7 +204,7 @@ export class CharacterAnimator {
     // sitting down to meditate, stepping up, the dive take-off. One plays at a time; switching
     // crossfades. See play() / stop().
     this.clipActions = {};
-    for (const k of ['wave', 'stretch', 'lookAround', 'pranam', 'meditate', 'sitToStand', 'crouchReach', 'stepUp', 'diveTakeoff', 'guard', 'oneTwo', 'bodyShot', 'frontKick', 'roundKick', 'sideKick', 'thrust', 'parry', 'swordStance', 'slashA', 'slashB', 'heavyCut', 'dodgeRoll', 'dodgeBack', 'backFlip', 'knockdown', 'getUp', 'death', 'hitLight', 'hitHeavy', 'vault', 'scramble', 'ladder', 'hang', 'turnL', 'turnR', 'runStop', 'akimbo']) {
+    for (const k of ['wave', 'stretch', 'lookAround', 'pranam', 'meditate', 'sitToStand', 'crouchReach', 'stepUp', 'diveTakeoff', 'guard', 'oneTwo', 'bodyShot', 'frontKick', 'roundKick', 'sideKick', 'thrust', 'parry', 'swordStance', 'slashA', 'slashB', 'heavyCut', 'dodgeRoll', 'dodgeBack', 'backFlip', 'aerialL', 'aerialR', 'knockdown', 'getUp', 'death', 'hitLight', 'hitHeavy', 'vault', 'scramble', 'ladder', 'hang', 'turnL', 'turnR', 'runStop', 'akimbo']) {
       if (clips[k]) this.clipActions[k] = this.mixer.clipAction(BREATHE[k] ? makeBreath(clips[k], ...BREATHE[k], k) : clips[k]);
     }
     // a half turn on the spot is two quarter turns: the second its own copy, so they cross-fade
@@ -270,6 +270,7 @@ export class CharacterAnimator {
     a.setEffectiveWeight(0);
     a.play();
     if (o.reverse) a.time = a.getClip().duration;
+    if (o.at) a.time = o.at; // (from part-way through: a landing, a blow's fall)
     this.cur = { a, name, w: 0, w0: 0, t: 0, o };
     this.stillTime = -12;
     return true;

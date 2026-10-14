@@ -34,7 +34,8 @@ Requires Node ≥ 20 and a WebGL2 browser (Chrome, Edge, Safari 17+, Firefox).
 | E | Interact: talk · take · light a sacred flame · board / leave the boat · climb a ladder · **finish** a reeling Asura |
 | Mouse left / right | Strike (click again for a 3-hit combo, 4 with the siddhi) / heavy strike (hold to charge, with the siddhi) |
 | Q (hold) or middle mouse | Guard; raise it just before a blow lands to **parry** (or toggle: Settings) |
-| C / Ctrl | Dodge roll (with a direction) or a backflip (none) on land · dive in the water · slide down a ladder |
+| C / Ctrl | Dodge roll (forward / diagonal), an **aerial** cartwheel (straight to the side), or a backflip (no direction) on land · dive in the water · slide down a ladder. Dodge just as a blow lands for a **perfect dodge** (slow motion, the next strike is a counter) |
+| In a fight | Strike out of a roll · strike at a sprint (a running heavy blow) · strike falling from a height (a **plunge** that throws them flat) · strike on a wall run (kick off it onto one) · Space with one right in front (**vault** over it, land at its back) |
 | Tab | Lock on to an Asura (flick the mouse to switch) |
 | R | Draw / sheathe the talwar · on the rooftop run (Chhat Daud): run it again from the start |
 | 1 / 2 / 3 | Powers (Shakti): Shiva's Damaru · Trishul (press again to call it back) · Third Eye |
@@ -105,9 +106,12 @@ counter is always shown in debug.
   lasting blessing.
 - **Combat:** a talwar and the fists, motion-captured: 3-hit combos, heavy cuts and kicks that
   run in at a distant enemy and bend down the steps at one below, dodge rolls with a moment of
-  grace, guard and parry with slow motion, hit reactions, knockdowns and get-ups, lock-on. The
-  **Asuras** (ember-cracked shades, hulking Rakshasas, and Andhaka, three times a man's height with
-  three phases and a ground-shaking stomp) rise out of the river, circle, telegraph their blows
+  grace, guard and parry with slow motion, hit reactions, knockdowns and get-ups, lock-on, and
+  acrobatics in the fight: perfect dodges and counters, strikes out of a roll or off a wall, plunges
+  from a height, vaults over an Asura's shoulders. The **Asuras**, each kind sculpted as its own
+  demon (gaunt horned shades, tusked Rakshasas, starved Pishachas, bronze-armoured Kavachas,
+  long-armed Vetalas, and Andhaka, a four-armed blind giant three times a man's height with
+  three phases and a ground-shaking stomp), rise out of the river, circle, telegraph their blows
   with flaring eyes, take turns, flinch, stagger and burn away. Killing them restores prana.
   Battle music (tabla, dholak, sitar) swells with every fight.
 - **The galis and beyond:** shops with Devanagari signs in the lanes behind the ghats, roadside

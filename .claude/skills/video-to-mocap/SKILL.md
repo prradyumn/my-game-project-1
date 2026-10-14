@@ -82,8 +82,20 @@ Shipped (`prady-mocap-v4.json`):
 - `backFlip` (1222, 5.95–8.2 s, floor + air at 2× slow motion): the no-direction dodge.
   - Dur 1.0 s; travels 2.4 m only between 12% and 72% of the move.
 
+- `aerialL` / `aerialR` (49223, 3.3–7.4 s, floor; the right one is `mirror: true`): the sideways dodge.
+  - A no-hands cartwheel in a slow-motion studio take (about 4x), played at ~4.3x.
+  - Travels 3 m only while turning over (12% to 88% of the move), facing kept.
+- `mirror: true` on a VIDEO entry swaps left / right joints and reflects them (`mirrorJoints`).
+- Which way a cartwheel goes: the sign of (head - pelvis) along the start's hip line when the
+  torso first passes horizontal. The pelvis travel is too noisy to tell.
+
 Rejected:
 - Kata and karate punches (formal snap-and-hold; the one-two had jitter 7.25).
+- 47897 breakdance: its rise to standing starts from a one-handed floor pose, not a kip-up from the
+  back, so it doesn't follow a knockdown.
+- 21753 parkour and 49576 (slow tai-chi): no clean move.
+- No licensed butterfly kick or kip-up found yet. 21754 (plaza) has a hands-down cartwheel (8.3–11.2 s, to
+  his right) if a variant is ever wanted.
 - 21756 walljump (degenerate extraction).
 - 41017 (no cartwheel in it).
 

@@ -125,6 +125,44 @@ Tried and kept out:
 - The wall jump (21756): the extraction collapsed.
 - The "cartwheels" take (41017): handstands, with no cartwheel in it.
 
+## The villains (sculpted in Blender)
+
+Each Asura kind has its own body, sculpted by code: `tools/blender/villain.py` (Blender 5).
+- **Anatomy:** metaball muscle masses placed along the crowd body's skeleton (Rocketbox
+  Male_Adult_11, the one the Asura motions drive), with per-villain bone lengths and muscle
+  sizes, fused, remeshed and given lumpy, cracked skin.
+- **Hard parts:** horns, tusks, claws, spines, armour and cloth, each riding its bone (cloth takes
+  the skin's weights).
+- **Bake:** normal and cavity maps from the detailed sculpt onto a 13–35k-face game mesh, skinned
+  by Blender's bone heat. Eye points (`eye_L` / `eye_R`) sit on the head bone.
+
+```bash
+blender -b -P tools/blender/villain.py -- rakshasa source-assets/villains/rakshasa.glb [--preview <prefix>] [--fast]
+node tools/bake-villains.mjs rakshasa   # the Asura motions carried onto it (needs npm run dev)
+```
+
+The motions are carried joint for joint: a villain keeps the crowd body's bone frames, so only
+the pelvis track is re-expressed. The loops that play all fight are steadied:
+- The idle and the circling sidestep keep a third of the pelvis's swing; the walk keeps 60%.
+- The idle also keeps half of the spine's lurch.
+- Each leg is re-solved so the feet stay put.
+
+Unsteadied, the pack's idle rocks the hips ~45° every 2.2 s, which read as twerking on a demon's
+body. `node tools/bake-villains.mjs person` does the same for the Asuras that keep the old body
+(`enemies.personClips`).
+
+Then copy both files to `public/assets/villains/` (new files only) and list them in
+`ASSET_MANIFEST.enemies.villains`.
+
+| Villain | Game kind |
+|---|---|
+| chhaya | shade (`share: 0.5`: half keep the old body) |
+| rakshasa | brute |
+| pishacha | pishacha |
+| kavacha | kavacha |
+| vetala | vetala |
+| andhaka | boss (a second pair of arms, bones `L2` / `R2`, following the first at runtime) |
+
 ## The people (crowd)
 
 - Bodies: 12 Microsoft Rocketbox avatars (MIT) in `source-assets/rocketbox/`, chosen and given a

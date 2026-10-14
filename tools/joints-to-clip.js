@@ -57,7 +57,30 @@ function frame(side, up, out) {
  * for the real flight time T = (to - from) / speed (speed: the take's slow motion).
  * Returns an AnimationClip on root's bones (local quaternions; hips position).
  */
+/** The take mirrored left for right: each joint takes its twin's track, reflected across x (a
+ *  cartwheel to the right becomes one to the left; the retarget turns the result to face forward). */
+export function mirrorJoints(data) {
+  const n = data.names.length;
+  const twin = data.names.map((nm) => {
+    const t = nm.startsWith('left_') ? nm.replace('left_', 'right_') : nm.startsWith('right_') ? nm.replace('right_', 'left_') : nm;
+    const i = data.names.indexOf(t);
+    return i < 0 ? data.names.indexOf(nm) : i;
+  });
+  const joints = new Float32Array(data.joints.length);
+  for (let f = 0; f < data.frames; f++) {
+    for (let j = 0; j < n; j++) {
+      const s = (f * n + twin[j]) * 3;
+      const d = (f * n + j) * 3;
+      joints[d] = -data.joints[s];
+      joints[d + 1] = data.joints[s + 1];
+      joints[d + 2] = data.joints[s + 2];
+    }
+  }
+  return { ...data, joints };
+}
+
 export function jointsToClip(root, data, name = 'video', opts = {}) {
+  if (opts.mirror) data = mirrorJoints(data);
   root.updateMatrixWorld(true);
   const B = {};
   for (const k of ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LeftShoulder', 'RightShoulder', 'LeftUpLeg', 'RightUpLeg', 'LeftLeg', 'LeftFoot', 'RightLeg', 'RightFoot']) B[k] = findBone(root, k);

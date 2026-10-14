@@ -402,6 +402,7 @@ export class Game {
     this.player.footwork = new Footwork({ player: this.player, animator: this.animator, rootMotion: this.rootMotion, water: this.water });
     this.player.footwork.blocked = () => this.asuras?.active || this.state !== 'play';
     this.player.onHardLanding = (impact, speed) => this.hardLanding(impact, speed);
+    this.player.onLand = (impact) => (this.combat?.plunge ? this.combat.plungeLand(impact) : false);
     this.tracker = null; // what the journal pins: { label, x, y, z }
     this.audio.synth('damaru', synthDamaru);
     this.audio.synth('om', synthOm);
@@ -783,6 +784,7 @@ export class Game {
     this.after(3, () => this.score.prefetch());
     this.after(5, () => this.barks.load());
     this.after(6, () => this.battleMusic.prefetch());
+    this.after(8, () => this.asuras.prewarm()); // (every villain's body ready before the first fight)
     // the mirror on the river skips the small things (Water.renderReflection): props, stalls,
     // the saris and kites, the ladders, the rooftop tanks
     this.scene.traverse((o) => /^(props(-\w+)?|stalls|street-life|ladders|tanks)$/.test(o.name) && this.water.skipInReflection(o));
@@ -1387,6 +1389,20 @@ export class Game {
       const camOpts = this.player.state === 'boat' ? { distance: 8, height: 2.2 } : this.player.state === 'swim' || this.player.state === 'dive' ? { height: 1.0 } : {};
       const boss = this.asuras.list.find((a) => a.K.boss && a.alive && Math.hypot(a.pos.x - this.player.position.x, a.pos.z - this.player.position.z) < 28);
       if (boss && !camOpts.distance) camOpts.distance = this.camRig.targetDistance + 1.3;
+      // a pack round him: the lens draws back to hold them all (more of them, further out: further)
+      if (!camOpts.distance && !boss && this.player.state === 'ground') {
+        let n = 0;
+        let far = 0;
+        const P = this.player.position;
+        for (const a of this.asuras.list) {
+          if (!a.alive || a.state === 'rise') continue;
+          const d = Math.hypot(a.pos.x - P.x, a.pos.z - P.z);
+          if (d > 9) continue;
+          n++;
+          far = Math.max(far, d);
+        }
+        if (n >= 2) camOpts.distance = this.camRig.targetDistance + Math.min(2.4, 0.45 * (n - 1) + far * 0.12);
+      }
       // on a wall (running up it, hanging, leaping ledge to ledge, pulling over): the climbing view
       const climb = this.traversal?.act?.type;
       if (this.player.state === 'climb' && ['wallrun', 'hang', 'leap', 'drop', 'mantle'].includes(climb)) camOpts.climb = { yaw: this.player.yaw, up: climb === 'mantle' ? 0.2 : 0.75 };
@@ -1746,6 +1762,23 @@ export class Game {
       this.achievements.event('parry', {});
     }
     if (type === 'dodged' && data.roll && this.combat.perks?.windStep) this.powers.gain(SHAKTI.dodge);
+    if (type === 'perfectDodge') {
+      // the world holds its breath: everything but Prady slows, and his next blow is a counter
+      this.slowMo(0.25, 0.55);
+      this.cinematics?.impact(0.35);
+      this.audio.play('whoosh', { volume: 0.7, rate: 0.5 });
+      this.haptics.play('parry');
+      this.powers.gain(SHAKTI.parry);
+      this.ui.toast('Perfect dodge', 'Strike now: a counter', 1.2);
+    }
+    if (type === 'plungeLand') {
+      this.camRig.shake(0.5);
+      this.cinematics?.impact(0.55, data.at);
+      this.asuras.particles.emitDust(data.at.x, data.at.y, data.at.z, 1.8, 20);
+      this.haptics.play('heavyHit');
+      this.animals?.startle(data.at.x, data.at.z, 10);
+      if (data.n) this.slowMo(0.35, 0.22);
+    }
     if (type === 'shielded') this.camRig.shake(0.16);
     if (type === 'charged') {
       const h = this.animator.boneWorld('RightHand', new THREE.Vector3());
@@ -2015,6 +2048,8 @@ export class Game {
     // fighting
     const atk = input.hit('Mouse0') || input.hit('Pad5');
     const dodge = (input.hit('KeyC') || input.hit('ControlLeft') || (input.hit('Pad1') && !lt)) && this.player.state === 'ground';
+    // jump with an Asura right in front: over it (and no jump)
+    if ((input.hit('Space') || input.hit('Pad0')) && this.combat.tryVault()) this.player.jumpBuffer = 0;
     if (atk) this.combat.attack();
     if (input.hit('Mouse2') || input.hit('Pad7')) this.combat.heavy();
     this.combat.heavyHeld = input.down('Mouse2') || input.gpButton(7);

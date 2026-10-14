@@ -41,6 +41,7 @@ const _m = new THREE.Matrix4();
 const _x = new THREE.Vector3();
 const _y = new THREE.Vector3();
 const _z = new THREE.Vector3();
+const _aq = new THREE.Quaternion();
 const mergeGeos = (list) => mergeGeometries(list.map((g) => (g.index ? g.toNonIndexed() : g)));
 
 // the kinds of Asura: body, size, toughness, how they fight
@@ -117,13 +118,13 @@ export class Asura {
     this.goal = opts.goal || null; // a point to walk to while rising (the ghat edge)
 
     // body
-    const B = sys.makeBody(this.scale, K.boss);
+    const B = sys.makeBody(this.scale, K.boss, kindName);
     this.body = B;
     this.uniforms = B.uniforms;
     this.uniforms.uDissolve.value = this.state === 'rise' ? 1 : 0;
     if (K.vein) this.uniforms.uVein.value.setRGB(...K.vein);
     if (K.skin) this.uniforms.uSkin.value.setRGB(...K.skin);
-    if (K.horns) B.horns.scale.multiplyScalar(K.horns);
+    if (K.horns && !B.sculpted) B.horns.scale.multiplyScalar(K.horns);
     if (K.shield) this.shield = sys.makeShield(B, this.scale);
     sys.scene.add(B.holder);
     B.holder.position.copy(this.pos);
@@ -1150,6 +1151,18 @@ export class Asura {
     this.sys.audio.play('ember-hiss', { at: this.pos, volume: 0.6, rate: 0.8 + Math.random() * 0.2 });
   }
 
+  /** Andhaka's lower arms: each bone eases after its twin in the upper pair (a lagging echo of
+   *  every blow), the upper arm swung a little out and down so the pairs don't overlap. */
+  followArms(dt) {
+    const k = 1 - Math.exp(-dt * 7);
+    this._armQ ||= new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0.25));
+    for (const [a, b] of this.body.arms2) {
+      _aq.copy(a.quaternion);
+      if (/UpperArm/.test(b.name)) _aq.multiply(this._armQ);
+      b.quaternion.slerp(_aq, k);
+    }
+  }
+
   /** The blow's hit-stop: the body held in the instant it lands (with Prady's). */
   freeze(secs) {
     this.freezeT = Math.max(this.freezeT || 0, secs);
@@ -1242,6 +1255,7 @@ export class Asura {
     if (this.ragdoll) return this.lateRagdoll(B);
     this.glintT = Math.max(0, (this.glintT || 0) - dt);
     B.mixer.update(this.statue ? 0 : frozen ? dt * 0.04 : dt);
+    if (B.arms2.length) this.followArms(dt);
     // the side blow's turn, springing back
     this.twistV = (this.twistV || 0) + (-70 * (this.twist || 0) - 11 * (this.twistV || 0)) * dt;
     this.twist = (this.twist || 0) + this.twistV * dt;
@@ -1303,6 +1317,7 @@ export class Asura {
     this.uniforms.uRage.value = this.rage;
     this.uniforms.uTime.value = this.t;
     B.horns.visible = this.uniforms.uDissolve.value < 0.6;
+    for (const o of B.extras) o.visible = B.horns.visible;
   }
 
   /**
@@ -1363,6 +1378,7 @@ export class Asura {
     this.uniforms.uHurt.value = this.hurt;
     this.uniforms.uTime.value = this.t;
     B.horns.visible = this.uniforms.uDissolve.value < 0.6;
+    for (const o of B.extras) o.visible = B.horns.visible;
   }
 
   /** A fallen body: the bones come from physics; only the eyes and the shader still run. */
@@ -1406,6 +1422,7 @@ export class Asura {
     this.uniforms.uHurt.value = this.hurt;
     this.uniforms.uTime.value = this.t;
     B.horns.visible = this.uniforms.uDissolve.value < 0.6;
+    for (const o of B.extras) o.visible = B.horns.visible;
   }
 
   plantFeet(B) {
@@ -1506,15 +1523,58 @@ export class AsuraSystem {
     const M = this.g.manifestEnemies;
     const L = this.g.assets.gltf;
     const opt = (url) => (url ? L.loadAsync(url).catch(() => null) : null);
-    this._load = Promise.all([L.loadAsync(M.body), opt(M.packBase), opt(M.pack), opt(M.bossBody), opt(M.pack2)]).then(([body, base, pack, boss, pack2]) => {
-      this.src = { body, clips: new Map(), boss };
+    // the villains: each kind's own sculpted body and its motions (none: the person's body)
+    const villain = async (kind, v) => {
+      try {
+        const [g, j] = await Promise.all([L.loadAsync(v.body), fetch(v.clips).then((r) => r.json())]);
+        return [kind, { body: g, clips: new Map(j.clips.map((c) => [c.name, THREE.AnimationClip.parse(c)])), share: v.share ?? 1 }];
+      } catch (e) {
+        console.warn('[asuras] villain', kind, e.message || e);
+        return null;
+      }
+    };
+    const pVillains = Promise.all(Object.entries(M.villains || {}).map(([k, v]) => villain(k, v)));
+    // the old body's loops, steadied like the villains' (tools/villains.js 'person')
+    const pPerson = M.personClips ? fetch(M.personClips).then((r) => r.json()).catch(() => null) : null;
+    this._load = Promise.all([L.loadAsync(M.body), opt(M.packBase), opt(M.pack), opt(M.bossBody), opt(M.pack2), pVillains, pPerson]).then(([body, base, pack, boss, pack2, villains, person]) => {
+      this.src = { body, clips: new Map(), boss, villains: new Map(villains.filter(Boolean)) };
       for (const c of [...(base?.animations || []), ...(body.animations || [])]) this.src.clips.set(c.name, c);
       for (const c of [...(pack?.animations || []), ...(pack2?.animations || [])]) this.src.clips.set(c.name, c);
+      for (const c of person?.clips || []) this.src.clips.set(c.name, THREE.AnimationClip.parse(c));
       const ud = body.scene.children[0]?.userData || body.scene.userData || {};
       this.src.walkSpeed = ud.walkSpeed || 1.4;
       this.ready = true;
     });
     return this._load;
+  }
+
+  /**
+   * Ready every body before the first fight: one of each villain (and the old body) built out of
+   * sight, its textures uploaded one a frame, its shaders compiled off the main thread. Their
+   * first appearance otherwise froze the game for a third of a second (Game.begin calls this a few
+   * seconds into play).
+   */
+  async prewarm() {
+    if (this._warmed) return;
+    this._warmed = true;
+    await this.load();
+    const g = this.g;
+    const group = new THREE.Group();
+    group.position.set(0, -400, 0);
+    const kinds = [...(this.src.villains?.keys() ?? [])];
+    for (const kind of [...kinds, null]) group.add(this.makeBody(1, ASURA_KINDS[kind]?.boss, kind, true).holder);
+    const texs = new Set();
+    group.traverse((o) => {
+      for (const m of [].concat(o.material || [])) for (const k of ['map', 'normalMap']) if (m[k]) texs.add(m[k]);
+    });
+    for (const t of texs) {
+      g.rs.renderer.initTexture(t);
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    this.scene.add(group);
+    group.updateMatrixWorld(true);
+    await g.rs.compile(group, g.camera, true, this.scene).catch(() => {});
+    this.scene.remove(group);
   }
 
   /** The difficulty in force (Settings). */
@@ -1559,20 +1619,43 @@ export class AsuraSystem {
   }
 
   /** A fresh body: cloned skeleton + Asura skin + horns; clips by role. */
-  makeBody(scale, boss) {
+  makeBody(scale, boss, kind, force = false) {
     const src = this.src;
+    // a kind with its own sculpted villain: that body, its horns and claws, its eyes, its motions
+    let vil = src.villains?.get(kind) || null;
+    if (vil && !force && Math.random() >= vil.share) vil = null;
     const holder = new THREE.Group();
-    const root = SkeletonUtils.clone(src.body.scene);
+    const root = SkeletonUtils.clone((vil || src).body.scene);
     root.scale.multiplyScalar(scale);
     holder.add(root);
     const uniforms = { uDissolve: { value: 0 }, uHurt: { value: 0 }, uRage: { value: 0 }, uTime: { value: 0 }, uFeetY: { value: 0 }, uHeadY: { value: 1.75 }, uGhost: { value: 0 } };
     const materials = [];
+    let sculptedHorns = null;
+    const extras = []; // (a villain's armour and cloth: hidden with the horns while it burns)
     root.traverse((o) => {
       if (!o.isMesh) return;
       o.castShadow = true;
       o.receiveShadow = true;
       o.frustumCulled = false;
       o.layers.enable(2);
+      // (a villain's horns, tusks and claws: horn, not skin; they go with the body's burn)
+      if (vil && o.material?.name === 'horn') {
+        o.material = this.hornMat;
+        sculptedHorns = o;
+        return;
+      }
+      if (vil && (o.material?.name === 'armor' || o.material?.name === 'cloth')) {
+        if (o.material.name === 'armor') {
+          // (the Kavacha's bronze: the shield's own)
+          this.shieldMat ||= new THREE.MeshStandardMaterial({ color: 0x6b4a22, metalness: 0.85, roughness: 0.38, emissive: 0x2a0d00, emissiveIntensity: 0.5, side: THREE.DoubleSide });
+          o.material = this.shieldMat;
+        } else {
+          this.clothMat ||= new THREE.MeshStandardMaterial({ color: 0x3a0c08, roughness: 0.9, side: THREE.DoubleSide });
+          o.material = this.clothMat;
+        }
+        extras.push(o);
+        return;
+      }
       o.geometry.computeBoundingBox();
       const bb = o.geometry.boundingBox;
       uniforms.uFeetY.value = bb.min.y;
@@ -1591,11 +1674,11 @@ export class AsuraSystem {
       });
       o.material = Array.isArray(o.material) ? nm : nm[0];
     });
-    const horns = new THREE.Mesh(this.hornGeo, this.hornMat);
+    const horns = sculptedHorns || new THREE.Mesh(this.hornGeo, this.hornMat);
     horns.castShadow = true;
     const mixer = new THREE.AnimationMixer(root);
     const actions = {};
-    const C = src.clips;
+    const C = vil ? vil.clips : src.clips;
     const roles = this.g.manifestEnemies.roles;
     const reversed = {};
     for (const [role, names] of Object.entries(roles)) {
@@ -1611,7 +1694,13 @@ export class AsuraSystem {
     root.updateMatrixWorld(true);
     const headB = bone('Head');
     const eyes = [];
-    if (headB) {
+    if (vil) {
+      // (the sculpt's own eye points, children of its head bone)
+      for (const n of ['eye_L', 'eye_R']) {
+        const e = root.getObjectByName(n);
+        if (e) eyes.push(e.position.clone());
+      }
+    } else if (headB) {
       const hp = headB.getWorldPosition(new THREE.Vector3());
       const hq = headB.getWorldQuaternion(new THREE.Quaternion());
       const hs = headB.getWorldScale(new THREE.Vector3()).x || 1;
@@ -1625,6 +1714,12 @@ export class AsuraSystem {
       holder,
       root,
       eyes,
+      sculpted: !!vil,
+      extras,
+      // Andhaka's second pair of arms: each bone follows its twin in the first pair, a beat behind
+      arms2: vil
+        ? ['UpperArm', 'Forearm', 'Hand'].flatMap((n) => ['L', 'R'].map((s) => [bone(`${s}_${n}`), bone(`${s}2_${n}`)])).filter(([a, b]) => a && b)
+        : [],
       handR: bone('R_Hand') || bone('RightHand'),
       handL: bone('L_Hand') || bone('LeftHand'),
       foreL: bone('L_Forearm') || bone('LeftForeArm'),

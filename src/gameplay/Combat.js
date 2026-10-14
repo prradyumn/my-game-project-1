@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PLAYER } from '../config.js';
 import { GROUPS } from '../core/Physics.js';
 import { solveTwoBone } from '../utils/bones.js';
 import { dampAngle, wrapAngle } from '../utils/math.js';
@@ -11,6 +12,12 @@ import { BladeTrail, makeTalwar } from './Talwar.js';
 //   RMB  a heavy blow           unarmed: roundhouse kick   sword: two-handed overhead cut
 //   Q    (hold) block; raised just as a blow lands it is a parry that staggers the attacker
 //   C    dodge roll (a moment of grace inside it); standing still, a backflip      R  draw or sheathe the talwar
+//   A dodge just as a blow comes (its first beat) is a perfect dodge: the world slows, the attacker
+//   reels, and the next strike is a counter (Pratyuttara). LMB out of a roll is a strike straight
+//   out of it; LMB at a sprint is a running heavy blow; LMB falling from a height is a plunge
+//   that throws every Asura round the landing flat. LMB on a wall run kicks off the wall onto
+//   the nearest Asura; Space with one right in front vaults over it (a front flip over its
+//   shoulders, landing at its back: the next strike is a counter).
 // Every move is motion capture (CMU: a boxer, a karate practitioner, swordplay, a woodcutter's
 // chop; see tools/retarget.js). Strikes carry their own root motion, applied through the
 // character controller so a lunge plants its feet. Hits land on whatever can be struck (the
@@ -41,6 +48,7 @@ const COMBO4 = { armed: [...COMBO.armed, 'comboCut'], unarmed: [...COMBO.unarmed
 const KICK2 = (l) => l.map((n) => (n === 'frontKick' ? 'sideKick' : n));
 const COMBO_ALT = { 3: KICK2(COMBO.unarmed), 4: KICK2(COMBO4.unarmed) };
 const HEAVY = { armed: 'heavyCut', unarmed: 'roundKick' };
+const FEET = PLAYER.halfHeight + PLAYER.radius; // (his capsule's centre above his feet)
 const LEG = 0.88; // Prady's hip height above the foot (m): root motion is baked in these units
 const WINDOW = 0.085; // a strike connects within this much clip time of its peak
 
@@ -120,6 +128,9 @@ export class Combat {
     this.move = null; // { name, t, start, yaw, i, queued, struck:Set }
     this.combo = 0;
     this.rounds = 0; // combos begun (the bare-handed finish alternates)
+    this.counterUntil = -9; // a perfect dodge: the next strike before this is a counter
+    this.plunge = null; // falling on them from a height: { t, tgt }
+    this.arc = null; // through the air on a set path: a vault over one, a flying kick off a wall
     this.lastEnd = -10;
     this.time = 0;
     this.stanceUntil = 0;
@@ -178,6 +189,7 @@ export class Combat {
 
   /** Inside the dodge's moment of grace (or knocked down / getting up). */
   get untouchable() {
+    if (this.arc) return true; // (in the air over it, or flying off the wall)
     const r = this.roll;
     // (at least the half second an Asura's eyes flare before its blow: roll on the flare)
     if (r && r.t > 0.03 && r.t < Math.min(r.dur * 0.9, Math.max(r.dur * 0.68, this.perks.windStep ? 0.68 : 0.56))) return true;
@@ -229,11 +241,199 @@ export class Combat {
       if (this.move.t > 0.3 && !this.move.force && !MOVES[this.move.name].heavy && this.move.name !== HEAVY.unarmed) this.move.queued = true;
       return;
     }
+    // on a wall run: kick off the wall onto the nearest one
+    const tr = this.p.traversal;
+    if (tr?.act?.type === 'wallrun' && !this.dead) {
+      const t = this.nearestEnemy(8);
+      if (t) {
+        tr.end();
+        this.leapKick(t);
+        return;
+      }
+    }
+    // out of a roll: remembered, and struck as soon as he is on his feet (rollAttack)
+    if (this.roll) {
+      this.roll.queuedAttack = true;
+      return;
+    }
+    // falling from a height: a plunge onto whatever is under him
+    if (this.p.state === 'air' && !this.plunge && !this.dead && this.canPlunge()) return this.startPlunge();
     if (!this.canFight() || this.blocking) return;
+    // at a full sprint: a running heavy blow (the roundhouse off the run, a two-handed cleave)
+    const p = this.p;
+    if (p.cmd?.sprint && p.speed > 4.2 && this.time - this.lastEnd > 0.3) {
+      this.combo = 0;
+      this.start(this.armed ? 'heavyCut' : 'roundKick');
+      if (this.move) this.move.sprint = true;
+      return;
+    }
     if (this.time - this.lastEnd > 0.7) this.combo = 0;
     if (this.combo % this.comboList().length === 0) this.rounds++;
     const list = this.comboList();
     this.start(list[this.combo % list.length]);
+  }
+
+  /** A strike straight out of a roll or the backflip, the moment he is on his feet: a kick out of
+   *  the roll bare-handed, a lunging thrust with the talwar (a counter, after a perfect dodge). */
+  rollAttack() {
+    const r = this.roll;
+    this.roll = null;
+    if (r?.clip && this.anim.isPlaying(r.clip)) this.anim.stop(0.1);
+    this.lastEnd = this.time;
+    this.combo = 0;
+    const name = this.armed ? 'thrust' : this.anim.clipActions.sideKick ? 'sideKick' : this.comboList()[0];
+    this.start(name);
+    if (this.move) this.move.fromRoll = true;
+  }
+
+  /** The nearest Asura standing within range (any direction). */
+  nearestEnemy(range) {
+    const P = this.p.position;
+    let best = null;
+    let bd = range;
+    for (const t of this.targets.list ?? []) {
+      if (!t.enemy || !t.alive || t.state === 'rise') continue;
+      const d = Math.hypot(t.pos.x - P.x, t.pos.z - P.z);
+      if (d < bd) {
+        bd = d;
+        best = t;
+      }
+    }
+    return best;
+  }
+
+  /** Space with an Asura right in front (not a giant): over it. */
+  tryVault() {
+    const p = this.p;
+    if (!this.canFight() || this.move || this.arc || this.blocking) return false;
+    const t = this.nearestEnemy(2.3);
+    if (!t || (t.height || 1.8) > 2.9 || t.K?.boss) return false;
+    const dx = t.pos.x - p.position.x;
+    const dz = t.pos.z - p.position.z;
+    const ahead = Math.abs(wrapAngle(Math.atan2(dx, dz) - p.yaw)) < 0.9;
+    if (!ahead || Math.abs(t.pos.y - p.feetY) > 0.8) return false;
+    this.vaultOver(t);
+    return true;
+  }
+
+  /** A front flip over its shoulders, landing a body's length behind it, facing its back. */
+  vaultOver(t) {
+    const p = this.p;
+    const P = p.position;
+    const dx = t.pos.x - P.x;
+    const dz = t.pos.z - P.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const far = d + 1.35 + (t.radius || 0.4);
+    const to = new THREE.Vector3(P.x + (dx / d) * far, 0, P.z + (dz / d) * far);
+    to.y = groundHeight(to.x, to.z);
+    this.arc = { kind: 'vault', t: 0, dur: 0.62, from: new THREE.Vector3(P.x, p.feetY, P.z), to, apex: Math.max(1.0, (t.height || 1.8) * 0.85 - Math.max(0, p.feetY - t.pos.y)), yaw: Math.atan2(dx, dz), tgt: t };
+    // (the backflip, played backwards from its landing: a front flip)
+    if (this.anim.clipActions.backFlip) this.anim.play('backFlip', { reverse: true, at: 1.66, timeScale: 2.3, fadeIn: 0.06, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true });
+    this.audio.play('whoosh', { volume: 0.55, rate: 0.9 });
+    this.onEvent('vault', {});
+  }
+
+  /** Off the wall in an arc onto t, the kick landing as he reaches it. */
+  leapKick(t) {
+    const p = this.p;
+    const P = p.position;
+    const dx = t.pos.x - P.x;
+    const dz = t.pos.z - P.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const stop = Math.max(0.2, d - 0.95 - (t.radius || 0.4));
+    const to = new THREE.Vector3(P.x + (dx / d) * stop, t.pos.y, P.z + (dz / d) * stop);
+    const dur = THREE.MathUtils.clamp(d / 11, 0.35, 0.7);
+    this.arc = { kind: 'kick', t: 0, dur, from: new THREE.Vector3(P.x, p.feetY, P.z), to, apex: 0.7, yaw: Math.atan2(dx, dz), tgt: t };
+    p.state = 'ground';
+    const clip = this.armed ? 'thrust' : this.anim.clipActions.sideKick ? 'sideKick' : 'frontKick';
+    const hitT = MOVES[clip].hits[0].t;
+    const at = Math.max(0, hitT - dur * 1.1);
+    this.arc.clip = clip;
+    this.anim.play(clip, { at, timeScale: (hitT - at) / dur, fadeIn: 0.06, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
+    this.audio.play('whoosh', { volume: 0.6, rate: 0.75 });
+    this.onEvent('leapKick', {});
+  }
+
+  /** Through the air along the arc (it owns him while it lasts). */
+  arcStep(dt) {
+    const p = this.p;
+    const a = this.arc;
+    a.t += dt;
+    const k = Math.min(1, a.t / a.dur);
+    const x = THREE.MathUtils.lerp(a.from.x, a.to.x, k);
+    const z = THREE.MathUtils.lerp(a.from.z, a.to.z, k);
+    const y = THREE.MathUtils.lerp(a.from.y, a.to.y, k) + 4 * a.apex * k * (1 - k);
+    p.position.set(x, y + FEET, z);
+    p.yaw = dampAngle(p.yaw, a.yaw, 20, dt);
+    if (k >= 1) {
+      this.arc = null;
+      p.velocity.set(0, 0, 0);
+      p.state = 'ground';
+      const t = a.tgt;
+      if (a.kind === 'vault') {
+        // landed at its back, turned to face it: the next blow is a counter
+        if (t?.alive) p.yaw = Math.atan2(t.pos.x - p.position.x, t.pos.z - p.position.z);
+        this.counterUntil = this.time + 0.9;
+        this.audio.play('footstep', { volume: 0.8, rate: 0.8 });
+      } else if (t?.alive) {
+        // the flying kick lands
+        const dir = { x: t.pos.x - a.from.x, z: t.pos.z - a.from.z };
+        t.hit({ k: 1.7, dir, at: { x: t.pos.x, y: t.pos.y + (t.height || 1.7) * 0.6, z: t.pos.z }, sword: this.armed, heavy: true, kick: !this.armed, move: 'leapKick' });
+        this.hitStop = Math.max(this.hitStop, 0.09);
+        this.audio.play('heavy-hit', { volume: 0.9, rate: 0.85 });
+        this.onEvent('hit', { move: 'leapKick', heavy: true, kick: !this.armed, sword: this.armed, enemy: true, target: t.kind, k: 1.7, at: t.pos, dir });
+      }
+      return this.hold(true);
+    }
+    return this.hold(true);
+  }
+
+  /** High enough above the ground to come down on them (not a hop off a step). */
+  canPlunge() {
+    const p = this.p;
+    return p.feetY - groundHeight(p.position.x, p.position.z) > 1.5 && p.velocity.y < 4;
+  }
+
+  /** Down on them: he drops hard toward the nearest Asura below and ahead; the landing (Player
+   *  onLand -> plungeLand) is the blow. */
+  startPlunge() {
+    const p = this.p;
+    const t = this.nearestTargetObj(6, p.yaw);
+    this.plunge = { t: 0, tgt: t?.enemy ? t : null };
+    p.velocity.y = Math.min(p.velocity.y, -9);
+    if (this.armed) this.anim.play('heavyCut', { fadeIn: 0.08, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: 0.35 });
+    else if (this.anim.clipActions.backFlip) this.anim.play('backFlip', { fadeIn: 0.1, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: 0.15, at: 0.45 });
+    this.audio.play('whoosh', { volume: 0.5, rate: 0.55 });
+    this.onEvent('plunge', {});
+  }
+
+  /** The plunge lands: every Asura round the impact is struck and thrown flat. */
+  plungeLand(impact) {
+    const p = this.p;
+    this.plunge = null;
+    const R = 2.8;
+    const P = p.position;
+    let n = 0;
+    for (const t of this.targets.list ?? []) {
+      if (!t.enemy || !t.alive || t.state === 'rise') continue;
+      const dx = t.pos.x - P.x;
+      const dz = t.pos.z - P.z;
+      const d = Math.hypot(dx, dz);
+      if (d > R + (t.radius || 0.4) || Math.abs(t.pos.y - p.feetY) > 2.5) continue;
+      const dir = { x: dx / (d || 1), z: dz / (d || 1) };
+      const k = (1.4 + Math.min(1, impact / 20) * 0.6) * (1 - (d / R) * 0.35);
+      t.hit({ k, dir, at: { x: t.pos.x, y: t.pos.y + (t.height || 1.7) * 0.5, z: t.pos.z }, sword: this.armed, heavy: true, kick: !this.armed, move: 'plunge' });
+      if (t.alive && t.floor) t.floor(dir, 1.3 - (d / R) * 0.5);
+      n++;
+    }
+    // the landing: the blade comes down at the impact (or a crouched, hand-to-stone landing)
+    if (this.armed) this.anim.play('heavyCut', { fadeIn: 0.05, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: 1.4, at: 0.66 });
+    else if (this.anim.clipActions.backFlip) this.anim.play('backFlip', { fadeIn: 0.05, fadeOut: 0.3, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: 1.3, at: 1.42 });
+    this.hitStop = Math.max(this.hitStop, 0.08);
+    this.audio.play('thump', { volume: 1, rate: 0.5 });
+    this.audio.play('heavy-hit', { volume: 0.8, rate: 0.75 });
+    this.onEvent('plungeLand', { at: { x: P.x, y: p.feetY, z: P.z }, n, impact });
+    return true;
   }
 
   heavy() {
@@ -366,12 +566,17 @@ export class Combat {
     // backwards without that clip)
     const back = !wish;
     const flip = back && !!this.anim.clipActions.backFlip;
-    const clip = flip ? 'backFlip' : back && this.anim.clipActions.dodgeBack ? 'dodgeBack' : this.anim.clipActions.dodgeRoll ? 'dodgeRoll' : null;
+    // straight out to his side: an aerial that way (a no-hands cartwheel), still facing his foe
+    const lat = back ? 0 : dx * Math.cos(p.yaw) - dz * Math.sin(p.yaw); // (+: toward his left hand)
+    const aerial = Math.abs(lat) > 0.75 ? (lat > 0 ? 'aerialL' : 'aerialR') : null;
+    const side = !!(aerial && this.anim.clipActions[aerial]);
+    const clip = flip ? 'backFlip' : side ? aerial : back && this.anim.clipActions.dodgeBack ? 'dodgeBack' : this.anim.clipActions.dodgeRoll ? 'dodgeRoll' : null;
     // a dive roll is ~1 s of the 1.55 s take played fast; the backstep ~0.65 s; the backflip 1 s
-    // (a slow-motion take: in the air from 12% to 72% of it, and he only travels then)
-    const dur = clip ? (flip ? 1.0 : back ? 0.65 : 0.95) : 0.55;
+    // (a slow-motion take: in the air from 12% to 72% of it, and he only travels then); the aerial
+    // ~0.95 s of a slow-motion take, travelling while it turns over (12% to 88%)
+    const dur = clip ? (flip ? 1.0 : side ? 0.95 : back ? 0.65 : 0.95) : 0.55;
     const far = this.perks.windStep ? 1.3 : 1;
-    this.roll = { t: 0, dur, dir: { x: dx, z: dz }, dist: (flip ? 2.4 : back ? 2.2 : 3.6) * far, yaw: back ? p.yaw : Math.atan2(dx, dz), clip, done: 0, air: flip ? [0.12, 0.72] : null };
+    this.roll = { t: 0, dur, dir: { x: dx, z: dz }, dist: (flip ? 2.4 : side ? 3.0 : back ? 2.2 : 3.6) * far, yaw: back || side ? p.yaw : Math.atan2(dx, dz), clip, done: 0, air: flip ? [0.12, 0.72] : side ? [0.12, 0.88] : null };
     if (clip) this.anim.play(clip, { fadeIn: 0.08, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: this.anim.clipActions[clip].getClip().duration / dur });
     this.audio.play('whoosh', { volume: 0.35, rate: 0.7 });
     this.onEvent('dodge', {});
@@ -386,7 +591,14 @@ export class Combat {
     const p = this.p;
     if (this.dead || !this.health || this.invuln) return 'none';
     if (this.untouchable) {
-      this.onEvent('dodged', { roll: !!this.roll });
+      // a perfect dodge: the blow came in the roll's first beat (he moved as it fell, not before)
+      const perfect = !!this.roll && this.roll.t < 0.3 && this.time > this.counterUntil;
+      if (perfect) {
+        this.counterUntil = this.time + 1.4;
+        a.attacker?.stagger?.(0.8); // (it struck at nothing and is left open)
+        this.onEvent('perfectDodge', { at: a.from });
+      }
+      this.onEvent('dodged', { roll: !!this.roll, perfect });
       return 'dodged';
     }
     const dx = a.from.x - p.position.x;
@@ -586,9 +798,10 @@ export class Combat {
     }
     this.move = { name, t: 0, ts: m.ts, start: p.position.clone(), yaw, i: this.combo, queued: false, queuedHeavy: false, struck: new Set(), whoosh: false, approach, approachYaw: t ? Math.atan2(t.x - p.position.x, t.z - p.position.z) : yaw, la, pathYaw: yaw, tgt: tt?.enemy ? tt : null, tgt0: tt?.enemy ? new THREE.Vector3(tt.pos.x, 0, tt.pos.z) : null, track: { x: 0, z: 0 } };
     // Pratyuttara: the first strike after a parry is a riposte
-    if (this.perks.riposte && this.time - this.lastParryT < 1.1) {
+    if ((this.perks.riposte && this.time - this.lastParryT < 1.1) || this.time < this.counterUntil) {
       this.move.riposte = true;
       this.lastParryT = -9;
+      this.counterUntil = -9;
     }
     // (the facing turns over the wind-up in fixed(): snapping it popped the whole body)
     const chained = this.time - this.lastEnd < 0.05 || !!this.anim.cur;
@@ -631,6 +844,25 @@ export class Combat {
         if (this.canFight()) this.raiseGuard();
       }
     }
+    if (this.plunge) {
+      const pl = this.plunge;
+      pl.t += dt;
+      // a hard, straight drop, steered onto the one below
+      p.velocity.y = Math.min(p.velocity.y, -14);
+      if (pl.tgt?.alive) {
+        const dx = pl.tgt.pos.x - p.position.x;
+        const dz = pl.tgt.pos.z - p.position.z;
+        const d = Math.hypot(dx, dz);
+        const v = Math.min(9, d / 0.3);
+        p.velocity.x = (dx / (d || 1)) * v;
+        p.velocity.z = (dz / (d || 1)) * v;
+        p.yaw = dampAngle(p.yaw, Math.atan2(dx, dz), 14, dt);
+      }
+      // (never stuck in it: a ledge he caught, a long way down)
+      if (pl.t > 2.5 || p.state !== 'air') this.plunge = null;
+      return false;
+    }
+    if (this.arc && !this.dead) return this.arcStep(dt);
     if (this.dead) {
       this.dead.t += dt;
       if (this.dead.t < 0.5) this.slide(this.deathPush.x * dt * 1.2, this.deathPush.z * dt * 1.2, 0.6, true);
@@ -651,6 +883,11 @@ export class Combat {
       p.yaw = dampAngle(p.yaw, r.yaw, 18, dt);
       this.slide(r.dir.x * step, r.dir.z * step, 1.2, true);
       this.settle(dt);
+      // (a strike pressed during it: out of the roll once he is up, out of the flip once he lands)
+      if (r.queuedAttack && k > (r.air ? r.air[1] + 0.04 : 0.55)) {
+        this.rollAttack();
+        return this.hold(true);
+      }
       if (r.t >= r.dur) {
         this.roll = null;
         if (r.clip && this.anim.isPlaying(r.clip)) this.anim.stop(0.18);

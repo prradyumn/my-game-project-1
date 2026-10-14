@@ -104,9 +104,14 @@ const VIDEO = [
   // travel is noise (the camera moves), so in place: the game moves him. Floor from its own span;
   // the take is about 2x slow motion (1.3 s in the air), so the flight is rebuilt as a 0.65 s arc.
   { name: 'backFlip', file: 'mixkit-1222-backflip', start: 5.95, end: 8.2, floor: true, air: { from: 6.23, to: 7.57, speed: 2 } },
+  // Mixkit 49223 (studio, slow motion ~4x): an aerial, a no-hands cartwheel, travelling to his
+  // left (the head goes over that way). Mirrored for the right. In place: the game moves him.
+  { name: 'aerialL', file: 'mixkit-49223-acro', start: 3.3, end: 7.4, floor: true },
+  { name: 'aerialR', file: 'mixkit-49223-acro', start: 3.3, end: 7.4, floor: true, mirror: true },
 ];
-// ?set=videoPreview: whole takes, travel kept, to look at before cutting (never shipped)
-const VIDEO_PREVIEW = ['49635-punches', '49633-karate', '49632-kata', '12971-kickdemo', '12973-highkick', '21756-walljump', '41017-cartwheels', '1222-backflip'].map((f) => ({ name: `pv_${f.split('-')[1]}`, file: `mixkit-${f}`, start: 0, end: 600, inPlace: false }));
+// ?set=videoPreview: whole takes, travel kept, to look at before cutting (never shipped; the
+// takes judged so far: tools/retarget.js history and the video-to-mocap skill)
+const VIDEO_PREVIEW = ['49223-acro', '21754-cartwheel', '47897-breakdance'].map((f) => ({ name: `pv_${f.split('-')[1]}`, file: `mixkit-${f}`, start: 0, end: 600, inPlace: false }));
 const MOVES3 = [
   { name: 'turnL', file: '69_17', start: 0.9, end: 2.3, rootYaw: true, inPlace: 'sway' },
   { name: 'turnR', file: '69_19', start: 0.85, end: 2.45, rootYaw: true, inPlace: 'sway' },
@@ -158,7 +163,7 @@ for (const m of SET === 'moves' ? MOVES : SET === 'moves2' ? MOVES2 : SET === 'm
     // Prady himself, posed frame by frame from the joints (tools/joints-to-clip.js)
     const g = await loader.loadAsync(ASSET_MANIFEST.character.model);
     const data = await (await fetch(`/source-assets/m2mr/${m.file}.json`)).json();
-    source = { root: g.scene, clip: jointsToClip(g.scene, data, m.name, { floor: m.floor && [m.start, m.end], air: m.air }), start: m.start, end: m.end };
+    source = { root: g.scene, clip: jointsToClip(g.scene, data, m.name, { floor: m.floor && [m.start, m.end], air: m.air, mirror: m.mirror }), start: m.start, end: m.end };
   } else if (SRC === 'ue') {
     // (already on Prady's skeleton, standing in its bind pose: that is the rest)
     const g = await loader.loadAsync(`/ue-export/P_${m.file}.glb`);

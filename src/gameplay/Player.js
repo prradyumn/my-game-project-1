@@ -373,8 +373,10 @@ export class Player {
       if (!wasGrounded) {
         this.fx.land?.(impact);
         if (impact > 7) this.landTimer = 0.22;
+        // (a plunge onto the Asuras lands as a blow, not a fall: Combat)
+        const handled = this.onLand?.(impact);
         // a long drop (off a roof): a roll if he lands running, else it hurts (Game)
-        if (impact > 13.5) this.onHardLanding?.(impact, Math.hypot(vel.x, vel.z));
+        if (!handled && impact > 13.5) this.onHardLanding?.(impact, Math.hypot(vel.x, vel.z));
       }
     }
     if (this.grounded && vel.y < 0 && this.state === 'ground') vel.y = -2;
