@@ -142,14 +142,18 @@ node tools/bake-villains.mjs rakshasa   # the Asura motions carried onto it (nee
 ```
 
 The motions are carried joint for joint: a villain keeps the crowd body's bone frames, so only
-the pelvis track is re-expressed. The loops that play all fight are steadied:
-- The idle and the circling sidestep keep a third of the pelvis's swing; the walk keeps 60%.
-- The idle also keeps half of the spine's lurch.
-- Each leg is re-solved so the feet stay put.
-
-Unsteadied, the pack's idle rocks the hips ~45° every 2.2 s, which read as twerking on a demon's
-body. `node tools/bake-villains.mjs person` does the same for the Asuras that keep the old body
-(`enemies.personClips`).
+the pelvis track is re-expressed. The locomotion is not the enemy pack's (its walk was CMU's
+"weird walk" 136_01, bent double; its idle a "devil" 55_23, rump out and rocking, which read as
+twerking; its sidestep a crouched sneak; and it had no run):
+- `asuraIdle`, `asuraWalk`, `asuraRun`: the Mixamo idle, walk and run Prady uses (three.js
+  example Xbot), retargeted onto the crowd body, then carried across.
+- `asuraStrafeR` / `asuraStrafeL`: CMU 69_48 (1.0–2.0 s) and 69_59 (3.25–5.25 s), real
+  sidesteps by the performer of Prady's turns on the spot.
+- The idle is crouched into a fighter's stance (`stance()` in `tools/villains.js`): hips down,
+  chest forward, elbows out, claws up, legs re-solved so the feet never move.
+- Each loop's own pace on the body is measured from its grounded foot and saved as `speeds` in
+  the JSON; `Asuras.js` plays each loop at the pace it really moves (no sliding), and backing
+  away plays the walk in reverse (`walkBack`).
 
 Then copy both files to `public/assets/villains/` (new files only) and list them in
 `ASSET_MANIFEST.enemies.villains`.

@@ -1272,8 +1272,15 @@ export class Asura {
       let sp = 1;
       if (realSpeed > 0.25) {
         if (Math.abs(side) > 0.6 && this.has('strafeL') && this.has('strafeR')) role = side > 0 ? 'strafeL' : 'strafeR';
+        // (backing away from him: steps backwards, not a forward walk sliding the wrong way)
+        else if (Math.cos(relYaw) < -0.3 && this.has('walkBack')) role = 'walkBack';
         else role = realSpeed > this.K.speed * 1.4 && this.has('run') ? 'run' : 'walk';
-        sp = clamp(realSpeed / (role === 'run' ? (B.runSpeed || 3.4) : B.walkSpeed || 1.4) / Math.max(0.6, this.scale * 0.85), 0.55, 1.8);
+        // played at the pace it really moves, so its feet don't slide (a stride grows with the body)
+        const S = B.speeds;
+        if (S) {
+          const nat = role === 'run' ? S.asuraRun : role === 'walkBack' ? S.asuraWalk : role === 'strafeL' ? S.asuraStrafeL : role === 'strafeR' ? S.asuraStrafeR : S.asuraWalk;
+          sp = clamp(realSpeed / ((nat || 1.4) * this.scale), 0.5, role === 'strafeL' || role === 'strafeR' ? 2.2 : 1.8);
+        } else sp = clamp(realSpeed / (role === 'run' ? (B.runSpeed || 3.4) : B.walkSpeed || 1.4) / Math.max(0.6, this.scale * 0.85), 0.55, 1.8);
       }
       this.play(role, 0.3, { speed: sp });
     }
@@ -1329,7 +1336,7 @@ export class Asura {
     // a predator's hunch: the back curls forward, the head stays up and level
     const fwd = _z.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     const side = _x.set(fwd.z, 0, -fwd.x);
-    const hunch = this.state === 'dead' || this.state === 'floored' ? 0 : B.curRole === 'walk' || B.curRole === 'idle' || B.curRole === 'strafeL' || B.curRole === 'strafeR' ? 0.06 : 0.16;
+    const hunch = this.state === 'dead' || this.state === 'floored' ? 0 : B.curRole === 'walk' || B.curRole === 'walkBack' || B.curRole === 'idle' || B.curRole === 'strafeL' || B.curRole === 'strafeR' ? 0.06 : 0.16;
     if (hunch) {
       if (B.spine[0][0]) rotateWorld(B.spine[0][0], side, -hunch * 0.5);
       if (B.spine[1][0]) rotateWorld(B.spine[1][0], side, -hunch * 0.6);
@@ -1554,7 +1561,7 @@ export class AsuraSystem {
     const villain = async (kind, v) => {
       try {
         const [g, j] = await Promise.all([L.loadAsync(v.body), fetch(v.clips).then((r) => r.json())]);
-        return [kind, { body: g, clips: new Map(j.clips.map((c) => [c.name, THREE.AnimationClip.parse(c)])), share: v.share ?? 1 }];
+        return [kind, { body: g, clips: new Map(j.clips.map((c) => [c.name, THREE.AnimationClip.parse(c)])), speeds: j.speeds || null, share: v.share ?? 1 }];
       } catch (e) {
         console.warn('[asuras] villain', kind, e.message || e);
         return null;
@@ -1570,6 +1577,7 @@ export class AsuraSystem {
       for (const c of person?.clips || []) this.src.clips.set(c.name, THREE.AnimationClip.parse(c));
       const ud = body.scene.children[0]?.userData || body.scene.userData || {};
       this.src.walkSpeed = ud.walkSpeed || 1.4;
+      this.src.speeds = person?.speeds || null;
       this.ready = true;
     });
     return this._load;
@@ -1767,6 +1775,8 @@ export class AsuraSystem {
       horns,
       cur: null,
       walkSpeed: src.walkSpeed,
+      // each loop's own pace (m/s at speed 1, on the body at scale 1: tools/villains.js)
+      speeds: (vil ? vil.speeds : src.speeds) || null,
       head: bone('Head'),
       neck: bone('Neck'),
       spine: [

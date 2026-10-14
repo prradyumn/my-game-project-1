@@ -67,6 +67,7 @@ export const ASSET_MANIFEST = {
     roles: {
       idle: ['asuraIdle', 'wait', 'idle'],
       walk: ['asuraWalk', 'walk'],
+      walkBack: ['-asuraWalk', '-walk'], // (backing away: the walk played backwards)
       run: ['asuraRun'],
       strafeL: ['asuraStrafeL', '-asuraStrafeR'],
       strafeR: ['asuraStrafeR'],
