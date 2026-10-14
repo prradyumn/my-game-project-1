@@ -12,6 +12,7 @@ import { MooredBoats, PlayerBoat, prepareBoatGeometry, proceduralBoatGeometry } 
 import { Player } from '../gameplay/Player.js';
 import { PradyActions } from '../gameplay/Actions.js';
 import { ClothSway } from '../gameplay/ClothSway.js';
+import { Drapes } from '../gameplay/Drapes.js';
 import { Missions } from '../gameplay/Missions.js';
 import { Combat, synthBladeHit, synthBladeWhoosh, synthBlock, synthBodyHit, synthDraw, synthGlint, synthParry, synthSheathe, synthThump, synthWhoosh } from '../gameplay/Combat.js';
 import { Health } from '../gameplay/Health.js';
@@ -570,6 +571,10 @@ export class Game {
       });
       wrapper.add(model);
       wrapper.updateMatrixWorld(true);
+      // his loose cloth on spring bones (built from the rest pose, before any clip poses him)
+      let bodyMesh = null;
+      model.traverse((o) => o.isSkinnedMesh && o.material?.map && !bodyMesh && (bodyMesh = o));
+      this.drapes = new Drapes(model, bodyMesh, this.scene);
       this.animator = new CharacterAnimator(model, clips);
     } else {
       // Fallback body so the game still runs without the asset.
@@ -1349,6 +1354,7 @@ export class Game {
     this.handDiya?.late(simDt);
     this.combat?.late(simDt);
     this.powers?.late();
+    this.drapes?.update(simDt); // (his cloth swings from wherever every pose and IK left him)
     this.roofRun?.late(); // (records him, poses his chhaya: after every pose and IK)
     if (this.health) {
       const near = this.targets.enemies().some((e) => Math.hypot(e.pos.x - this.player.position.x, e.pos.z - this.player.position.z) < 25 && e.awake !== false);

@@ -10,6 +10,7 @@ import { aimBone } from '../utils/bones.js';
 //                                  'bar'    a fist round a bamboo rung, the thumb wrapped back
 //                                  'ledge'  hooked over a stone edge: knuckles and middle joints
 //                                           bent, the tips less, the thumb along the edge
+//                                  'top'    flat on a ledge's top, the fingers pressing into it
 //
 // The palm's own frame (finger and palm directions in the hand's local space) is measured once
 // per hand from the rig, so it holds for any clip. Used by Traversal (ladders, ledges, mantles).
@@ -17,6 +18,8 @@ import { aimBone } from '../utils/bones.js';
 const SHAPES = {
   bar: [1.2, 1.5, 0.95],
   ledge: [0.95, 1.05, 0.55],
+  // palm down on a ledge's top, the fingers along it into the wall, pressing: a little curl
+  top: [0.22, 0.38, 0.3],
 };
 
 const _a = new THREE.Vector3();

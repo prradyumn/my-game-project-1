@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PLAYER } from '../config.js';
 import { GROUPS } from '../core/Physics.js';
 import { clamp, dampAngle, lerp, smoothstep } from '../utils/math.js';
-import { solveTwoBone } from '../utils/bones.js';
+import { aimBone, solveTwoBone } from '../utils/bones.js';
 import { grip, handRig, orient } from './Grip.js';
 import { Parkour } from './Parkour.js';
 import { groundHeight } from '../world/WorldLayout.js';
@@ -38,8 +38,13 @@ const _fing = new THREE.Vector3();
 // hanging: a ledge's top to his feet, and his body's line out from its lip. Measured on the rig
 // (arm 0.47 m shoulder to wrist): the shoulders ~0.43 under the top and ~0.2 out, so the hands
 // reach the stone with the elbows a little bent; deeper or further out, they hung in the air
-const HANG_DROP = 1.83;
+const HANG_DROP = 1.76;
 const HANG_OUT = 0.22;
+// the wrist over the lip (out from the face, up from the top): the heel of the palm on the stone
+const EDGE_OUT = 0.035;
+const EDGE_UP = 0.035;
+// braced: a face this close under the hands' line takes the feet (toes on the stone, knees bent)
+const BRACE = 0.75;
 // from a hang: a ledge this far above is leapt to (a kick off the face, up it, a catch); one this
 // far below is dropped to and caught (the havelis' chhajjas stand a floor, ~3.2 m, apart)
 const LEAP = [0.8, 3.7];
@@ -412,6 +417,9 @@ export class Traversal {
     if (ph.castRay({ x: hx - f.x * 0.2, y: top + 0.1, z: hz - f.z * 0.2 }, { x: f.x, y: 0, z: f.z }, 0.45, p.collider, GROUPS.climb) !== null) return null;
     // and the body's room under it (a balcony below a chhajja)
     if (ph.sphereCastOnly({ x: hx - f.x * HANG_OUT, y: top - 0.3, z: hz - f.z * HANG_OUT }, DOWN, 0.26, 1.5, GROUPS.decor, p.collider) !== null) return null;
+    // (nor stone standing out under the edge where his chest and legs would hang: a temple's
+    // wider tier below its cornice, a plinth; that is somewhere to stand, not to hang from)
+    if (ph.sphereCast({ x: hx - f.x * 0.25, y: top - 0.3, z: hz - f.z * 0.25 }, DOWN, 0.12, 1.3, p.collider, GROUPS.climb) !== null) return null;
     return { hx, hz, top, f, r: { x: -f.z, z: f.x } }; // (r: his right as he faces the wall)
   }
 
@@ -500,7 +508,10 @@ export class Traversal {
     // own top has the face right under the hands)
     const under = this.g.physics.castRay({ x: L.hx - L.f.x * 0.5, y: L.top - 1.3, z: L.hz - L.f.z * 0.5 }, { x: L.f.x, y: 0, z: L.f.z }, 1.4, p.collider, GROUPS.climb);
     const swingIn = under === null ? 1 : clamp((under - 0.55) / 0.5, 0, 1);
-    this.act = { type: 'hang', t: 0, L: { ...L }, u: 0, v: 0, lh: -0.22, rh: 0.22, step: null, settle: 0, from: p.position.clone(), swing: fresh ? swing : 0, swingIn };
+    // (how far the face under the edge is set back from its lip: near, the feet take the stone)
+    const recess = under === null ? 9 : under - 0.5;
+    const braced = recess < BRACE;
+    this.act = { type: 'hang', t: 0, L: { ...L }, u: 0, v: 0, lh: -0.22, rh: 0.22, lf: -0.16, rf: 0.16, step: null, fstep: null, settle: 0, from: p.position.clone(), swing: fresh && !braced ? swing : 0, swingIn, braced, brace: 0, under: Math.max(0, recess) };
     p.state = 'climb';
     p.velocity.set(0, 0, 0);
     p.grounded = false;
@@ -533,12 +544,35 @@ export class Traversal {
       const ahead = this.ledgeAhead(pr.x, L.top - 0.35, pr.z, L.f, 0.9, L.top - 0.15, L.top + 0.15);
       // (and nothing in the way of the body: a pillar, a drainpipe, the next house)
       const body = this.hangPoint(a, _w);
-      const blocked = this.g.physics.sphereCast({ x: body.x, y: body.y + 0.4, z: body.z }, { x: L.r.x * side, y: 0, z: L.r.z * side }, 0.28, 0.4, p.collider, GROUPS.feet) !== null;
+      // (a body-wide sphere at his chest, out from the face: one as wide as before started inside a flush wall
+      // and found it, so he could never shimmy along a plain wall's top)
+      const blocked = this.g.physics.sphereCast({ x: body.x - L.f.x * 0.06, y: body.y + 0.58, z: body.z - L.f.z * 0.06 }, { x: L.r.x * side, y: 0, z: L.r.z * side }, 0.18, 0.45, p.collider, GROUPS.feet) !== null;
       if (ahead && !blocked) want = side * 0.62;
     }
     a.v += (want - a.v) * Math.min(1, dt * 8);
     a.u += a.v * dt;
+    // the feet come up onto the face after the catch (braced), and step along after the hands
+    a.brace = a.braced ? Math.min(1, a.brace + dt * 4 * smoothstep(0.08, 0.3, a.t)) : 0;
+    const fs = a.fstep;
+    if (fs) {
+      fs.t += dt / 0.2;
+      a[fs.foot] = lerp(fs.from, fs.to, smoothstep(0, 1, fs.t));
+      if (fs.t >= 1) a.fstep = null;
+    } else if (a.braced && Math.abs(a.v) > 0.05) {
+      const lead = a.v > 0 ? 'rf' : 'lf';
+      const trail = lead === 'rf' ? 'lf' : 'rf';
+      const ls = lead === 'rf' ? 1 : -1;
+      // (the feet a half step behind the hands)
+      if ((a[lead] - a.u) * ls < -0.02) a.fstep = { foot: lead, from: a[lead], to: a.u + ls * 0.26, t: 0 };
+      else if ((a.u - a[trail]) * ls > 0.3) a.fstep = { foot: trail, from: a[trail], to: a.u - ls * 0.08, t: 0 };
+    }
+    // his weight hangs under his hands: the hips swing toward the hand that has the stone
+    const mid = (a.lh + a.rh) / 2;
+    const uBody = a.u + (mid - a.u) * 0.55;
+    const uSave = a.u;
+    a.u = uBody;
     const P = this.hangPoint(a, _v);
+    a.u = uSave;
     P.y += (1 - a.settle) * 0.12 * Math.sin(a.settle * Math.PI);
     // (from wherever he caught it: a jump's apex, a run up the wall)
     if (a.from) {
@@ -1097,10 +1131,16 @@ export class Traversal {
     return out;
   }
 
-  /** The wrist's place holding edge L at u along it: just out from its face and under its top,
-   *  so the palm lies against the face and the fingers reach over onto the top. (Into _t.) */
+  /** The wrist's place holding edge L at u along it: on its lip, the heel of the hand on the top
+   *  and the wrist bent back over the edge, so the palm lies flat on the stone and the fingers
+   *  point in along it toward the wall. (Into _t.) */
   edgeHand(L, u, lift) {
-    return _t.set(L.hx + L.r.x * u - L.f.x * 0.04, L.top - 0.045 + lift, L.hz + L.r.z * u - L.f.z * 0.04);
+    return _t.set(L.hx + L.r.x * u - L.f.x * EDGE_OUT, L.top + EDGE_UP + lift, L.hz + L.r.z * u - L.f.z * EDGE_OUT);
+  }
+
+  /** The hand on a ledge: palm down on its top, fingers in along it (lifted: opening). */
+  edgeGrip(side, L, w) {
+    this.holdHand(side, _palm.set(L.f.x * 0.2, -1, L.f.z * 0.2), _fing.set(L.f.x, -0.1, L.f.z), 'top', w);
   }
 
   end() {
@@ -1123,7 +1163,7 @@ export class Traversal {
   }
 
   // ------------------------------------------------------------ after the animator: the hands
-  late() {
+  late(dt = 1 / 60) {
     const a = this.act;
     if (!a) return;
     const anim = this.g.animator;
@@ -1170,7 +1210,7 @@ export class Traversal {
           this.edgeHand(from, u, 0);
           _pole.set(-from.f.x * 0.6 + from.r.x * -s * 0.8, -0.4, -from.f.z * 0.6 + from.r.z * -s * 0.8).normalize();
           solveTwoBone(B.arm, B.fore, B.hand, _t, _pole, wOld);
-          this.holdHand(side, _palm.set(from.f.x, -0.35, from.f.z), _fing.set(from.f.x * 0.15, 1, from.f.z * 0.15), 'ledge', wOld);
+          this.edgeGrip(side, from, wOld);
         }
         if (wNew > 0.01) {
           const u = side === 'Left' ? -0.22 : 0.22;
@@ -1178,7 +1218,7 @@ export class Traversal {
           _pole.set(-to.f.x * 0.6 + to.r.x * -s * 0.8, -0.4, -to.f.z * 0.6 + to.r.z * -s * 0.8).normalize();
           solveTwoBone(B.arm, B.fore, B.hand, _t, _pole, wNew);
           // (the fingers close as the hand lands on the edge)
-          this.holdHand(side, _palm.set(to.f.x, -0.35, to.f.z), _fing.set(to.f.x * 0.15, 1, to.f.z * 0.15), 'ledge', wNew * smoothstep(0.75, 1, k));
+          this.edgeGrip(side, to, wNew * smoothstep(0.75, 1, k));
         }
       }
     } else if (a.type === 'mantle') {
@@ -1201,6 +1241,7 @@ export class Traversal {
     } else if (a.type === 'hang') {
       // both hands on the edge, where they are along it (lifted a little while one steps)
       const L = a.L;
+      this.hangFromHands(a, loco, dt);
       for (const [side, s, key] of [['Left', 1, 'lh'], ['Right', -1, 'rh']]) {
         const B = loco.b[side];
         if (!B?.arm) continue;
@@ -1211,9 +1252,27 @@ export class Traversal {
         this.edgeHand(L, uu, lift);
         _pole.set(-L.f.x * 0.6 + L.r.x * -s * 0.8, -0.4, -L.f.z * 0.6 + L.r.z * -s * 0.8).normalize();
         solveTwoBone(B.arm, B.fore, B.hand, _t, _pole, 1);
-        // the fingers hooked over the edge (the hand that is stepping opens as it lifts)
+        // palm down on the stone (the hand that is stepping opens as it lifts)
         const open = lift / 0.07;
-        this.holdHand(side, _palm.set(L.f.x, -0.35, L.f.z), _fing.set(L.f.x * 0.15, 1, L.f.z * 0.15), 'ledge', 1 - open * 0.75);
+        this.edgeGrip(side, L, 1 - open * 0.6);
+      }
+      // braced: the feet against the face under the edge, each on its own spot (stepped along
+      // after the hands while he shimmies), the knees bent out from the stone
+      if (a.brace > 0.01) {
+        for (const [side, s, key] of [['Left', 1, 'lf'], ['Right', -1, 'rf']]) {
+          const B = loco.b[side];
+          if (!B?.upLeg || !B.foot) continue;
+          const st = a.fstep?.foot === key ? a.fstep : null;
+          const off = st ? Math.sin(Math.min(1, st.t) * Math.PI) * 0.07 : 0;
+          const u = a[key];
+          // (a.under: how far the face under the edge is set back from the lip; the ankle sits a
+          // foot's length out from it, the toes on the stone)
+          _t.set(L.hx + L.r.x * u + L.f.x * (a.under - 0.11 - off), L.top - 1.28 + (st ? off * 0.6 : 0), L.hz + L.r.z * u + L.f.z * (a.under - 0.11 - off));
+          _pole.set(-L.f.x * 0.9 + L.r.x * -s * 0.35, 0.15, -L.f.z * 0.9 + L.r.z * -s * 0.35).normalize();
+          solveTwoBone(B.upLeg, B.leg, B.foot, _t, _pole, a.brace);
+          // the ball of the foot on the stone: toes pointing in and a little up
+          if (B.toe) aimBone(B.foot, B.toe, _w.set(L.f.x, 0.35, L.f.z).normalize(), a.brace * 0.8);
+        }
       }
     } else if (this.parkour?.owns(a)) {
       this.parkour.late(a);
@@ -1236,6 +1295,55 @@ export class Traversal {
         solveTwoBone(B.arm, B.fore, B.hand, _t, _pole, 1);
         this.holdHand(side, _palm.set(-L.out.x, -0.15, -L.out.z), _fing.set(-L.out.x * 0.25, 1, -L.out.z * 0.25), 'bar', 1);
       }
+    }
+  }
+
+  /**
+   * His body hangs from his hands, not the other way round: the clip's shoulders rise and fall
+   * as it loops, and where they drop or swing out past an arm's reach the hands would come off
+   * the stone. Before the arm IK the whole body is moved toward the edge just enough that each
+   * hand reaches its place with the elbow a touch bent (eased back when it isn't needed).
+   */
+  hangFromHands(a, loco, dt) {
+    const m = this.p.model;
+    if (!m) return;
+    a.fix ||= new THREE.Vector3();
+    if (a.fix.lengthSq() > 0) {
+      m.position.add(a.fix);
+      m.updateMatrixWorld(true);
+    }
+    const need = _v.set(0, 0, 0);
+    let worst = -9;
+    for (const [side, key] of [['Left', 'lh'], ['Right', 'rh']]) {
+      const B = loco.b[side];
+      if (!B?.arm) continue;
+      if (!B.armLen) {
+        const s0 = B.arm.getWorldPosition(new THREE.Vector3());
+        const e0 = B.fore.getWorldPosition(new THREE.Vector3());
+        B.armLen = s0.distanceTo(e0) + e0.distanceTo(B.hand.getWorldPosition(new THREE.Vector3()));
+      }
+      const uu = key === 'lh' ? Math.min(a[key], a.u - 0.08) : Math.max(a[key], a.u + 0.08);
+      this.edgeHand(a.L, uu, 0);
+      const sh = B.arm.getWorldPosition(_w);
+      const over = _t.distanceTo(sh) - B.armLen * 0.96;
+      if (over > worst) {
+        worst = over;
+        need.subVectors(_t, sh).normalize().multiplyScalar(Math.max(0, over));
+      }
+    }
+    // (not while he is still swinging in from the catch: that is the move placing him)
+    if (worst > 0 && !a.from) {
+      // (up to its reach at once, so a hand never leaves the stone; never more than a hand's
+      // breadth: past that it is the move's place that is wrong, not the clip's)
+      const room = Math.max(0, 0.12 - a.fix.length());
+      if (need.length() > room) need.setLength(room);
+      a.fix.add(need);
+      m.position.add(need);
+      m.updateMatrixWorld(true);
+    } else if (worst < -0.01 && a.fix.lengthSq() > 0) {
+      // (and back to the clip's own hang, gently, as its shoulders come up again)
+      const l = a.fix.length();
+      a.fix.multiplyScalar(Math.max(0, l - Math.min(-worst - 0.01, dt * 0.6)) / l);
     }
   }
 
