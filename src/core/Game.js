@@ -158,6 +158,7 @@ export class Game {
     const pMoves = M.character.moves ? assets.track(fetch(M.character.moves).then((r) => (r.ok ? r.json() : null))) : null;
     const pMoves2 = M.character.moves2 ? assets.track(fetch(M.character.moves2).then((r) => (r.ok ? r.json() : null))) : null;
     const pMoves3 = M.character.moves3 ? assets.track(fetch(M.character.moves3).then((r) => (r.ok ? r.json() : null))) : null;
+    const pMixamo = M.character.mixamo ? assets.track(fetch(M.character.mixamo).then((r) => (r.ok ? r.json() : null))) : null;
     const pBoat = assets.gltfAsync(M.boat);
     const pBoatLod = assets.gltfAsync(M.boatLod);
     const pTex = Object.fromEntries(Object.entries(M.textures).map(([k, url]) => [k, assets.image(url)]));
@@ -274,6 +275,9 @@ export class Game {
     const moves3 = await pMoves3;
     for (const j of moves3?.clips || []) clips[j.name] = THREE.AnimationClip.parse(j);
     Object.assign(this.rootMotion, moves3?.rootMotion || {});
+    const mixamo = await pMixamo;
+    for (const j of mixamo?.clips || []) clips[j.name] = THREE.AnimationClip.parse(j);
+    Object.assign(this.rootMotion, mixamo?.rootMotion || {});
     for (const [k, p] of Object.entries(pClips)) {
       const g = await p;
       if (!clips[k] && g?.animations?.length) {
@@ -1956,13 +1960,19 @@ export class Game {
   /** A long drop: a roll if he lands running from not too high, else it hurts. */
   hardLanding(impact, speed) {
     if (this.combat.dead || this.player.state !== 'ground') return;
+    const A = this.animator.clipActions;
     if (speed > 2.2 && impact < 24) {
-      this.animator.play('dodgeRoll', { timeScale: 1.75, fadeIn: 0.06, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true });
+      // landing running: down into a forward roll and up again (Mixamo's, from the moment its
+      // feet meet the ground; else the dodge roll)
+      if (A.mxFallRoll) this.animator.play('mxFallRoll', { at: 0.42, timeScale: 1.3, fadeIn: 0.05, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
+      else this.animator.play('dodgeRoll', { timeScale: 1.75, fadeIn: 0.06, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true });
       this.camRig.shake(0.2);
       this.haptics.play('land');
       this.achievements.event('rollLanding', {});
       return;
     }
+    // standing still or slow: the knees and a hand take it, and it hurts
+    if (A.mxHardLanding) this.animator.play('mxHardLanding', { at: 0.6, timeScale: 1.1, fadeIn: 0.04, fadeOut: 0.3, cancelOnMove: false, noLook: true, noFootIK: true });
     const dmg = Math.min(60, (impact - 13.5) * 3.2);
     this.health.damage(dmg, { ignoreGrace: true });
     this.ui.hurtFlash(0.7);

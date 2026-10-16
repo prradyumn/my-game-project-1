@@ -19,7 +19,7 @@ const SHAPES = {
   bar: [1.2, 1.5, 0.95],
   ledge: [0.95, 1.05, 0.55],
   // palm down on a ledge's top, the fingers along it into the wall, pressing: a little curl
-  top: [0.22, 0.38, 0.3],
+  top: [0.1, 0.2, 0.16],
 };
 
 const _a = new THREE.Vector3();

@@ -100,6 +100,9 @@ export const ASSET_MANIFEST = {
     // + turning on the spot, braking out of a run, hands on hips (CMU 69_17, 69_19, 16_08,
     //   40_11; tools/retarget.js ?set=moves3; Footwork.js)
     moves3: `${A}/characters/prady-moves3-v2.json`, // (v2: runStop from Unreal's retarget, 24% less slip)
+    // + Mixamo motion capture (Adobe; royalty-free in a game): ledge hangs, shimmies, climbs, hops,
+    //   the kip-up, the butterfly kick, falls into a roll, hit reactions (tools/retarget.js ?set=mixamo)
+    mixamo: `${A}/characters/prady-mixamo.json`,
     // + CMU motion capture: the greeting wave (G) and idle breaks
     mocapClips: {
       idle: 'idle', walk: 'walk', run: 'run', swim: 'swimCrawl',

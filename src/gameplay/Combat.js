@@ -40,6 +40,8 @@ const MOVES = {
   // the Fourth Strike siddhi: the combo ends in the overhead cut (fists: the roundhouse), quicker
   comboCut: { clip: 'heavyCut', hits: [{ t: 0.72, blade: true, k: 1.35 }], cancel: 1.1, ts: 1.32, sword: true, heavy: true, track: 1.4 },
   comboKick: { clip: 'roundKick', hits: [{ t: 0.84, limb: 'RightFoot', k: 1.15 }], cancel: 1.9, ts: 1.8, kick: true, heavy: true },
+  // the butterfly kick (Mixamo): off a sprint, the body flat in the air, one foot then the other
+  mxButterflyKick: { hits: [{ t: 1.2, limb: 'RightFoot', k: 1.15 }, { t: 1.4, limb: 'LeftFoot', k: 1.4 }], cancel: 1.85, ts: 1.4, kick: true, heavy: true },
 };
 export { MOVES };
 const COMBO = { armed: ['slashA', 'slashB', 'thrust'], unarmed: ['oneTwo', 'bodyShot', 'frontKick'] };
@@ -264,7 +266,9 @@ export class Combat {
     const p = this.p;
     if (p.cmd?.sprint && p.speed > 4.2 && this.time - this.lastEnd > 0.3) {
       this.combo = 0;
-      this.start(this.armed ? 'heavyCut' : 'roundKick');
+      // (bare-handed, every other one the butterfly kick)
+      this.sprintAlt = !this.sprintAlt;
+      this.start(this.armed ? 'heavyCut' : this.sprintAlt && this.anim.clipActions.mxButterflyKick ? 'mxButterflyKick' : 'roundKick');
       if (this.move) this.move.sprint = true;
       return;
     }
@@ -651,8 +655,20 @@ export class Combat {
     } else {
       this.react = { kind: a.heavy ? 'heavy' : 'light', t: 0, dur: a.heavy ? 0.75 : 0.42, push: away, dist: a.heavy ? 1.1 : 0.35 };
       // a heavy blow drives him back: real steps (the backward-stepping take), not a slide
-      const clip = a.heavy && this.anim.clipActions.hitHeavy ? 'hitHeavy' : a.heavy && this.anim.clipActions.dodgeBack ? 'dodgeBack' : this.anim.clipActions.hitLight ? 'hitLight' : null;
-      if (clip) this.anim.play(clip, { fadeIn: 0.07, fadeOut: 0.25, cancelOnMove: false, noLook: true, timeScale: clip === 'dodgeBack' ? 1.35 : 1 });
+      // which way the blow came from, against the way he faces: a reaction for that side (Mixamo's
+      // large reactions for a heavy blow from the front, the back or his right; the small ones for
+      // a light blow from a side)
+      const fx = Math.sin(p.yaw);
+      const fz = Math.cos(p.yaw);
+      const front = -(away.x * fx + away.z * fz);
+      const right = -(away.x * -fz + away.z * fx);
+      const A = this.anim.clipActions;
+      let clip = null;
+      if (a.heavy) clip = front > 0.5 ? 'mxReactFront' : front < -0.5 ? 'mxReactBack' : right > 0 ? 'mxReactRight' : 'mxReactSmallL';
+      else if (Math.abs(right) > 0.45) clip = right > 0 ? 'mxReactSmallR' : 'mxReactSmallL';
+      if (!clip || !A[clip]) clip = a.heavy && A.hitHeavy ? 'hitHeavy' : a.heavy && A.dodgeBack ? 'dodgeBack' : A.hitLight ? 'hitLight' : null;
+      this.react.clip = clip;
+      if (clip) this.anim.play(clip, { fadeIn: 0.07, fadeOut: 0.25, cancelOnMove: false, noLook: true, timeScale: clip === 'dodgeBack' ? 1.35 : clip.startsWith('mx') ? 1.25 : 1 });
     }
     this.flinchHit(away, a.heavy ? 1.3 : 0.9);
     return 'hit';
@@ -906,13 +922,22 @@ export class Combat {
       const step = (e(k1) - e(Math.max(0, k0))) * r.dist;
       this.slide(r.push.x * step, r.push.z * step, 0.6, true);
       this.settle(dt);
+      // flat on his back: Space springs him up in one move (the kip-up), else he gets up
+      if (r.kind === 'down' && r.stage === 0 && r.t > 0.75 && p.jumpBuffer > 0 && this.anim.clipActions.mxKipUp) {
+        p.jumpBuffer = 0;
+        r.stage = 2;
+        r.dur = r.t + 1.25;
+        this.anim.play('mxKipUp', { at: 0.3, timeScale: 1.35, fadeIn: 0.12, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
+        this.audio.play('whoosh', { volume: 0.5, rate: 1.15 });
+        this.onEvent('kipUp', {});
+      }
       if (r.kind === 'down' && r.stage === 0 && r.t > 1.2) {
         r.stage = 1;
         if (this.anim.clipActions.getUp) this.anim.play('getUp', { fadeIn: 0.25, fadeOut: 0.3, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: 1.8 });
       }
       if (r.t >= r.dur) {
         this.react = null;
-        if (r.kind === 'down' || this.anim.isPlaying('hitLight') || this.anim.isPlaying('hitHeavy') || (r.kind === 'heavy' && this.anim.isPlaying('dodgeBack'))) this.anim.stop(0.25);
+        if (r.kind === 'down' || this.anim.isPlaying('hitLight') || this.anim.isPlaying('hitHeavy') || (r.kind === 'heavy' && this.anim.isPlaying('dodgeBack')) || (r.clip?.startsWith('mx') && this.anim.isPlaying(r.clip))) this.anim.stop(0.25);
         if (this.armed) this.stance(4);
       }
       return this.hold(true);

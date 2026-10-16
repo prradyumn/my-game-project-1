@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { BVHLoader } from 'three/addons/loaders/BVHLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { ASSET_MANIFEST } from '../src/core/Assets.js';
 import { cmuKey, retargetClip } from '../src/gameplay/Retarget.js';
 import { jointsToClip } from './joints-to-clip.js';
@@ -118,6 +119,46 @@ const MOVES3 = [
   { name: 'runStop', file: '16_08', start: 0.5, end: 1.9, rootMotion: true },
   { name: 'akimbo', file: '40_11', start: 20.6, end: 24.0 },
 ];
+// ?set=mixamo: Mixamo motion capture (Adobe, royalty-free for use inside a game), each exported
+// on Y Bot without a skin at 30 fps into source-assets/mixamo/clips/<file>.fbx (downloaded with
+// the user's own Mixamo sign-in). Same options as the CMU entries.
+const MIXAMO = [
+  // ---- on a ledge (the game places him and IKs the hands; these give the body its life)
+  { name: 'mxBracedIdle', lockY: true, file: 'bracedIdle', loopBlend: 0.3 }, // hanging, feet on the wall
+  { name: 'mxFreeHang', lockY: true, file: 'freeHangIdle', loopBlend: 0.3 }, // hanging free, legs loose
+  { name: 'mxShimmyL', lockY: true, file: 'shimmyL', loopBlend: 0.15 }, // braced, hand over hand to his left
+  { name: 'mxShimmyR', lockY: true, file: 'shimmyR', loopBlend: 0.15 },
+  { name: 'mxFreeShimmyL', lockY: true, file: 'freeShimmyL', loopBlend: 0.15 }, // hanging free, to his left
+  { name: 'mxFreeShimmyR', lockY: true, file: 'freeShimmyR', loopBlend: 0.15 },
+  // ---- onto, up, off and between ledges (the hips held level: the game moves him along its own
+  // path, the clip only poses him, timed to the move)
+  { name: 'mxClimbUp', file: 'climbUp', lockY: true }, // braced hang up over the edge to a crouch
+  { name: 'mxFreehangClimb', file: 'freehangClimb', lockY: true }, // free hang up to standing
+  { name: 'mxJumpToHang', file: 'jumpToHang', lockY: true }, // hitting the wall, catching braced
+  { name: 'mxCatchAir', file: 'bracedHangAir', lockY: true }, // caught from mid-air
+  { name: 'mxHopUp', file: 'hopUp', lockY: true }, // braced hop up to the ledge above
+  { name: 'mxHopL', file: 'hopL', lockY: true },
+  { name: 'mxHopR', file: 'hopR', lockY: true },
+  { name: 'mxHangDrop', file: 'hangDropHang', lockY: true }, // down to the ledge below
+  { name: 'mxWallUp', lockY: true, file: 'wallUp', loopBlend: 0.2 }, // climbing a wall's face (holds)
+  { name: 'mxWallDown', lockY: true, file: 'wallDown', loopBlend: 0.2 },
+  // ---- acrobatics and the ground
+  { name: 'mxKipUp', file: 'kipUp', rootMotion: true }, // flat on his back to his feet in one spring
+  // (the wind-up's standing second cut away: the spin from 0.7 s, the feet at 1.9 and 2.1 s)
+  { name: 'mxButterflyKick', file: 'butterflyKick', start: 0.7, end: 2.8, rootMotion: true },
+  { name: 'mxButterflyTwirl', file: 'butterflyTwirl', rootMotion: true },
+  { name: 'mxFallRoll', file: 'fallRoll', rootMotion: true }, // from a fall into a forward roll
+  { name: 'mxHardLanding', file: 'hardLanding', rootMotion: true },
+  { name: 'mxDodgeBack', file: 'dodgeBackJump', rootMotion: true },
+  // ---- taking a blow
+  { name: 'mxReactFront', file: 'reactFront', rootMotion: true },
+  { name: 'mxReactRight', file: 'reactRight', rootMotion: true },
+  { name: 'mxReactBack', file: 'reactBack', rootMotion: true },
+  { name: 'mxReactSmallL', file: 'reactSmallL', rootMotion: true },
+  { name: 'mxReactSmallR', file: 'reactSmallR', rootMotion: true },
+  { name: 'mxGetUpBack', file: 'getUpBack', rootMotion: true },
+  { name: 'mxGetUpStomach', file: 'getUpStomach', rootMotion: true },
+];
 const SET = new URLSearchParams(location.search).get('set');
 // ?src=ue: each CMU take as Unreal's IK Retargeter put it onto Prady (Desktop/PradyAnim: IK goals on
 // hands and feet, pelvis scaled to his legs; exported per take as /ue-export/P_<take>.glb, served by
@@ -144,7 +185,7 @@ const facing = (root) => {
 const pFacing = facing(prady);
 
 const baked = [];
-for (const src of SET === 'moves' || SET === 'moves2' || SET === 'moves3' || SET === 'video' || SET === 'videoPreview' ? [] : SOURCES) {
+for (const src of SET === 'moves' || SET === 'moves2' || SET === 'moves3' || SET === 'video' || SET === 'videoPreview' || SET === 'mixamo' ? [] : SOURCES) {
   const g = await loader.loadAsync(src.url);
   const root = g.scene;
   if (facing(root) !== pFacing) root.rotation.y = Math.PI;
@@ -157,9 +198,18 @@ for (const src of SET === 'moves' || SET === 'moves2' || SET === 'moves3' || SET
   }
 }
 const bvh = new BVHLoader();
-for (const m of SET === 'moves' ? MOVES : SET === 'moves2' ? MOVES2 : SET === 'moves3' ? MOVES3 : SET === 'video' ? VIDEO : SET === 'videoPreview' ? VIDEO_PREVIEW : CMU) {
+const ONLY = new URLSearchParams(location.search).get('only')?.split(',');
+const LIST = SET === 'moves' ? MOVES : SET === 'moves2' ? MOVES2 : SET === 'moves3' ? MOVES3 : SET === 'video' ? VIDEO : SET === 'videoPreview' ? VIDEO_PREVIEW : SET === 'mixamo' ? MIXAMO : CMU;
+for (const m of ONLY ? LIST.filter((x) => ONLY.includes(x.name)) : LIST) {
   let source;
-  if (SET === 'video' || SET === 'videoPreview') {
+  if (SET === 'mixamo') {
+    // (a skeleton-only FBX: its bones stand in the T-pose as loaded, the clip on them)
+    const fbx = await new FBXLoader().loadAsync(`/source-assets/mixamo/clips/${m.file}.fbx`).catch(() => null);
+    if (!fbx) continue; // (not downloaded yet)
+    if (facing(fbx) !== pFacing) fbx.rotation.y = Math.PI;
+    fbx.updateMatrixWorld(true);
+    source = { root: fbx, clip: fbx.animations[0], start: m.start, end: m.end };
+  } else if (SET === 'video' || SET === 'videoPreview') {
     // Prady himself, posed frame by frame from the joints (tools/joints-to-clip.js)
     const g = await loader.loadAsync(ASSET_MANIFEST.character.model);
     const data = await (await fetch(`/source-assets/m2mr/${m.file}.json`)).json();
@@ -205,5 +255,5 @@ for (const m of SET === 'moves' ? MOVES : SET === 'moves2' ? MOVES2 : SET === 'm
   baked.push(out);
 }
 const rootMotion = Object.fromEntries(baked.filter((c) => c.userData.rootMotion).map((c) => [c.name, c.userData.rootMotion]));
-window.__bake = JSON.stringify({ source: SRC === 'ue' ? 'three.js examples (Mixamo mocap) + CMU motion capture, retargeted onto Prady by Unreal Engine 5.8 (IK Retargeter)' : 'three.js examples (Mixamo mocap) + CMU motion capture, retargeted onto Prady', clips: baked.map((c) => THREE.AnimationClip.toJSON(c)), rootMotion });
+window.__bake = JSON.stringify({ source: SET === 'mixamo' ? 'Mixamo motion capture (Adobe; royalty-free in a game), retargeted onto Prady' : SRC === 'ue' ? 'three.js examples (Mixamo mocap) + CMU motion capture, retargeted onto Prady by Unreal Engine 5.8 (IK Retargeter)' : 'three.js examples (Mixamo mocap) + CMU motion capture, retargeted onto Prady', clips: baked.map((c) => THREE.AnimationClip.toJSON(c)), rootMotion });
 document.getElementById('info').textContent = `baked ${baked.length} clips: ${baked.map((c) => `${c.name} ${c.duration.toFixed(2)}s`).join(', ')}`;

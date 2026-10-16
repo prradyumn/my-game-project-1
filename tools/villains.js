@@ -8,6 +8,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { ASSET_MANIFEST } from '../src/core/Assets.js';
 import { BVHLoader } from 'three/addons/loaders/BVHLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { solveTwoBone } from '../src/utils/bones.js';
 import { bipedKey, cmuKey, retargetClip } from '../src/gameplay/Retarget.js';
 
@@ -34,19 +35,32 @@ const LOCO = [
   { name: 'asuraStrafeR', cmu: '69_48', start: 1.0, end: 2.0, loopBlend: 0.2 },
   { name: 'asuraStrafeL', cmu: '69_59', start: 3.25, end: 5.25, loopBlend: 0.3 },
 ];
+// The brutes (the Rakshasa, Andhaka) move like what they are: Mixamo's mutant (Adobe; royalty-free
+// in a game, source-assets/mixamo/clips): a heavy, swaggering walk, a lumbering run, a breathing
+// idle with the shoulders rolling, a roar. They replace the plain ones above for those bodies.
+const MUTANT = { rakshasa: 1, andhaka: 1 };
+if (MUTANT[v]) {
+  const swap = { asuraIdle: { fbx: 'mutantIdle', loopBlend: 0.4 }, asuraWalk: { fbx: 'mutantWalk', loopBlend: 0.2 }, asuraRun: { fbx: 'mutantRun', loopBlend: 0.15 } };
+  for (const m of LOCO) if (swap[m.name]) Object.assign(m, { xbot: null }, swap[m.name]);
+  LOCO.push({ name: 'asuraRoar', fbx: 'mutantRoar' });
+}
 {
   const xbot = await loader.loadAsync('/source-assets/mixamo/Xbot.glb');
   body.scene.updateMatrixWorld(true);
   for (const m of LOCO) {
     let src;
-    if (m.xbot) src = { root: xbot.scene, clip: xbot.animations.find((c) => c.name === m.xbot) };
+    if (m.fbx) {
+      const fbx = await new FBXLoader().loadAsync(`/source-assets/mixamo/clips/${m.fbx}.fbx`);
+      fbx.updateMatrixWorld(true);
+      src = { root: fbx, clip: fbx.animations[0] };
+    } else if (m.xbot) src = { root: xbot.scene, clip: xbot.animations.find((c) => c.name === m.xbot) };
     else {
       const res = new BVHLoader().parse(await (await fetch(`/source-assets/cmu/${m.cmu}.bvh`)).text());
       const root = new THREE.Group();
       root.add(res.skeleton.bones[0]);
       src = { root, clip: res.clip, keyOf: cmuKey, restTime: 0, start: m.start, end: m.end };
     }
-    const c = retargetClip(src, body.scene, { fps: 30, name: m.name, targetKeyOf: bipedKey, inPlace: true, rootYaw: !!m.cmu, loopBlend: m.loopBlend ?? 0, faceForward: true, staticKeys: /Hand(Thumb|Index|Middle|Ring|Pinky)|Finger/ });
+    const c = retargetClip(src, body.scene, { fps: 30, name: m.name, targetKeyOf: bipedKey, inPlace: m.name !== 'asuraRoar', rootYaw: !!m.cmu, loopBlend: m.loopBlend ?? 0, faceForward: true, staticKeys: /Hand(Thumb|Index|Middle|Ring|Pinky)|Finger/ });
     clips.set(m.name, c);
   }
 }
@@ -242,7 +256,7 @@ function stance(clip, { drop = 0.1, lean = 0.45, spread = 0.3, fore = 0.55, rais
   mixer.stopAllAction();
 }
 const STANCE = new URLSearchParams(location.search).get('stance');
-for (const c of out) if (c.name === 'asuraIdle') stance(c, STANCE ? JSON.parse(STANCE) : {});
+for (const c of out) if (c.name === 'asuraIdle' && !MUTANT[v]) stance(c, STANCE ? JSON.parse(STANCE) : {});
 // Each loop's own pace on this body (m/s at speed 1): the planted foot's speed under the hips,
 // along the way it travels. The game plays it at the speed it really moves, so no foot slides.
 function pace(clip, axis) {

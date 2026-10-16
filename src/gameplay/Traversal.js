@@ -516,10 +516,41 @@ export class Traversal {
     p.velocity.set(0, 0, 0);
     p.grounded = false;
     if (fresh) {
-      if (!this.g.animator.isPlaying('hang')) this.g.animator.play('hang', { loop: true, fadeIn: 0.12, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
+      // caught from the air: the body swings in and the feet find the stone (Mixamo), else the loop
+      if (braced && this.has('mxCatchAir')) this.g.animator.play('mxCatchAir', { timeScale: 1.25, fadeIn: 0.08, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
+      else this.hangAnim(this.act);
       this.g.audio.play('thump', { volume: 0.35, rate: 1.4 });
       this.g.camRig.shake(0.08);
     }
+  }
+
+  /** Is there a clip by this name (the Mixamo set is optional: the CMU stand-ins remain)? */
+  has(name) {
+    return !!this.g.animator?.clipActions?.[name];
+  }
+
+  /** A one-off move's clip, stretched to the move's own length T. */
+  playTimed(name, T, fadeIn = 0.1) {
+    const anim = this.g.animator;
+    const d = anim.clipActions[name]?.getClip().duration || T;
+    return anim.play(name, { timeScale: d / Math.max(0.1, T), fadeIn, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
+  }
+
+  /**
+   * The hang's own loop: braced (feet on the stone) or free, still or shimmying (Mixamo; the
+   * shimmy timed to his pace along the edge). The arms and braced feet are placed by IK after it:
+   * the clip gives the hips, the back and the head their life.
+   */
+  hangAnim(a) {
+    const anim = this.g.animator;
+    // (the catch plays out first)
+    if (anim.cur?.name === 'mxCatchAir' && anim.actionLeft() > 0.15) return;
+    const moving = Math.abs(a.v) > 0.05;
+    const right = a.v > 0;
+    let name = moving ? (a.braced ? (right ? 'mxShimmyR' : 'mxShimmyL') : right ? 'mxFreeShimmyR' : 'mxFreeShimmyL') : a.braced ? 'mxBracedIdle' : 'mxFreeHang';
+    if (!this.has(name)) name = 'hang';
+    if (anim.cur?.name !== name) anim.play(name, { loop: true, fadeIn: moving ? 0.16 : 0.25, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
+    if (moving && name !== 'hang' && anim.cur?.name === name) anim.cur.a.timeScale = clamp(Math.abs(a.v) / 0.42, 0.6, 1.7);
   }
 
   /** Where his body hangs from the ledge at u (metres along it from where he caught it). */
@@ -551,6 +582,7 @@ export class Traversal {
     }
     a.v += (want - a.v) * Math.min(1, dt * 8);
     a.u += a.v * dt;
+    this.hangAnim(a);
     // the feet come up onto the face after the catch (braced), and step along after the hands
     a.brace = a.braced ? Math.min(1, a.brace + dt * 4 * smoothstep(0.08, 0.3, a.t)) : 0;
     const fs = a.fstep;
@@ -627,8 +659,9 @@ export class Traversal {
         const stand = this.topAt(sx, sz, L.top + 0.5, 1.8);
         const headroom = stand !== null && this.g.physics.sphereCast({ x: sx, y: stand + 0.45, z: sz }, UP, 0.27, 1.25, p.collider, GROUPS.feet) === null;
         if (stand !== null && headroom && stand < L.top + 0.4 && stand > L.top - 1.25) {
+          const braced = a.braced;
           this.end();
-          this.startMantle({ hx: ex, hz: ez, clear: L.top, stand, sx, sz, w: L.f, h: L.top - p.feetY }, true);
+          this.startMantle({ hx: ex, hz: ez, clear: L.top, stand, sx, sz, w: L.f, h: L.top - p.feetY, braced }, true);
           return;
         }
       }
@@ -667,7 +700,9 @@ export class Traversal {
     this.act = { type: 'leap', t: 0, T: 0.34 + dh * 0.085, L: a.L, L2: { ...L2 }, from: p.position.clone(), lh: a.lh, rh: a.rh, u: a.u, reach: false };
     p.state = 'climb';
     const anim = this.g.animator;
-    anim.play('wallRun', { loop: true, timeScale: 1.55, fadeIn: 0.1, fadeOut: 0.18, cancelOnMove: false, noLook: true, noFootIK: true });
+    // (a braced hop up to the ledge above, Mixamo; else the run cycle up the face)
+    if (this.has('mxHopUp')) this.playTimed('mxHopUp', this.act.T, 0.08);
+    else anim.play('wallRun', { loop: true, timeScale: 1.55, fadeIn: 0.1, fadeOut: 0.18, cancelOnMove: false, noLook: true, noFootIK: true });
     this.g.audio.play('footstep', { volume: 0.7, rate: 0.85 });
   }
 
@@ -688,7 +723,7 @@ export class Traversal {
     if (k > 0.2 && Math.floor(a.t / 0.14) !== Math.floor((a.t - dt) / 0.14)) this.g.audio.play('footstep', { volume: 0.5, rate: 1.05 + Math.random() * 0.15 });
     if (k > 0.62 && !a.reach) {
       a.reach = true;
-      this.g.animator.play('hang', { loop: true, fadeIn: 0.16, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
+      if (!this.has('mxHopUp')) this.g.animator.play('hang', { loop: true, fadeIn: 0.16, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
     }
     if (k >= 1) {
       this.startHang(L2, { swing: 0.22 });
@@ -702,6 +737,7 @@ export class Traversal {
     const dh = a.L.top - L3.top;
     this.act = { type: 'drop', t: 0, T: 0.3 + dh * 0.09, L3: { ...L3 }, from: p.position.clone() };
     p.state = 'climb';
+    if (this.has('mxHangDrop')) this.playTimed('mxHangDrop', this.act.T, 0.08);
     this.g.audio.play('whoosh', { volume: 0.3, rate: 1.2 });
   }
 
@@ -901,7 +937,8 @@ export class Traversal {
    */
   startMantle(s, fromHang) {
     const p = this.p;
-    const T = fromHang ? 0.98 : 0.72 + s.h * 0.14;
+    // (a free hang's climb is a longer haul: the legs swing up with nothing to push on)
+    const T = fromHang ? (s.braced === false ? 1.3 : 0.98) : 0.72 + s.h * 0.14;
     const p0 = p.position.clone();
     // (from the ground: in against the face first, a hand's width off it)
     const wall = new THREE.Vector3(s.hx - s.w.x * 0.36, 0, s.hz - s.w.z * 0.36);
@@ -909,7 +946,12 @@ export class Traversal {
     this.act = { type: 'mantle', t: 0, T, p0, p1, wall, clear: s.clear, edge: new THREE.Vector3(s.hx, s.clear, s.hz), f: s.w, yaw: Math.atan2(s.w.x, s.w.z), h: s.h, fromHang, crouch: false, stood: false };
     p.state = 'climb';
     const anim = this.g.animator;
-    if (!anim.isPlaying('hang')) anim.play('hang', { loop: true, fadeIn: fromHang ? 0.1 : 0.14, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
+    // from a hang: the climb itself (Mixamo, braced or free), timed to the move; it carries him
+    // from the hang through the knee up onto the top to a crouch, so no stand-in poses follow it
+    const clip = fromHang ? (s.braced === false ? 'mxFreehangClimb' : 'mxClimbUp') : null;
+    this.act.clip = clip && this.has(clip) ? clip : null;
+    if (this.act.clip) this.playTimed(this.act.clip, T, 0.08);
+    else if (!anim.isPlaying('hang')) anim.play('hang', { loop: true, fadeIn: fromHang ? 0.1 : 0.14, fadeOut: 0.25, cancelOnMove: false, noLook: true, noFootIK: true });
     this.g.audio.play('footstep', { volume: 0.55, rate: 0.8 });
     this.g.achievements?.event('scramble', {});
   }
@@ -939,7 +981,7 @@ export class Traversal {
     if (k > 0.4 && !a.crouch) {
       // the knees up onto the top, palms down on it
       a.crouch = true;
-      anim.play('crouchReach', { loop: true, fadeIn: 0.22, fadeOut: 0.35, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: 0.0001 });
+      if (!a.clip) anim.play('crouchReach', { loop: true, fadeIn: 0.22, fadeOut: 0.35, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: 0.0001 });
       if (anim.cur?.name === 'crouchReach') anim.cur.a.time = anim.cur.a.getClip().duration * 0.42;
       this.g.audio.play('thump', { volume: 0.3, rate: 1.3 });
     }
@@ -1140,7 +1182,7 @@ export class Traversal {
 
   /** The hand on a ledge: palm down on its top, fingers in along it (lifted: opening). */
   edgeGrip(side, L, w) {
-    this.holdHand(side, _palm.set(L.f.x * 0.2, -1, L.f.z * 0.2), _fing.set(L.f.x, -0.1, L.f.z), 'top', w);
+    this.holdHand(side, _palm.set(L.f.x * 0.2, -1, L.f.z * 0.2), _fing.set(L.f.x, 0.12, L.f.z), 'top', w);
   }
 
   end() {

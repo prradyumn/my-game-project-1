@@ -35,13 +35,13 @@ Requires Node ≥ 20 and a WebGL2 browser (Chrome, Edge, Safari 17+, Firefox).
 | Mouse left / right | Strike (click again for a 3-hit combo, 4 with the siddhi) / heavy strike (hold to charge, with the siddhi) |
 | Q (hold) or middle mouse | Guard; raise it just before a blow lands to **parry** (or toggle: Settings) |
 | C / Ctrl | Dodge roll (forward / diagonal), an **aerial** cartwheel (straight to the side), or a backflip (no direction) on land · dive in the water · slide down a ladder. Dodge just as a blow lands for a **perfect dodge** (slow motion, the next strike is a counter) |
-| In a fight | Strike out of a roll · strike at a sprint (a running heavy blow) · strike falling from a height (a **plunge** that throws them flat) · strike on a wall run (kick off it onto one) · Space with one right in front (**vault** over it, land at its back) |
+| In a fight | Strike out of a roll · strike at a sprint (a running heavy blow: the roundhouse, then the **butterfly kick**) · Space while knocked flat (**kip-up** straight to your feet) · strike falling from a height (a **plunge** that throws them flat) · strike on a wall run (kick off it onto one) · Space with one right in front (**vault** over it, land at its back) |
 | Tab | Lock on to an Asura (flick the mouse to switch) |
 | R | Draw / sheathe the talwar · on the rooftop run (Chhat Daud): run it again from the start |
 | 1 / 2 / 3 | Powers (Shakti): Shiva's Damaru · Trishul (press again to call it back) · Third Eye |
 | Space at a ledge | Climb it (running into a low wall or a parapet vaults it) |
 | Space at a tall wall | Run up it (at a run, or pressed against it) and catch the ledge above: a wall top, a chhajja, a parapet |
-| Hanging from a ledge | A / D shimmy · W or Space leap to the ledge above (or climb over the top) · S drop to the ledge below (or let go) · C let go · S + Space kick off the wall |
+| Hanging from a ledge | Hands over the lip, feet braced on the wall where there is one (else hanging free) · A / D shimmy · W or Space leap to the ledge above (or climb over the top) · S drop to the ledge below (or let go) · C let go · S + Space kick off the wall |
 | Space in the air beside a wall | Wall jump: kick off it (between two walls, zig-zag up) |
 | Swinging from a bamboo pole | W pumps the swing · Space lets go at the top of the arc, out to the far ledge · C drops |
 | At a rope's high end (E) | Slide down it to the roof across the lane · Space lets go early |

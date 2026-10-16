@@ -3,6 +3,7 @@
 //   node tools/bake-mocap.mjs moves    -> public/assets/characters/prady-moves.json (traversal)
 //   node tools/bake-mocap.mjs moves2   -> public/assets/characters/prady-moves2.json (ledge hang)
 //   node tools/bake-mocap.mjs moves3   -> public/assets/characters/prady-moves3.json (turns, stop, idle)
+//   node tools/bake-mocap.mjs mixamo   -> public/assets/characters/prady-mixamo.json (Mixamo: climbing, acrobatics, reactions)
 //   ... ue  (e.g. `node tools/bake-mocap.mjs moves ue`, or `node tools/bake-mocap.mjs - ue`): the same
 //   clips from Unreal's retarget of each take (UE_EXPORT, default ~/Desktop/PradyAnim/Export), to a
 //   new file in source-assets/ue/ (prady-mocap-ue.json, prady-moves-ue.json ...), not shipped
@@ -24,7 +25,7 @@ await p.waitForFunction(() => window.__bake, null, { timeout: 120000 });
 const json = await p.evaluate(() => window.__bake);
 // 5 decimals is far below what the eye can see on a bone and halves the file
 const slim = JSON.stringify(JSON.parse(json), (k, v) => (typeof v === 'number' ? Math.round(v * 1e5) / 1e5 : v));
-let outFile = ({ moves: 'public/assets/characters/prady-moves.json', moves2: 'public/assets/characters/prady-moves2.json', moves3: 'public/assets/characters/prady-moves3.json' }[set] || 'public/assets/characters/prady-mocap.json');
+let outFile = ({ mixamo: 'public/assets/characters/prady-mixamo.json', moves: 'public/assets/characters/prady-moves.json', moves2: 'public/assets/characters/prady-moves2.json', moves3: 'public/assets/characters/prady-moves3.json' }[set] || 'public/assets/characters/prady-mocap.json');
 // (Unreal's versions are material to pick from, not shipped: source-assets/ue/, then tools/merge-clips.mjs)
 if (set === 'video') outFile = 'source-assets/m2mr/prady-video.json';
 else if (set === 'videoPreview') outFile = 'source-assets/m2mr/prady-video-preview.json';

@@ -5,6 +5,7 @@ import { GROUPS } from '../core/Physics.js';
 import { clamp, damp, dampAngle, wrapAngle } from '../utils/math.js';
 import { solveTwoBone } from '../utils/bones.js';
 import { Ragdoll } from './Ragdoll.js';
+import { SpringChain, chainFromPoints, legSpheres, rigCloth } from './SpringBones.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { AsuraEyes, AsuraParticles, asuraMaterial, hornMaterial, hornsGeometry } from '../world/AsuraLook.js';
 import { PathFollower } from '../world/NavMesh.js';
@@ -1345,6 +1346,11 @@ export class Asura {
     }
     // feet on the steps: drop the body to the lower foot's tread, bend the other knee up to its own
     this.plantFeet(B);
+    if (B.springs) {
+      // (cloth on the ones near enough to see it swing)
+      const cam = this.sys.g.camera.position;
+      if (Math.hypot(this.pos.x - cam.x, this.pos.z - cam.z) < 32) for (const c of B.springs) c.update(dt);
+    }
     this.placeShield(B);
     this.eyesOut(B);
     this.uniforms.uHurt.value = this.hurt;
@@ -1666,6 +1672,7 @@ export class AsuraSystem {
     const uniforms = { uDissolve: { value: 0 }, uHurt: { value: 0 }, uRage: { value: 0 }, uTime: { value: 0 }, uFeetY: { value: 0 }, uHeadY: { value: 1.75 }, uGhost: { value: 0 } };
     const materials = [];
     let sculptedHorns = null;
+    let clothMesh = null;
     const extras = []; // (a villain's armour and cloth: hidden with the horns while it burns)
     root.traverse((o) => {
       if (!o.isMesh) return;
@@ -1692,6 +1699,7 @@ export class AsuraSystem {
         } else {
           this.clothMat ||= new THREE.MeshStandardMaterial({ color: 0x3a0c08, roughness: 0.9, side: THREE.DoubleSide });
           o.material = this.clothMat;
+          clothMesh = o;
         }
         extras.push(o);
         return;
@@ -1786,7 +1794,85 @@ export class AsuraSystem {
         [bone('Head'), 0.3],
       ],
     };
+    // its loincloth on spring bones: the front and back panels swing from the pelvis
+    B.springs = clothMesh ? this.loinSprings(root, clothMesh, B, scale) : null;
     return B;
+  }
+
+  /**
+   * A villain's loincloth (tools/blender/villain.py: a front and a back panel, weighted like the
+   * legs under them) handed to spring chains: each panel's hanging part is re-weighted onto a
+   * chain of bones under the pelvis (SpringBones.js), so it trails a stride, flares on a turn and
+   * swings on after a stop, pushed aside by the thighs. Built in the body's rest pose.
+   */
+  loinSprings(root, cloth, B, scale) {
+    const pelvis = root.getObjectByName('Bip01_Pelvis');
+    if (!pelvis || !cloth.skeleton) return null;
+    root.updateMatrixWorld(true);
+    const pP = pelvis.getWorldPosition(new THREE.Vector3());
+    const geo = cloth.geometry;
+    const chains = [];
+    const sims = [];
+    const cols = [];
+    const legCols = () => {
+      let k = legSpheres(B.legs[0][0], B.legs[0][1], B.legs[0][2], 0.09 * scale, cols, 0);
+      k = legSpheres(B.legs[1][0], B.legs[1][1], B.legs[1][2], 0.09 * scale, cols, k);
+      cols.length = k;
+      return cols;
+    };
+    // (every body of a kind shares the cloth's geometry: the first one weights it and keeps each
+    // chain's joints in the pelvis's own space, the others build the same chains from those)
+    if (geo.userData.loinSpec) {
+      for (const { key, joints } of geo.userData.loinSpec) {
+        const bones = chainFromPoints(pelvis, joints.map((j) => pelvis.localToWorld(j.clone())), `loin${key}`);
+        chains.push({ bones });
+        sims.push(new SpringChain(bones, { stiffness: 1.5, drag: 0.14, maxAngle: 1.0, radius: 0.015 * scale, colliders: legCols }));
+      }
+      if (!chains.length) return null;
+      rigCloth(cloth, chains);
+      return sims;
+    }
+    const sides = { f: [], b: [] };
+    const v = new THREE.Vector3();
+    for (let i = 0; i < geo.attributes.position.count; i++) {
+      cloth.getVertexPosition(i, v);
+      v.applyMatrix4(cloth.matrixWorld);
+      (v.z > pP.z ? sides.f : sides.b).push(v.clone());
+    }
+    const spec = [];
+    for (const key of ['f', 'b']) {
+      const list = sides[key];
+      if (list.length < 6) continue;
+      let top = -Infinity;
+      let bottom = Infinity;
+      for (const p of list) {
+        top = Math.max(top, p.y);
+        bottom = Math.min(bottom, p.y);
+      }
+      // (the panel's middle at its waist and at its hem)
+      const band = (y0) => {
+        const c = new THREE.Vector3();
+        let k = 0;
+        for (const p of list) {
+          if (Math.abs(p.y - y0) > (top - bottom) * 0.12) continue;
+          c.add(p);
+          k++;
+        }
+        return c.divideScalar(k || 1);
+      };
+      const a = band(top);
+      const z = band(bottom);
+      const joints = [0, 1, 2, 3].map((j) => new THREE.Vector3().lerpVectors(a, z, j / 3));
+      spec.push({ key, joints: joints.map((j) => pelvis.worldToLocal(j.clone())) });
+      const bones = chainFromPoints(pelvis, joints, `loin${key}`);
+      const front = key === 'f';
+      chains.push({ bones, top, bottom, pick: (p) => p.z > pP.z === front });
+      sims.push(new SpringChain(bones, { stiffness: 1.5, drag: 0.14, maxAngle: 1.0, radius: 0.015 * scale, colliders: legCols }));
+    }
+    if (!chains.length) return null;
+    rigCloth(cloth, chains);
+    geo.userData.loinSpec = spec;
+    return sims;
   }
 
   /**

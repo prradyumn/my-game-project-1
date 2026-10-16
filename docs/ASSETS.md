@@ -73,6 +73,26 @@ image lane and are processed into PBR sets in the browser instead.
 4. Use it: map a role in `ASSET_MANIFEST.character.mocapClips`, or play it from code by name.
    Check it in `tools/anim-lab.html?mocap=myName&mode=play`.
 
+## Mixamo motion capture (Adobe)
+
+Mixamo's clips are royalty-free inside a game (not for resale as animation files). They are
+fetched with the user's own Mixamo sign-in by `tools/mixamo-fetch.mjs` (its header has the steps:
+a normal Chrome window with a debugging port, sign in by hand, then `search` / `get`), as FBX on
+Y Bot with no skin at 30 fps, into `source-assets/mixamo/clips/`.
+
+- **Prady** (`tools/retarget.js ?set=mixamo` → `public/assets/characters/prady-mixamo.json`, clips
+  named `mx…`):
+  - Ledges: braced and free hang loops, shimmies both ways, the climb up (braced and free),
+    the catch, hops up, left and right, the drop to a ledge below, and wall climbing.
+  - Ledge clips are baked with `lockY`: the game moves him and the clip only poses him.
+  - Ground: the kip-up, the butterfly kick (trimmed to 0.7–2.8 s), the butterfly twirl, the
+    fall into a roll, the hard landing, the jumping dodge back, five hit reactions, and getting
+    up from the back or front.
+- **The brutes** (Rakshasa, Andhaka; `tools/villains.js` `MUTANT`): the mutant walk, run, idle
+  and roar replace the plain locomotion.
+- **Also downloaded, not yet used:** the mutant swipe, punch, jump attack and death, and
+  crouched sneaking left and right.
+
 ## Retargeting through Unreal Engine (the PradyAnim lab)
 
 `~/Desktop/PradyAnim` is an Unreal Engine 5.8 project kept for Prady's animation (never shipped,

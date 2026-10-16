@@ -207,6 +207,9 @@ export class CharacterAnimator {
     for (const k of ['wave', 'stretch', 'lookAround', 'pranam', 'meditate', 'sitToStand', 'crouchReach', 'stepUp', 'diveTakeoff', 'guard', 'oneTwo', 'bodyShot', 'frontKick', 'roundKick', 'sideKick', 'thrust', 'parry', 'swordStance', 'slashA', 'slashB', 'heavyCut', 'dodgeRoll', 'dodgeBack', 'backFlip', 'aerialL', 'aerialR', 'knockdown', 'getUp', 'death', 'hitLight', 'hitHeavy', 'vault', 'scramble', 'ladder', 'hang', 'turnL', 'turnR', 'runStop', 'akimbo']) {
       if (clips[k]) this.clipActions[k] = this.mixer.clipAction(BREATHE[k] ? makeBreath(clips[k], ...BREATHE[k], k) : clips[k]);
     }
+    // the Mixamo set (prady-mixamo.json, 'mx…'): ledge hangs and shimmies, climbs, hops, the kip-up,
+    // the butterfly kick, falls into a roll, hit reactions
+    for (const k of Object.keys(clips)) if (k.startsWith('mx') && !this.clipActions[k]) this.clipActions[k] = this.mixer.clipAction(clips[k]);
     // a half turn on the spot is two quarter turns: the second its own copy, so they cross-fade
     for (const k of ['turnL', 'turnR']) if (clips[k]) this.clipActions[`${k}2`] = this.mixer.clipAction(Object.assign(clips[k].clone(), { name: `${k}2` }));
     // up a wall at a run: the run cycle itself, its own action (Traversal leans the body back)
