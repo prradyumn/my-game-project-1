@@ -73,6 +73,8 @@ const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _base = new THREE.Vector3();
 const _tip = new THREE.Vector3();
+const _kn = new THREE.Vector3();
+const _ft = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const _hq = new THREE.Quaternion();
 const _bq = new THREE.Quaternion();
@@ -1391,6 +1393,23 @@ export class Combat {
     mv.ctPrev = ct;
     const pb = this.prevBlade;
     if (owned && this.armed) this.prevBlade = { base: _base.clone(), tip: _tip.clone(), mv };
+    // the blow's light (VFX.js): the blade's trail through a cut, an arc of air behind a kick
+    if (this.vfx && m.hits.length) {
+      const t0 = m.hits[0].t - (m.kick ? 0.24 : 0.2);
+      const t1 = m.hits[m.hits.length - 1].t + 0.1;
+      if (ct >= t0 && ct <= t1) {
+        if (owned && this.armed && m.sword) {
+          const fire = m.heavy || mv.chargedFx;
+          this.vfx.trail('blade', _base, _tip, fire ? { color: [2.2, 0.9, 0.25], core: [3.2, 2.4, 1.2] } : { color: [1.2, 1.35, 1.7], core: [2.6, 2.8, 3.2] });
+        } else if (m.kick) {
+          const h = m.hits.find((x) => ct <= x.t + 0.1) || m.hits[0];
+          const side = (h.limb || 'RightFoot').startsWith('Left') ? 'Left' : 'Right';
+          const knee = this.anim.boneWorld(`${side}Leg`, _kn);
+          const foot = this.anim.boneWorld(`${side}ToeBase`, _ft) || this.anim.boneWorld(`${side}Foot`, _ft);
+          if (knee && foot) this.vfx.trail(`kick${side}`, knee, foot, { color: [1.1, 1.2, 1.5], core: [2.2, 2.3, 2.6] });
+        }
+      }
+    }
     // a finisher's blow lands on its target at the clip's moment, wherever the blade is
     if (mv.force) {
       m.hits.forEach((h, hi) => {
@@ -1442,6 +1461,12 @@ export class Combat {
         const list = this.comboList();
         const final = !heavy && mv.i !== undefined && list.length > 1 && mv.i % list.length === list.length - 1 && hi === m.hits.length - 1;
         const res = t.hit({ k: h.k * (charged ? 1.25 : 1), dir, at: pt, sweep, sword: !!h.blade, heavy, kick: !!m.kick, move: mv.name, combo: mv.i, final, riposte: !!mv.riposte, charged });
+        // where it bit: steel throws sparks, a heavy blow a flash
+        if (this.vfx && t.enemy) {
+          const l = Math.hypot(dir.x, dir.z) || 1;
+          if (h.blade) this.vfx.sparks(pt, { x: dir.x / l, y: 0.25, z: dir.z / l }, heavy ? 18 : 9, { speed: heavy ? 8 : 6 });
+          if (heavy || final || charged) this.vfx.flash(pt, heavy ? 1.3 : 0.9, { color: [2.2, 1.4, 0.8] });
+        }
         if (res === 'blocked') {
           // the Kavacha's shield: the blow rings off it and throws his arm back
           const l = Math.hypot(dir.x, dir.z) || 1;

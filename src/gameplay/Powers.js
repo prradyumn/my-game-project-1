@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+const VFX_FRAME = new THREE.Quaternion();
+const _eul = new THREE.Euler();
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SHAKTI } from '../config.js';
 import { GROUPS } from '../core/Physics.js';
@@ -17,6 +19,11 @@ import { softDotTexture } from '../utils/textures.js';
 //   3  Third Eye       for six seconds the world slows for everyone but Prady (Asuras, their
 //                      fire), their veins burn brighter (weak: blows cut deeper), and every hidden
 //                      rudraksha shines through the walls.
+//   4  Agni Chakra     Prady spins (the butterfly twirl) wreathed in rings of fire; the last turn
+//                      bursts outward in a ring of flame that burns and throws every Asura near.
+//
+// Their light is VFX.js: yantras drawn on the ground, shockwaves with glowing cracks, lightning
+// behind the trishul, fire arcs, sparks, and an impact frame at each release.
 //
 // Gamepad: hold LT, then X / Y / B.
 
@@ -30,7 +37,9 @@ const _x = new THREE.Vector3();
 const _y = new THREE.Vector3();
 const _z = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
-const KINDS = ['damaru', 'trishul', 'thirdEye'];
+const KINDS = ['damaru', 'trishul', 'thirdEye', 'agniChakra'];
+// (a power's siddhi, where it isn't its own: Agni Chakra comes with the Gathered Storm)
+const SIDDHI_OF = { agniChakra: 'charged' };
 
 function damaruGeometry() {
   // an hourglass drum: two cones tip to tip, skin heads, a red cord at the waist with two beads
@@ -134,12 +143,12 @@ export class Powers {
   }
 
   unlocked(kind) {
-    return !!this.g.siddhis?.has(kind);
+    return !!this.g.siddhis?.has(SIDDHI_OF[kind] || kind);
   }
 
   /** Fighting well fills the meter (x the Kundalini siddhi). */
   gain(n) {
-    if (!KINDS.some((k) => this.g.siddhis?.has(k))) return;
+    if (!KINDS.some((k) => this.unlocked(k))) return;
     const before = this.shakti;
     this.shakti = Math.min(SHAKTI.max, this.shakti + n * this.fillMul);
     this.shownT = 3;
@@ -196,6 +205,15 @@ export class Powers {
       this.act = { kind, t: 0, beats: 0, yaw: g.player.yaw };
       g.animator.play('wave', { timeScale: 1.35, fadeIn: 0.14, fadeOut: 0.3, cancelOnMove: false, noLook: true });
       this.damaru.visible = true;
+      // a yantra drawn in light under him as the drum beats
+      g.vfx?.yantra({ x: g.player.position.x, y: g.player.feetY, z: g.player.position.z }, 2.6, { dur: 1.05, spin: 1.6, follow: () => ({ x: g.player.position.x, y: g.player.feetY, z: g.player.position.z }) });
+    } else if (kind === 'agniChakra') {
+      this.act = { kind, t: 0, yaw: g.player.yaw, turns: 0, burst: false };
+      const A = g.animator.clipActions;
+      g.animator.play(A.mxButterflyTwirl ? 'mxButterflyTwirl' : 'roundKick', { timeScale: 1.55, fadeIn: 0.1, fadeOut: 0.3, cancelOnMove: false, noLook: true, noFootIK: true });
+      c.handBusy = false;
+      g.audio.play('ignite', { volume: 0.9, rate: 0.8 });
+      g.vfx?.yantra({ x: g.player.position.x, y: g.player.feetY, z: g.player.position.z }, 3.4, { color: [1.7, 0.45, 0.08], dur: 1.6, spin: 3, follow: () => ({ x: g.player.position.x, y: g.player.feetY, z: g.player.position.z }) });
     } else if (kind === 'trishul') {
       const aim = this.aim();
       this.act = { kind, t: 0, aim, yaw: Math.atan2(aim.dir.x, aim.dir.z), thrown: false };
@@ -235,6 +253,7 @@ export class Powers {
     p.speed = 0;
     if (a.kind === 'damaru') this.damaruStep(a);
     else if (a.kind === 'trishul') this.throwStep(a);
+    else if (a.kind === 'agniChakra') this.chakraStep(a);
     return true;
   }
 
@@ -271,6 +290,14 @@ export class Powers {
     g.audio.play('fw-boom', { volume: 0.6, rate: 1.6 });
     g.audio.play('thump', { volume: 1, rate: 0.45 });
     g.asuras.particles.emitDust(P.x, g.player.feetY, P.z, 2.2, 22);
+    const feet = { x: P.x, y: g.player.feetY + 0.02, z: P.z };
+    g.vfx?.shockwave(feet, R, { color: [2, 1.45, 0.7], cracks: 1, crack: [2.4, 1.5, 0.5], dur: 0.9 });
+    g.vfx?.flash({ x: P.x, y: g.player.feetY + 1.1, z: P.z }, 3.2, { color: [2.4, 1.9, 1.1], life: 0.3 });
+    for (let i = 0; i < 8; i++) {
+      const an = (i / 8) * Math.PI * 2;
+      g.vfx?.sparks({ x: P.x, y: g.player.feetY + 0.5, z: P.z }, { x: Math.sin(an), y: 0.2, z: Math.cos(an) }, 4, { speed: 11, spread: 0.3, color: [3, 2.4, 1.2] });
+    }
+    g.cinematics?.impactFrame({ x: P.x, y: g.player.feetY + 1, z: P.z }, { dur: 0.08 });
     g.looseProps?.blast(P, R, 10);
     g.projectiles?.douse(P, R);
     let n = 0;
@@ -343,6 +370,67 @@ export class Powers {
     g.audio.play('riser', { volume: 0.7 });
     g.ui.setThirdEye?.(true);
     g.haptics?.pulse(0.3, 0.2, 300);
+    // Shiva's eye opens: the world inverted for a beat, a crimson yantra turning under him for as
+    // long as it stays open
+    const P = g.player.position;
+    g.cinematics?.impactFrame(null, { invert: true, dur: 0.12 });
+    g.vfx?.yantra({ x: P.x, y: g.player.feetY, z: P.z }, 3.8, { color: [1.5, 0.1, 0.07], dur: 1.2, hold: SHAKTI.thirdEyeSecs - 1.2, spin: 0.5, follow: () => ({ x: g.player.position.x, y: g.player.feetY, z: g.player.position.z }) });
+    const brow = g.animator.boneWorld?.('Head', new THREE.Vector3());
+    if (brow) g.vfx?.flash(brow.setY(brow.y + 0.08), 1.2, { color: [2.6, 0.8, 0.5], life: 0.4 });
+  }
+
+  /** Agni Chakra: the spin (each turn a ring of fire round him), then the burst. */
+  chakraStep(a) {
+    const g = this.g;
+    const P = g.player.position;
+    const fy = g.player.feetY;
+    // the turns of the twirl: a ring of flame at a different height each time
+    const turns = [0.32, 0.62, 0.92];
+    while (a.turns < turns.length && a.t >= turns[a.turns]) {
+      const i = a.turns++;
+      const y = fy + 0.55 + i * 0.32;
+      g.vfx?.slash(new THREE.Vector3(P.x, y, P.z), VFX_FRAME.setFromEuler(_eul.set(0.08 * (i - 1), a.yaw + i * 2.1, 0.12 * (i - 1), 'YXZ')).clone(), { r: 1.55 + i * 0.25, w: 0.55, arc: Math.PI * 2, fire: true, dur: 0.32, tail: 0.75 });
+      g.audio.play('blade-whoosh', { volume: 0.8, rate: 0.7 + i * 0.1 });
+      g.asuras.particles.emitEmbers(P.x, y, P.z, 18, null, 1.2);
+      // whatever the flame passes through is singed
+      this.chakraHit(1.9 + i * 0.25, 0.45, 7, false);
+    }
+    if (!a.burst && a.t >= 1.12) {
+      a.burst = true;
+      const R = 4.2;
+      g.vfx?.shockwave({ x: P.x, y: fy + 0.02, z: P.z }, R, { color: [2.6, 0.9, 0.2], cracks: 1, crack: [2.8, 0.7, 0.1], dur: 0.85 });
+      g.vfx?.slash(new THREE.Vector3(P.x, fy + 0.4, P.z), VFX_FRAME.setFromEuler(_eul.set(0, a.yaw, 0, 'YXZ')).clone(), { r: 2.6, w: 1.1, arc: Math.PI * 2, fire: true, dur: 0.3, tail: 0.9 });
+      g.vfx?.flash({ x: P.x, y: fy + 1, z: P.z }, 3.6, { color: [2.8, 1.2, 0.35], life: 0.35 });
+      g.cinematics?.impact(0.75);
+      g.cinematics?.impactFrame({ x: P.x, y: fy + 1, z: P.z }, { dur: 0.09 });
+      g.camRig.shake(0.5);
+      g.haptics?.play('damaru');
+      g.audio.play('fw-boom', { volume: 0.7, rate: 1.3 });
+      g.audio.play('ignite', { volume: 1, rate: 0.6 });
+      g.asuras.particles.emitEmbers(P.x, fy + 0.6, P.z, 60, null, 2.2);
+      this.chakraHit(R, 1.3, 24, true);
+    }
+    if (a.t > 1.75) {
+      this.act = null;
+      g.animator.stop(0.3);
+      if (g.combat.armed) g.combat.stance(3);
+    }
+  }
+
+  /** Burn every Asura within R of him (k: the blow's weight; throw: floored by the burst). */
+  chakraHit(R, k, dmg, throwThem) {
+    const g = this.g;
+    const P = g.player.position;
+    for (const x of g.asuras.list) {
+      if (!x.alive || x.state === 'rise') continue;
+      const dx = x.pos.x - P.x;
+      const dz = x.pos.z - P.z;
+      const d = Math.hypot(dx, dz);
+      if (d > R + x.radius || Math.abs(x.pos.y - g.player.feetY) > 2.5) continue;
+      const dir = { x: dx / (d || 1), z: dz / (d || 1) };
+      x.hit({ k, dir, at: { x: x.pos.x, y: x.pos.y + x.height * 0.5, z: x.pos.z }, sword: false, heavy: throwThem, power: true, dmgOverride: dmg });
+      if (throwThem && x.alive) x.floor?.(dir, 1.2);
+    }
   }
 
   // ------------------------------------------------------------ per rendered frame
@@ -466,8 +554,17 @@ export class Powers {
       this.placeTrishul(T.pos, _a.copy(dir).negate(), false);
       if (T.t > 3) this.caught();
     }
-    // a streak of light behind it
-    if (T.phase === 'out' || T.phase === 'back') g.asuras.particles.emitEmbers(T.pos.x, T.pos.y, T.pos.z, 1, null, 0.15);
+    // a streak of light behind it, crackling: lightning between where it is and where it was
+    if (T.phase === 'out' || T.phase === 'back') {
+      g.asuras.particles.emitEmbers(T.pos.x, T.pos.y, T.pos.z, 1, null, 0.15);
+      T.boltT = (T.boltT ?? 0) - dt;
+      if (T.lastPos && T.boltT <= 0 && T.lastPos.distanceToSquared(T.pos) > 0.5) {
+        T.boltT = 0.045;
+        g.vfx?.lightning(T.lastPos, T.pos, { width: 0.05, life: 0.16, rate: 0.04, jag: 0.12 });
+        T.lastPos.copy(T.pos);
+      }
+      T.lastPos ||= T.pos.clone();
+    }
   }
 
   pin(a, dir) {
@@ -485,6 +582,12 @@ export class Powers {
     g.audio.play('thump', { at: T.pos, volume: 0.8, rate: 0.5 });
     g.camRig.shake(0.18);
     g.haptics?.play('pin');
+    // Shiva's lightning answers the trishul: a bolt down onto it, a blue burst, sparks
+    g.vfx?.lightning(new THREE.Vector3(T.pos.x + 0.6, T.pos.y + 7, T.pos.z - 0.4), T.pos.clone(), { width: 0.11, life: 0.35, rate: 0.05, jag: 0.16 });
+    g.vfx?.flash(T.pos, 2.2, { color: [1.2, 1.6, 3], life: 0.28 });
+    g.vfx?.sparks(T.pos, { x: -dir.x, y: 0.4, z: -dir.z }, 22, { speed: 8, color: [1.6, 2.2, 3.2] });
+    g.vfx?.shockwave({ x: a.pos.x, y: a.pos.y + 0.03, z: a.pos.z }, 2.2, { color: [0.8, 1.2, 2.6], dur: 0.5 });
+    g.cinematics?.impactFrame(T.pos, { dur: 0.07 });
     g.achievements?.event('trishulPin', {});
   }
 

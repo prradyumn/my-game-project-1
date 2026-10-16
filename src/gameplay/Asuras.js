@@ -1998,6 +1998,9 @@ export class AsuraSystem {
   /** A ring of force across the ground (the boss's stomp): visual + camera shake. */
   shockwave(p, r) {
     this.shocks.push({ x: p.x, y: this.groundFor(p, r) + 0.05, z: p.z, r, t: 0 });
+    // the stone splits under it: a ring of ember light racing out, cracks glowing and cooling
+    this.g.vfx?.shockwave({ x: p.x, y: this.groundFor(p, r) + 0.02, z: p.z }, r, { color: [2.2, 0.9, 0.35], cracks: 1, crack: [2.6, 0.55, 0.1], dur: 0.8 });
+    this.g.vfx?.sparks({ x: p.x, y: this.groundFor(p, r) + 0.2, z: p.z }, { x: 0, y: 1, z: 0 }, 20, { speed: 6, spread: 1.4, color: [2.6, 1.2, 0.4] });
     this.g.haptics?.play('stomp');
     this.g.looseProps?.blast(p, r * 1.15, 8);
     this.g.camRig.shake(0.6);

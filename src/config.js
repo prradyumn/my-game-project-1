@@ -171,7 +171,7 @@ export const DIFFICULTY = {
 export const SIDDHIS = [
   { id: 'combo4', path: 'talwar', name: 'Fourth Strike', text: 'The combo gains a fourth blow: a two-handed overhead cut (fists: a roundhouse kick) that staggers.', beads: 3, embers: 5 },
   { id: 'riposte', path: 'talwar', name: 'Pratyuttara', text: 'Strike within a moment of a parry: a riposte for triple damage.', beads: 6, embers: 12 },
-  { id: 'charged', path: 'talwar', name: 'Gathered Storm', text: 'Hold the heavy strike to charge it. A charged blow breaks any guard and floors a Rakshasa.', beads: 9, embers: 20 },
+  { id: 'charged', path: 'talwar', name: 'Gathered Storm', text: 'Hold the heavy strike to charge it. A charged blow breaks any guard and floors a Rakshasa. And Agni Chakra: spend Shakti (4) to spin in rings of fire that burn every Asura around you.', beads: 9, embers: 20 },
   { id: 'mercy', path: 'talwar', name: 'Final Mercy', text: 'Finishers open sooner (half health) and each one restores prana.', beads: 12, embers: 30 },
   { id: 'prana1', path: 'body', name: 'Deep Breath', text: '+25 prana.', beads: 3, embers: 5 },
   { id: 'windStep', path: 'body', name: 'Wind Step', text: 'A longer dodge with a longer moment of grace. A dodge on the flare fills Shakti.', beads: 6, embers: 12 },
@@ -219,6 +219,6 @@ export const SHAKTI = {
   parry: 14,
   dodge: 6, // a dodge through a blow (with Wind Step)
   kill: 8,
-  cost: { damaru: 50, trishul: 30, thirdEye: 60 },
+  cost: { damaru: 50, trishul: 30, thirdEye: 60, agniChakra: 40 },
   thirdEyeSecs: 6,
 };

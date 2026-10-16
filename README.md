@@ -38,7 +38,7 @@ Requires Node ≥ 20 and a WebGL2 browser (Chrome, Edge, Safari 17+, Firefox).
 | In a fight | Strike out of a roll · strike at a sprint (a running heavy blow: the roundhouse, then the **butterfly kick**) · Space while knocked flat (**kip-up** straight to your feet) · strike falling from a height (a **plunge** that throws them flat) · strike on a wall run (kick off it onto one) · Space with one right in front (**vault** over it, land at its back) |
 | Tab | Lock on to an Asura (flick the mouse to switch) |
 | R | Draw / sheathe the talwar · on the rooftop run (Chhat Daud): run it again from the start |
-| 1 / 2 / 3 | Powers (Shakti): Shiva's Damaru · Trishul (press again to call it back) · Third Eye |
+| 1 / 2 / 3 / 4 | Powers (Shakti): Shiva's Damaru · Trishul (press again to call it back) · Third Eye · **Agni Chakra** (a spin in rings of fire, then a burst of flame; comes with the Gathered Storm siddhi) |
 | Space at a ledge | Climb it (running into a low wall or a parapet vaults it) |
 | Space at a tall wall | Run up it (at a run, or pressed against it) and catch the ledge above: a wall top, a chhajja, a parapet |
 | Hanging from a ledge | Hands over the lip, feet braced on the wall where there is one (else hanging free) · A / D shimmy · W or Space leap to the ledge above (or climb over the top) · S drop to the ledge below (or let go) · C let go · S + Space kick off the wall |

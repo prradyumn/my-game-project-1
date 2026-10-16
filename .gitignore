@@ -5,3 +5,6 @@
 !.env.example
 node_modules/
 dist/
+
+# Fab packs as downloaded (Standard License: no standalone redistribution; only the effects made from them ship)
+source-assets/fab-raw/

@@ -174,6 +174,10 @@ movement is identical at 30, 60 or 120 fps.
   - **Hanging from the hands:** `hangFromHands()` moves the body toward the edge when a clip's shoulders drop past arm's reach.
   - **Braced or free:** braced where the face under the edge is within `BRACE` of the lip (feet IK'd onto the stone, stepping with the shimmy), free otherwise.
   - **Clips:** each move plays its Mixamo clip (`hangAnim()`, `playTimed()`: braced/free hang and shimmy loops, the catch, hop up, drop, climb up) and keeps the CMU stand-ins when that clip is missing. |
+| `world/VFX.js` | The big moves' light: pooled, additive, drawn only while alive.
+  - **Pieces:** `shockwave` (a ring racing over the ground with glowing cracks), `yantra` (a mandala drawn on the ground in light), `slash` (a crescent or a ring of flame), `lightning` (a forked bolt, re-struck), `sparks` (one instanced mesh of streaks), `flash`, and `trail` (a ribbon behind the talwar or a kicking shin, fed each frame by `Combat`).
+  - **Users:** `Powers` (the Damaru's yantra and shockwave, the Trishul's lightning trail and strike, the Third Eye's crimson yantra, Agni Chakra), `Combat` (trails, hit sparks), `Game` (parry sparks and impact frames), `Finishers`, and the Asuras' slam.
+  - **Impact frames:** `ImpactEffect` turns the picture into a two-tone ink panel for a beat (`Cinematics.impactFrame`), never with Reduce flashes. |
 | `gameplay/SpringBones.js` · `gameplay/Drapes.js` | Spring bones.
   - **The chain:** `SpringChain` is a verlet chain under a body bone. It has drag, a pull back to its rest pose, gravity, a swing limit and spheres riding the legs, and runs in fixed 60 Hz steps.
   - **Helpers:** `chainFromPoints` builds the bones; `rigCloth` re-weights a skinned cloth mesh's hanging part onto chains; `makeDrape` builds a pleated two-sided panel on a chain.

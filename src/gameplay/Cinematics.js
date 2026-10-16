@@ -85,6 +85,16 @@ export class Cinematics {
     } else this.center.set(0.5, 0.5);
   }
 
+  /** An impact frame: a beat drawn as an ink panel (`invert`: light on dark), at a world point. */
+  impactFrame(at = null, { dur = 0.09, invert = false } = {}) {
+    this.frameT = dur;
+    this.frameInvert = invert;
+    if (at) {
+      _v.set(at.x, at.y ?? this.g.player.position.y + 0.4, at.z).project(this.g.camera);
+      if (_v.z < 1) this.center.set(clamp(_v.x * 0.5 + 0.5, 0.15, 0.85), clamp(_v.y * 0.5 + 0.5, 0.15, 0.85));
+    }
+  }
+
   // ------------------------------------------------------------------ shots
   free() {
     const g = this.g;
@@ -216,7 +226,10 @@ export class Cinematics {
     const slow = clamp(1 - g.timeScale, 0, 1);
     const ch = (this.chroma + slow * 0.0035) * (quiet ? 0.35 : 1);
     const bl = (this.blur + slow * 0.02) * (quiet ? 0.5 : 1);
-    g.rs.setImpact(ch, bl, this.center.x, this.center.y);
+    // the impact frame: held a few frames whole, then gone (never with Reduce flashes)
+    this.frameT = Math.max(0, (this.frameT || 0) - dt);
+    const fr = quiet ? 0 : this.frameT > 0 ? 1 : 0;
+    g.rs.setImpact(ch, bl, this.center.x, this.center.y, fr, this.frameInvert ? 1 : 0);
     g.audio.setMuffle(clamp(slow * 1.15, 0, 0.85));
     // the lens: a sprint widens it, slow motion and a shot push in
     const sprinting = g.player.cmd?.sprint && g.player.speed > 4 && g.player.state === 'ground';

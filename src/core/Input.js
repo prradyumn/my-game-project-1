@@ -20,6 +20,7 @@ export const ACTIONS = [
   { id: 'damaru', label: 'Power: Shiva’s Damaru', key: 'Digit1' },
   { id: 'trishul', label: 'Power: Trishul', key: 'Digit2' },
   { id: 'thirdEye', label: 'Power: Third Eye', key: 'Digit3' },
+  { id: 'agniChakra', label: 'Power: Agni Chakra', key: 'Digit4' },
   { id: 'journal', label: 'Journal · map · siddhis', key: 'KeyJ' },
   { id: 'diya', label: 'Float a diya', key: 'KeyF' },
   { id: 'greet', label: 'Pranam (greet)', key: 'KeyG' },

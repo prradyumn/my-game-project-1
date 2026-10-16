@@ -240,11 +240,11 @@ export class RenderSystem {
   }
 
   /** chroma: the colour split, blur: the streak toward (cx, cy) (screen uv); 0, 0 switches it off. */
-  setImpact(chroma, blur, cx = 0.5, cy = 0.5) {
+  setImpact(chroma, blur, cx = 0.5, cy = 0.5, frame = 0, invert = 0) {
     if (!this.impact) return;
-    const on = chroma > 0.0004 || blur > 0.0004;
+    const on = chroma > 0.0004 || blur > 0.0004 || frame > 0.001;
     this.impactPass.enabled = on;
-    if (on) this.impact.set(chroma, blur, cx, cy);
+    if (on) this.impact.set(chroma, blur, cx, cy, frame, invert);
   }
 
   /** level 0 off, 1 soft, 2 strong; target: world point to keep sharp. */

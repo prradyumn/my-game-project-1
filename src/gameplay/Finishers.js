@@ -160,6 +160,9 @@ export class Finishers {
       g.haptics?.play('finisher');
       if (!g.settings.reduceFlashes) g.ui.flash();
       g.cinematics?.impact(1, at);
+      g.cinematics?.impactFrame(at, { dur: 0.11 });
+      g.vfx?.flash(at, 2.2, { color: [2.6, 1.6, 0.8], life: 0.3 });
+      g.vfx?.sparks(at, { x: dir.x * 0.6, y: 0.4, z: dir.z * 0.6 }, 30, { speed: 9 });
       g.audio.play('slowmo-boom', { volume: a.K.boss ? 1 : 0.85, rate: a.K.boss ? 0.85 : 1 });
       g.audio.play('blade-hit', { at, volume: 1, rate: 0.7 });
       g.asuras.particles.emitEmbers(at.x, at.y, at.z, 70, { x: dir.x * 0.4, z: dir.z * 0.4 }, 1.8);

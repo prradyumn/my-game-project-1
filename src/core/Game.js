@@ -13,6 +13,7 @@ import { Player } from '../gameplay/Player.js';
 import { PradyActions } from '../gameplay/Actions.js';
 import { ClothSway } from '../gameplay/ClothSway.js';
 import { Drapes } from '../gameplay/Drapes.js';
+import { VFX } from '../world/VFX.js';
 import { Missions } from '../gameplay/Missions.js';
 import { Combat, synthBladeHit, synthBladeWhoosh, synthBlock, synthBodyHit, synthDraw, synthGlint, synthParry, synthSheathe, synthThump, synthWhoosh } from '../gameplay/Combat.js';
 import { Health } from '../gameplay/Health.js';
@@ -401,6 +402,9 @@ export class Game {
     this.player.powers = this.powers;
     this.finishers = new Finishers(this);
     this.cinematics = new Cinematics(this);
+    // the big moves' light: shockwaves, yantras, slashes, lightning, sparks, trails (VFX.js)
+    this.vfx = new VFX(scene);
+    if (this.combat) this.combat.vfx = this.vfx;
     this.traversal = new Traversal(this);
     this.player.traversal = this.traversal;
     this.festival = new Festival(this);
@@ -1205,7 +1209,7 @@ export class Game {
     this.input.setBindings(s.bindings || {});
     // (prompts show the keys the player actually presses)
     const k = (code) => keyName(this.input.keyFor(code));
-    this.ui.keys = { interact: k('KeyE'), damaru: k('Digit1'), trishul: k('Digit2'), thirdEye: k('Digit3') };
+    this.ui.keys = { interact: k('KeyE'), damaru: k('Digit1'), trishul: k('Digit2'), thirdEye: k('Digit3'), agniChakra: k('Digit4') };
   }
 
   save() {
@@ -1359,6 +1363,10 @@ export class Game {
     this.combat?.late(simDt);
     this.powers?.late();
     this.drapes?.update(simDt); // (his cloth swings from wherever every pose and IK left him)
+    if (this.vfx) {
+      this.vfx.reduce = !!this.settings.reduceFlashes;
+      this.vfx.update(simDt, this.camera);
+    }
     this.roofRun?.late(); // (records him, poses his chhaya: after every pose and IK)
     if (this.health) {
       const near = this.targets.enemies().some((e) => Math.hypot(e.pos.x - this.player.position.x, e.pos.z - this.player.position.z) < 25 && e.awake !== false);
@@ -1771,6 +1779,13 @@ export class Game {
       this.cinematics?.impact(0.65, data.at ? { x: data.at.x, y: this.player.position.y + 0.4, z: data.at.z } : null);
       // steel on claw: a spray of sparks where the blow was turned aside
       if (data.at) this.asuras.particles.emitEmbers(data.at.x, this.player.position.y + 0.45, data.at.z, 34, null, 1.5);
+      if (data.at && this.vfx) {
+        const at = { x: data.at.x, y: this.player.position.y + 0.5, z: data.at.z };
+        const out = { x: data.at.x - this.player.position.x, y: 0.3, z: data.at.z - this.player.position.z };
+        this.vfx.sparks(at, out, 26, { speed: 8, color: [3.2, 2.2, 0.9] });
+        this.vfx.flash(at, 1.4, { color: [2.4, 2, 1.4] });
+        this.cinematics?.impactFrame(at);
+      }
       if (!this.settings.reduceFlashes) this.ui.flash();
       this.haptics.play('parry');
       this.powers.gain(SHAKTI.parry);
@@ -1785,11 +1800,13 @@ export class Game {
       this.haptics.play('parry');
       this.powers.gain(SHAKTI.parry);
       this.ui.toast('Perfect dodge', 'Strike now: a counter', 1.2);
+      this.cinematics?.impactFrame(null, { invert: true, dur: 0.07 });
     }
     if (type === 'plungeLand') {
       this.camRig.shake(0.5);
       this.cinematics?.impact(0.55, data.at);
       this.asuras.particles.emitDust(data.at.x, data.at.y, data.at.z, 1.8, 20);
+      this.vfx?.shockwave(data.at, 3.6, { cracks: 1, dur: 0.6 });
       this.haptics.play('heavyHit');
       this.animals?.startle(data.at.x, data.at.z, 10);
       if (data.n) this.slowMo(0.35, 0.22);
@@ -2066,6 +2083,7 @@ export class Game {
     if (input.hit('Digit1') || (lt && input.hit('Pad2'))) this.powers.press('damaru');
     if (input.hit('Digit2') || (lt && input.hit('Pad3'))) this.powers.press('trishul');
     if (input.hit('Digit3') || (lt && input.hit('Pad1'))) this.powers.press('thirdEye');
+    if (input.hit('Digit4') || (lt && input.hit('Pad0'))) this.powers.press('agniChakra');
     // fighting
     const atk = input.hit('Mouse0') || input.hit('Pad5');
     const dodge = (input.hit('KeyC') || input.hit('ControlLeft') || (input.hit('Pad1') && !lt)) && this.player.state === 'ground';

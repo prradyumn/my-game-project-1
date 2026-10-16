@@ -292,8 +292,8 @@ export class UI {
     need.textContent = st.need ? `Needs ${st.need} Shakti · fight to fill it` : '';
     el.querySelector('.track i').style.width = `${(st.frac * 100).toFixed(1)}%`;
     const K = this.keys || {};
-    const keys = { damaru: this.padMode ? 'LT+X' : K.damaru || '1', trishul: this.padMode ? 'LT+Y' : K.trishul || '2', thirdEye: this.padMode ? 'LT+B' : K.thirdEye || '3' };
-    const names = { damaru: 'Damaru', trishul: 'Trishul', thirdEye: 'Third Eye' };
+    const keys = { damaru: this.padMode ? 'LT+X' : K.damaru || '1', trishul: this.padMode ? 'LT+Y' : K.trishul || '2', thirdEye: this.padMode ? 'LT+B' : K.thirdEye || '3', agniChakra: this.padMode ? 'LT+A' : K.agniChakra || '4' };
+    const names = { damaru: 'Damaru', trishul: 'Trishul', thirdEye: 'Third Eye', agniChakra: 'Agni Chakra' };
     const key = st.powers.map((p) => p.kind).join('|') + this.padMode + Object.values(keys).join('');
     const box = el.querySelector('.powers');
     if (key !== this.shaktiKey) {
