@@ -1999,7 +1999,10 @@ export class AsuraSystem {
   shockwave(p, r) {
     this.shocks.push({ x: p.x, y: this.groundFor(p, r) + 0.05, z: p.z, r, t: 0 });
     // the stone splits under it: a ring of ember light racing out, cracks glowing and cooling
-    this.g.vfx?.shockwave({ x: p.x, y: this.groundFor(p, r) + 0.02, z: p.z }, r, { color: [2.2, 0.9, 0.35], cracks: 1, crack: [2.6, 0.55, 0.1], dur: 0.8 });
+    this.g.vfx?.shockwave({ x: p.x, y: this.groundFor(p, r) + 0.02, z: p.z }, r, { color: [2.2, 0.9, 0.35], cracks: 1, crack: [2.6, 0.55, 0.1], dur: 0.8, linger: 2.4 });
+    this.g.vfx?.debris({ x: p.x, y: this.groundFor(p, r), z: p.z }, 18, { speed: 6 });
+    this.g.vfx?.dirt({ x: p.x, y: this.groundFor(p, r), z: p.z }, r * 0.3, 8, { size: 1.5 });
+    this.g.vfx?.smoke({ x: p.x, y: this.groundFor(p, r), z: p.z }, 4, { size: 2, spread: r * 0.2, alpha: 0.7, color: [0.66, 0.6, 0.52] });
     this.g.vfx?.sparks({ x: p.x, y: this.groundFor(p, r) + 0.2, z: p.z }, { x: 0, y: 1, z: 0 }, 20, { speed: 6, spread: 1.4, color: [2.6, 1.2, 0.4] });
     this.g.haptics?.play('stomp');
     this.g.looseProps?.blast(p, r * 1.15, 8);

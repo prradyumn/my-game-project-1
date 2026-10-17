@@ -4,7 +4,7 @@ import { ASSET_MANIFEST, Assets } from './Assets.js';
 import { AudioManager } from './AudioManager.js';
 import { ACTIONS, Input, keyName } from './Input.js';
 import { Haptics } from './Haptics.js';
-import { Physics } from './Physics.js';
+import { Physics, GROUPS } from './Physics.js';
 import { RenderSystem } from './Renderer.js';
 import { CameraRig } from '../gameplay/CameraRig.js';
 import { CharacterAnimator } from '../gameplay/CharacterAnimator.js';
@@ -403,7 +403,17 @@ export class Game {
     this.finishers = new Finishers(this);
     this.cinematics = new Cinematics(this);
     // the big moves' light: shockwaves, yantras, slashes, lightning, sparks, trails (VFX.js)
-    this.vfx = new VFX(scene);
+    // (the stone actually there: the physics floor (a stair's smooth ramp over its treads), never a
+    // body standing on it; the layout's height function sits a few centimetres under the paving)
+    const vfxDown = { x: 0, y: -1, z: 0 };
+    const vfxGround = (x, z) => {
+      const gh = groundHeight(x, z);
+      const r = this.physics.castRay({ x, y: gh + 0.6, z }, vfxDown, 1.2, this.player?.collider, GROUPS.surface);
+      // (the paving or a tread near the layout's height; a takht or a boat on it is not the ground:
+      // the light passes under it)
+      return r === null ? gh : gh + 0.6 - r;
+    };
+    this.vfx = new VFX(scene, { heightAt: vfxGround, starUrls: ASSET_MANIFEST.fx?.stars || [], sheets: ASSET_MANIFEST.fx?.sheets || {} });
     if (this.combat) this.combat.vfx = this.vfx;
     this.traversal = new Traversal(this);
     this.player.traversal = this.traversal;
@@ -963,7 +973,7 @@ export class Game {
   registerExtraJumps() {
     const S = 'Powers & siddhis';
     const T = this.testMenu;
-    T.add(S, 'Every siddhi, full Shakti', 'All twelve unlocked: 1 Damaru · 2 Trishul · 3 Third Eye, charged heavy, riposte, Fourth Strike', (g) => {
+    T.add(S, 'Every siddhi, full Shakti', 'All twelve unlocked: 1 Damaru · 2 Trishul · 3 Third Eye · 4 Agni Chakra, charged heavy, riposte, Fourth Strike', (g) => {
       g.siddhis.grantAll();
       g.powers.shakti = SHAKTI.max;
       g.combat.setHasSword(true);
@@ -976,9 +986,10 @@ export class Game {
       g.siddhis.embersTotal += 150;
       g.openJournal('siddhis');
     });
-    T.add(S, 'Powers against a pack', 'Every siddhi, full Shakti, five shades at night on Assi Ghat', async (g) => {
+    T.add(S, 'Powers against a pack', 'Every siddhi, Shakti that never runs out (1 Damaru · 2 Trishul · 3 Third Eye · 4 Agni Chakra), five shades at night on Assi Ghat', async (g) => {
       g.siddhis.grantAll();
       g.powers.shakti = SHAKTI.max;
+      g.powers.endless = true; // (a test: every power again and again)
       g.combat.setHasSword(true);
       g.combat.armed = true;
       g.testMenu.placeOnGhat('assi', 40, 1, 0.6);
@@ -1365,6 +1376,16 @@ export class Game {
     this.drapes?.update(simDt); // (his cloth swings from wherever every pose and IK left him)
     if (this.vfx) {
       this.vfx.reduce = !!this.settings.reduceFlashes;
+      {
+        // the light smoke and dust are seen by, on the same scale as the lit stone round them: the
+        // sky's fill and the sun when it is up; at night a little warm light from the lamps
+        const s = this.sky;
+        const L = this.vfx.light.copy(s.hemi.color).multiplyScalar(s.hemi.intensity * 1.5);
+        const sun = s.sun.intensity * Math.min(1, Math.max(0, s.sunDir.y) * 1.6) * 0.45;
+        L.r = Math.min(2.2, Math.max(0.14, L.r + s.sun.color.r * sun));
+        L.g = Math.min(2.2, Math.max(0.12, L.g + s.sun.color.g * sun));
+        L.b = Math.min(2.2, Math.max(0.12, L.b + s.sun.color.b * sun));
+      }
       this.vfx.update(simDt, this.camera);
     }
     this.roofRun?.late(); // (records him, poses his chhaya: after every pose and IK)
@@ -1784,6 +1805,7 @@ export class Game {
         const out = { x: data.at.x - this.player.position.x, y: 0.3, z: data.at.z - this.player.position.z };
         this.vfx.sparks(at, out, 26, { speed: 8, color: [3.2, 2.2, 0.9] });
         this.vfx.flash(at, 1.4, { color: [2.4, 2, 1.4] });
+        this.vfx.stars(at, 7, { spread: 0.7, size: 1 });
         this.cinematics?.impactFrame(at);
       }
       if (!this.settings.reduceFlashes) this.ui.flash();
@@ -1801,12 +1823,17 @@ export class Game {
       this.powers.gain(SHAKTI.parry);
       this.ui.toast('Perfect dodge', 'Strike now: a counter', 1.2);
       this.cinematics?.impactFrame(null, { invert: true, dur: 0.07 });
+      // the blow passes where he was: star glints hang in the air around him
+      const pp = this.player.position;
+      this.vfx?.stars({ x: pp.x, y: this.player.feetY + 1.1, z: pp.z }, 10, { color: [1.6, 2, 2.6], spread: 1.1, size: 1.1, life: 0.8 });
     }
     if (type === 'plungeLand') {
       this.camRig.shake(0.5);
       this.cinematics?.impact(0.55, data.at);
       this.asuras.particles.emitDust(data.at.x, data.at.y, data.at.z, 1.8, 20);
       this.vfx?.shockwave(data.at, 3.6, { cracks: 1, dur: 0.6 });
+      this.vfx?.dirt(data.at, 0.8, 7, { size: 1.3 });
+      this.vfx?.smoke(data.at, 3, { size: 1.6, spread: 0.7, alpha: 0.6, color: [0.68, 0.62, 0.54] });
       this.haptics.play('heavyHit');
       this.animals?.startle(data.at.x, data.at.z, 10);
       if (data.n) this.slowMo(0.35, 0.22);
@@ -1978,6 +2005,9 @@ export class Game {
   hardLanding(impact, speed) {
     if (this.combat.dead || this.player.state !== 'ground') return;
     const A = this.animator.clipActions;
+    const lp = this.player.position;
+    this.vfx?.dirt({ x: lp.x, y: this.player.feetY, z: lp.z }, 0.45, 5, { size: 0.9, life: 0.7 });
+    this.vfx?.smoke({ x: lp.x, y: this.player.feetY - 0.3, z: lp.z }, 2, { size: 1.1, spread: 0.5, alpha: 0.5, up: 0.3, color: [0.7, 0.64, 0.56] });
     if (speed > 2.2 && impact < 24) {
       // landing running: down into a forward roll and up again (Mixamo's, from the moment its
       // feet meet the ground; else the dodge roll)

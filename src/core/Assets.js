@@ -144,6 +144,18 @@ export const ASSET_MANIFEST = {
   // /source-assets/fx/LICENSE-unity-labs-vfx.txt) for the big fires (Fire.js)
   fx: {
     flame: `${A}/textures/fx/flame-16x4.webp`,
+    // Fab (Vefects, "Anime Stars VFX", Fab Standard License: shipped inside the game only, never
+    // on their own): four-point star glints, sharp to soft (VFX.js stars())
+    stars: [`${A}/fx/fab/anime-star-01.png`, `${A}/fx/fab/anime-star-02.png`, `${A}/fx/fab/anime-star-03.png`],
+    // Fab ("Realistic Starter VFX Pack Vol 2", Fab Standard License, same terms): simulated
+    // flipbooks for VFX.js flipbook(); grid = columns x rows, add = drawn as glow (else blended)
+    sheets: {
+      explosion: { url: `${A}/fx/fab/explosion-8x8.webp`, grid: [8, 8], frames: 64, add: false },
+      fireburst: { url: `${A}/fx/fab/fireburst-7x8.webp`, grid: [7, 8], frames: 53, add: true },
+      smoke: { url: `${A}/fx/fab/smoke-8x8.webp`, grid: [8, 8], frames: 64, add: false },
+      smokeColumn: { url: `${A}/fx/fab/smoke-column-8x8.webp`, grid: [8, 8], frames: 64, add: false },
+      dirt: { url: `${A}/fx/fab/dirt-spray-4x1.webp`, grid: [4, 1], frames: 4, add: false },
+    },
   },
   // Where things can walk (world/NavMesh.js): a Recast navmesh baked from the world's colliders
   // by `npm run bake:nav`, and the signature of the world it fits.

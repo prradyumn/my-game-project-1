@@ -38,6 +38,9 @@ export const GROUPS = {
   // thrown things (the trishul, a Pishacha's fire): stone, wood and walls, never the people
   // (those are tested against their own shapes) or the camera's umbrella discs
   missile: g(0xffff, 0xffff & ~PEOPLE & ~RAMP & ~CAMONLY & ~PROP & ~RAGDOLL),
+  // the ground as it looks, for light laid over it (VFX): floors and the smooth stair ramps
+  // (over the treads' noses), never a body, a loose prop or the camera's canopies
+  surface: g(0xffff, 0xffff & ~PEOPLE & ~CAMONLY & ~PROP & ~RAGDOLL & ~DECOR),
 };
 
 export class Physics {
