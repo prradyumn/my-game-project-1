@@ -622,6 +622,7 @@ export class Powers {
     g.vfx?.flash(T.pos, 2.2, { color: [1.2, 1.6, 3], life: 0.28 });
     g.vfx?.sparks(T.pos, { x: -dir.x, y: 0.4, z: -dir.z }, 22, { speed: 8, color: [1.6, 2.2, 3.2] });
     g.vfx?.shockwave({ x: a.pos.x, y: a.pos.y + 0.03, z: a.pos.z }, 2.2, { color: [0.8, 1.2, 2.6], dur: 0.5 });
+    g.vfx?.sigil({ x: a.pos.x, y: a.pos.y, z: a.pos.z }, 2.6, { color: [0.3, 0.6, 2.2], dur: 1.4 });
     g.cinematics?.impactFrame(T.pos, { dur: 0.07 });
     g.achievements?.event('trishulPin', {});
   }

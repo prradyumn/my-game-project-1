@@ -128,8 +128,31 @@ void main(){
   gl_FragColor = vec4(col, aOut);
 }`;
 
+// a sigil on the ground: the crystal star from the Fab MagicCircle pack (its six points drawn out
+// from the centre, turning), with a ring of light round it
+const SIGIL_FRAG = /* glsl */ `
+uniform float uK; uniform float uSpin; uniform vec3 uColor; uniform float uAlpha; uniform float uMul; uniform sampler2D uMask;
+varying vec2 vUv;
+${FLAT}
+void main(){
+  vec2 d = vUv * 2.0 - 1.0; float r = length(d);
+  if (r > 1.0) discard;
+  float c = cos(uSpin), s = sin(uSpin);
+  vec2 q = mat2(c, -s, s, c) * d;
+  float star = texture2D(uMask, q * 0.5 + 0.5).b;
+  float grow = smoothstep(uK * 2.2 - 0.15, uK * 2.2, r);
+  float g = star * (1.0 - grow) * 1.4;
+  g += smoothstep(0.02, 0.0, abs(r - 0.97)) * min(1.0, uK * 4.0);
+  g += smoothstep(1.0, 0.0, r) * 0.08;
+  vec3 col = uColor * g * uAlpha * uMul * flatness();
+  float aOut = clamp(max(col.r, max(col.g, col.b)), 0.0, 1.0);
+  if (aOut < 0.003) discard;
+  gl_FragColor = vec4(col, aOut);
+}`;
+
 const SLASH_FRAG = /* glsl */ `
 uniform float uK; uniform vec3 uColor; uniform vec3 uCore; uniform float uFire; uniform float uSeed; uniform float uTail;
+uniform sampler2D uMask; uniform float uHasMask;
 varying vec2 vUv;
 ${NOISE}
 void main(){
@@ -142,6 +165,8 @@ void main(){
   // the edge: thin and hot on the outer side, softer toward the inside
   float edge = pow(vUv.y, mix(3.0, 1.6, uFire));
   float erode = fbm(vec2(t * 7.0 - uK * 3.0 + uSeed, vUv.y * 3.0)) ;
+  // (the Fab Niagara Slash's eroded energy mask, dragged along the arc, breaks it up like torn light)
+  if (uHasMask > 0.5) erode = mix(erode, texture2D(uMask, vec2(fract(t * 1.4 - uK * 0.8 + uSeed * 0.13), 0.15 + vUv.y * 0.7)).g * 1.15, 0.6);
   float m = life * edge * smoothstep(0.2, 0.55, erode + life * 0.4);
   float fade = 1.0 - smoothstep(0.65, 1.0, uK);
   vec3 col = mix(uColor, uCore, pow(edge * life, 3.0));
@@ -173,7 +198,7 @@ void main(){
 }`;
 
 const TRAIL_FRAG = /* glsl */ `
-uniform vec3 uColor; uniform vec3 uCore; uniform float uAlpha;
+uniform vec3 uColor; uniform vec3 uCore; uniform float uAlpha; uniform sampler2D uMask; uniform float uHasMask;
 varying vec2 vUv;
 ${NOISE}
 void main(){
@@ -183,6 +208,9 @@ void main(){
   float edge = pow(vUv.y, 2.2);
   float wisp = 0.65 + 0.35 * vn(vec2(age * 9.0, vUv.y * 4.0));
   float m = fresh * (edge * 1.3 + 0.15) * wisp * uAlpha;
+  // (the Fab Niagara Slash's knife-light streak: a hard bright line along the edge, smearing out
+  // behind it)
+  if (uHasMask > 0.5) m *= 0.3 + 1.7 * texture2D(uMask, vec2(age * 0.95, 0.5 + 0.48 * (1.0 - vUv.y))).r;
   vec3 col = mix(uColor, uCore, pow(fresh * vUv.y, 4.0)) * m;
   float a = clamp(max(col.r, max(col.g, col.b)), 0.0, 1.0);
   if (a < 0.004) discard;
@@ -296,9 +324,19 @@ function arcGeometry(n = 40) {
 }
 
 export class VFX {
-  constructor(scene, { heightAt = null, starUrls = [], sheets = {} } = {}) {
+  constructor(scene, { heightAt = null, starUrls = [], sheets = {}, masks = null } = {}) {
     this.scene = scene;
     this.heightAt = heightAt;
+    // Fab masks packed in one texture (R: knife-light streak, G: torn-energy erosion, B: crystal
+    // sigil); the shaders fall back to their own noise until it has loaded
+    this.mask = { value: null };
+    this.hasMask = { value: 0 };
+    if (masks)
+      new THREE.TextureLoader().load(masks, (t) => {
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        this.mask.value = t;
+        this.hasMask.value = 1;
+      });
     // flipbook sheets (Fab packs, see ASSET_MANIFEST.fx.sheets): name -> { url, grid, frames,
     // add }; each texture loads lazily and an effect asked for before it has is skipped
     this.sheets = {};
@@ -329,6 +367,7 @@ export class VFX {
     this.light = new THREE.Color(1, 1, 1); // the scene's light on smoke and dust (Game sets it)
     // rings (shockwaves) and yantras: flat discs on the ground
     this.rings = this.pool(8, () => this.groundMesh({ uK: { value: 0 }, uColor: { value: new THREE.Color() }, uCrack: { value: new THREE.Color() }, uSeed: { value: 0 }, uCracks: { value: 0 }, uInstant: { value: 0 } }, RING_FRAG));
+    this.sigils = this.pool(2, () => this.groundMesh({ uK: { value: 0 }, uSpin: { value: 0 }, uColor: { value: new THREE.Color() }, uAlpha: { value: 0 }, uMask: this.mask }, SIGIL_FRAG));
     this.yantras = this.pool(3, () => this.groundMesh({ uK: { value: 0 }, uDraw: { value: 0 }, uSpin: { value: 0 }, uColor: { value: new THREE.Color() }, uAlpha: { value: 0 } }, YANTRA_FRAG));
     // debris: chips of stone (lit, not glowing), one instanced mesh
     this.debrisMax = 90;
@@ -339,7 +378,7 @@ export class VFX {
     this.debrisMesh.frustumCulled = false;
     this.group.add(this.debrisMesh);
     this.debrisList = [];
-    this.slashes = this.pool(14, () => new THREE.Mesh(arcGeometry(), additive({ uK: { value: 0 }, uColor: { value: new THREE.Color() }, uCore: { value: new THREE.Color() }, uFire: { value: 0 }, uSeed: { value: 0 }, uTail: { value: 0.55 } }, SLASH_FRAG)));
+    this.slashes = this.pool(14, () => new THREE.Mesh(arcGeometry(), additive({ uK: { value: 0 }, uColor: { value: new THREE.Color() }, uCore: { value: new THREE.Color() }, uFire: { value: 0 }, uSeed: { value: 0 }, uTail: { value: 0.55 }, uMask: this.mask, uHasMask: this.hasMask }, SLASH_FRAG)));
     this.bolts = this.pool(8, () => {
       const g = new THREE.BufferGeometry();
       const N = 48;
@@ -378,7 +417,7 @@ export class VFX {
       const idx = [];
       for (let i = 0; i < N - 1; i++) idx.push(i * 2, i * 2 + 2, i * 2 + 1, i * 2 + 1, i * 2 + 2, i * 2 + 3);
       g.setIndex(idx);
-      const m = new THREE.Mesh(g, additive({ uColor: { value: new THREE.Color() }, uCore: { value: new THREE.Color() }, uAlpha: { value: 0 } }, TRAIL_FRAG));
+      const m = new THREE.Mesh(g, additive({ uColor: { value: new THREE.Color() }, uCore: { value: new THREE.Color() }, uAlpha: { value: 0 }, uMask: this.mask, uHasMask: this.hasMask }, TRAIL_FRAG));
       m.userData.N = N;
       m.userData.hist = [];
       return m;
@@ -599,6 +638,28 @@ export class VFX {
       if (this.debrisList.length >= this.debrisMax) this.debrisList.shift();
       this.debrisList.push({ p: new THREE.Vector3(p.x + Math.sin(a) * 0.3, p.y + 0.1, p.z + Math.cos(a) * 0.3), v, t: 0, life: 1.4 + Math.random() * 0.8, s: size * (0.5 + Math.random()), rot: new THREE.Euler(Math.random() * 6, Math.random() * 6, 0), spin: (Math.random() - 0.5) * 18 });
     }
+  }
+
+  /** The crystal sigil (Fab MagicCircle) drawn out on the ground at p, turning, then fading. */
+  sigil(p, r, { color = [0.8, 1.2, 2.6], dur = 1.2, spin = 1.2 } = {}) {
+    if (!this.mask.value) return;
+    const m = this.take(this.sigils);
+    m.position.set(p.x, p.y, p.z);
+    m.scale.setScalar(r);
+    this.conform(m);
+    const u = m.material.uniforms;
+    u.uColor.value.setRGB(...color).multiplyScalar(this.reduce ? 0.6 : 1);
+    u.uSpin.value = Math.random() * 6.283;
+    this.live.push({
+      m,
+      t: 0,
+      dur,
+      step: (e, k, dt) => {
+        u.uK.value = Math.min(1, e.t / 0.35);
+        u.uSpin.value += dt * spin * (1 - k * 0.7);
+        u.uAlpha.value = Math.min(1, e.t / 0.08) * (k > 0.6 ? (1 - k) / 0.4 : 1);
+      },
+    });
   }
 
   yantra(p, r, { color = [1.9, 1.15, 0.35], dur = 1.4, hold = 0, spin = 0.8, follow = null } = {}) {

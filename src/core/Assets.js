@@ -149,6 +149,9 @@ export const ASSET_MANIFEST = {
     stars: [`${A}/fx/fab/anime-star-01.png`, `${A}/fx/fab/anime-star-02.png`, `${A}/fx/fab/anime-star-03.png`],
     // Fab ("Realistic Starter VFX Pack Vol 2", Fab Standard License, same terms): simulated
     // flipbooks for VFX.js flipbook(); grid = columns x rows, add = drawn as glow (else blended)
+    // Fab masks, packed (R: "Niagara Slash" knife-light streak, G: its torn-energy erosion,
+    // B: the crystal star of "MagicCircle VFX", CC BY): VFX.js slash(), trail(), sigil()
+    masks: `${A}/fx/fab/masks-rgb.webp`,
     sheets: {
       explosion: { url: `${A}/fx/fab/explosion-8x8.webp`, grid: [8, 8], frames: 64, add: false },
       fireburst: { url: `${A}/fx/fab/fireburst-7x8.webp`, grid: [7, 8], frames: 53, add: true },

@@ -413,7 +413,7 @@ export class Game {
       // the light passes under it)
       return r === null ? gh : gh + 0.6 - r;
     };
-    this.vfx = new VFX(scene, { heightAt: vfxGround, starUrls: ASSET_MANIFEST.fx?.stars || [], sheets: ASSET_MANIFEST.fx?.sheets || {} });
+    this.vfx = new VFX(scene, { heightAt: vfxGround, starUrls: ASSET_MANIFEST.fx?.stars || [], sheets: ASSET_MANIFEST.fx?.sheets || {}, masks: ASSET_MANIFEST.fx?.masks || null });
     if (this.combat) this.combat.vfx = this.vfx;
     this.traversal = new Traversal(this);
     this.player.traversal = this.traversal;
