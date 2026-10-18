@@ -30,6 +30,7 @@ import { Guide } from '../gameplay/Guide.js';
 import { RiverAarti } from '../gameplay/RiverAarti.js';
 import { Siddhis } from '../gameplay/Siddhis.js';
 import { Powers, synthDamaru, synthOm } from '../gameplay/Powers.js';
+import { SiddhiMode } from '../gameplay/SiddhiMode.js';
 import { Finishers } from '../gameplay/Finishers.js';
 import { Cinematics } from '../gameplay/Cinematics.js';
 import { Projectiles, synthFireball } from '../gameplay/Projectiles.js';
@@ -413,7 +414,7 @@ export class Game {
       // the light passes under it)
       return r === null ? gh : gh + 0.6 - r;
     };
-    this.vfx = new VFX(scene, { heightAt: vfxGround, starUrls: ASSET_MANIFEST.fx?.stars || [], sheets: ASSET_MANIFEST.fx?.sheets || {}, masks: ASSET_MANIFEST.fx?.masks || null });
+    this.vfx = new VFX(scene, { heightAt: vfxGround, starUrls: ASSET_MANIFEST.fx?.stars || [], sheets: ASSET_MANIFEST.fx?.sheets || {}, masks: ASSET_MANIFEST.fx?.masks || null, masks2: ASSET_MANIFEST.fx?.masks2 || null, decals: ASSET_MANIFEST.fx?.decals || {} });
     if (this.combat) this.combat.vfx = this.vfx;
     this.traversal = new Traversal(this);
     this.player.traversal = this.traversal;
@@ -537,6 +538,7 @@ export class Game {
     this.journal = new Journal(this, this.ui.root);
     this.story = new Story(this);
     this.testMenu = new TestMenu(this);
+    this.siddhiMode = new SiddhiMode(this);
     this.registerChapterJumps();
     this.registerMissionJumps();
     this.registerFightJumps();
@@ -817,6 +819,7 @@ export class Game {
     this.worldState.restore(save?.world);
     this.siddhis.restore(save?.siddhis);
     this.powers.restore(save?.powers);
+    this.siddhiMode?.restore();
     this.health.revive(1);
     this.combat.revive();
     this.storySave = save?.story ?? null;
@@ -973,6 +976,16 @@ export class Game {
   registerExtraJumps() {
     const S = 'Powers & siddhis';
     const T = this.testMenu;
+    // Siddhi Mode: first in the menu (SiddhiMode.js)
+    const M = 'Siddhi Mode';
+    T.pinned.add(M);
+    const siddhi = (label, sub, opts) =>
+      T.add(M, label, sub, async (g) => {
+        await g.asuras.load();
+        g.siddhiMode.enter(opts);
+      });
+    siddhi('Siddhi Mode: night on Dashashwamedh', 'Every power and blow, endless Shakti, no death, a pack of shades that keeps rising. [ ] choose any move, clip or effect · \\ perform · = showcase', { ghat: 'dashashwamedh', u: 30, hours: 20 });
+    siddhi('Siddhi Mode: day on Assi Ghat', 'The same, under the noon sun', { ghat: 'assi', u: 40, hours: 12 });
     T.add(S, 'Every siddhi, full Shakti', 'All twelve unlocked: 1 Damaru · 2 Trishul · 3 Third Eye · 4 Agni Chakra, charged heavy, riposte, Fourth Strike', (g) => {
       g.siddhis.grantAll();
       g.powers.shakti = SHAKTI.max;
@@ -1523,6 +1536,7 @@ export class Game {
     this.asuras.update(simDt, { pixelRatio: pr, light });
     this.projectiles.update(simDt, pr);
     this.powers.update(simDt);
+    this.siddhiMode?.update(simDt);
     this.finishers.update(simDt);
     if (playing || paused) this.asuras.hud(this.camera, this.ui);
     let danger = null;
@@ -1806,6 +1820,7 @@ export class Game {
         this.vfx.sparks(at, out, 26, { speed: 8, color: [3.2, 2.2, 0.9] });
         this.vfx.flash(at, 1.4, { color: [2.4, 2, 1.4] });
         this.vfx.stars(at, 7, { spread: 0.7, size: 1 });
+        this.vfx.flare(at, 2.2);
         this.cinematics?.impactFrame(at);
       }
       if (!this.settings.reduceFlashes) this.ui.flash();
@@ -1833,6 +1848,7 @@ export class Game {
       this.asuras.particles.emitDust(data.at.x, data.at.y, data.at.z, 1.8, 20);
       this.vfx?.shockwave(data.at, 3.6, { cracks: 1, dur: 0.6 });
       this.vfx?.dirt(data.at, 0.8, 7, { size: 1.3 });
+      this.vfx?.decal('dustRing', data.at, 0.6, 2.6, { color: [0.8, 0.72, 0.62], dur: 0.8, hold: 0.2 });
       this.vfx?.smoke(data.at, 3, { size: 1.6, spread: 0.7, alpha: 0.6, color: [0.68, 0.62, 0.54] });
       this.haptics.play('heavyHit');
       this.animals?.startle(data.at.x, data.at.z, 10);
@@ -2007,6 +2023,7 @@ export class Game {
     const A = this.animator.clipActions;
     const lp = this.player.position;
     this.vfx?.dirt({ x: lp.x, y: this.player.feetY, z: lp.z }, 0.45, 5, { size: 0.9, life: 0.7 });
+    this.vfx?.decal('dustRing', { x: lp.x, y: this.player.feetY, z: lp.z }, 0.4, 1.6, { color: [0.8, 0.72, 0.62], dur: 0.6, hold: 0.1, alpha: 0.8 });
     this.vfx?.smoke({ x: lp.x, y: this.player.feetY - 0.3, z: lp.z }, 2, { size: 1.1, spread: 0.5, alpha: 0.5, up: 0.3, color: [0.7, 0.64, 0.56] });
     if (speed > 2.2 && impact < 24) {
       // landing running: down into a forward roll and up again (Mixamo's, from the moment its

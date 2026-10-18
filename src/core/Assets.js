@@ -152,12 +152,25 @@ export const ASSET_MANIFEST = {
     // Fab masks, packed (R: "Niagara Slash" knife-light streak, G: its torn-energy erosion,
     // B: the crystal star of "MagicCircle VFX", CC BY): VFX.js slash(), trail(), sigil()
     masks: `${A}/fx/fab/masks-rgb.webp`,
+    // (R: the noise of Vefects "Easy Shockwaves" breaking up ring fronts, G: "Cinematic Flame
+    // Attack"'s tiled fire inside the fire slashes)
+    masks2: `${A}/fx/fab/masks2-rgb.webp`,
+    // ground decals for VFX.js decal(): add = glow (else blended and lit like dust)
+    decals: {
+      electricRing: { url: `${A}/fx/fab/electric-ring.webp`, add: true }, // GrimzaFX "Simple Lightning"
+      dustRing: { url: `${A}/fx/fab/dust-ring.webp`, add: false }, // "FX Variety Pack"
+      spellCircle: { url: `${A}/fx/fab/spell-circle.webp`, add: true }, // "Free Spells"
+    },
     sheets: {
       explosion: { url: `${A}/fx/fab/explosion-8x8.webp`, grid: [8, 8], frames: 64, add: false },
       fireburst: { url: `${A}/fx/fab/fireburst-7x8.webp`, grid: [7, 8], frames: 53, add: true },
       smoke: { url: `${A}/fx/fab/smoke-8x8.webp`, grid: [8, 8], frames: 64, add: false },
       smokeColumn: { url: `${A}/fx/fab/smoke-column-8x8.webp`, grid: [8, 8], frames: 64, add: false },
       dirt: { url: `${A}/fx/fab/dirt-spray-4x1.webp`, grid: [4, 1], frames: 4, add: false },
+      zap: { url: `${A}/fx/fab/zap-4x1.webp`, grid: [4, 1], frames: 4, add: true }, // Vefects Zap VFX
+      flareStar: { url: `${A}/fx/fab/flare-star.webp`, grid: [1, 1], frames: 1, add: true }, // Vefects Stylized Fire
+      flareImpact: { url: `${A}/fx/fab/flare-impact.webp`, grid: [1, 1], frames: 1, add: true }, // Vefects Easy Impact Frames
+      animeSlash: { url: `${A}/fx/fab/anime-slash.webp`, grid: [1, 1], frames: 1, add: true }, // Stylized Sword Trails
     },
   },
   // Where things can walk (world/NavMesh.js): a Recast navmesh baked from the world's colliders

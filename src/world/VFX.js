@@ -54,6 +54,7 @@ function additive(uniforms, fragmentShader, side = THREE.DoubleSide) {
 // ---------------------------------------------------------------- shaders
 const RING_FRAG = /* glsl */ `
 uniform float uK; uniform vec3 uColor; uniform vec3 uCrack; uniform float uSeed; uniform float uCracks; uniform float uMul; uniform float uInstant;
+uniform sampler2D uMask2; uniform float uHasMask2;
 varying vec2 vUv;
 ${NOISE}
 ${FLAT}
@@ -64,6 +65,8 @@ void main(){
   float front = uInstant > 0.5 ? 1.0 : mix(0.05, 1.0, 1.0 - pow(1.0 - k, 2.2));
   float w = mix(0.11, 0.035, k);
   float rag = fbm(vec2(a * 3.0 + uSeed, k * 4.0)) * 0.06;
+  // (Vefects Easy Shockwaves' noise: the front torn into cells as it races out)
+  if (uHasMask2 > 0.5) rag = mix(rag, (texture2D(uMask2, vec2(a / 6.2831853 * 3.0 + uSeed, k * 0.7)).r - 0.3) * 0.12, 0.65);
   float band = smoothstep(w, 0.0, abs(r - front + rag)) * 0.75;
   float inside = smoothstep(front, front - 0.25, r) * (1.0 - k) * 0.18;
   float fade = (1.0 - k) * (1.0 - k);
@@ -150,9 +153,33 @@ void main(){
   gl_FragColor = vec4(col, aOut);
 }`;
 
+// a Fab texture laid on the ground: glowing (additive) or dust lit like the scene (blended)
+const DECAL_FRAG = /* glsl */ `
+uniform sampler2D uMap; uniform vec3 uColor; uniform float uAlpha; uniform float uMul; uniform float uRot; uniform float uAdd; uniform vec3 uLight; uniform float uFlick;
+varying vec2 vUv;
+${FLAT}
+void main(){
+  vec2 d = vUv * 2.0 - 1.0;
+  float c = cos(uRot), s = sin(uRot);
+  vec2 q = mat2(c, -s, s, c) * d * 0.5 + 0.5;
+  if (q.x < 0.0 || q.y < 0.0 || q.x > 1.0 || q.y > 1.0) discard;
+  vec4 t = texture2D(uMap, q);
+  float fl = flatness();
+  if (uAdd > 0.5) {
+    vec3 col = t.rgb * t.a * uColor * uAlpha * uMul * fl * uFlick;
+    float a = clamp(max(col.r, max(col.g, col.b)), 0.0, 1.0);
+    if (a < 0.003) discard;
+    gl_FragColor = vec4(col, a);
+  } else {
+    float a = t.a * uAlpha * fl * min(1.0, uMul * 2.0);
+    if (a < 0.003) discard;
+    gl_FragColor = vec4(t.rgb * uColor * uLight, a);
+  }
+}`;
+
 const SLASH_FRAG = /* glsl */ `
 uniform float uK; uniform vec3 uColor; uniform vec3 uCore; uniform float uFire; uniform float uSeed; uniform float uTail;
-uniform sampler2D uMask; uniform float uHasMask;
+uniform sampler2D uMask; uniform float uHasMask; uniform sampler2D uMask2; uniform float uHasMask2;
 varying vec2 vUv;
 ${NOISE}
 void main(){
@@ -172,6 +199,8 @@ void main(){
   vec3 col = mix(uColor, uCore, pow(edge * life, 3.0));
   if (uFire > 0.5) {
     float fl = fbm(vec2(t * 10.0 - uK * 8.0 + uSeed, vUv.y * 5.0 - uK * 6.0));
+    // (the Flame Attack pack's tiled fire, scrolling through the sheet)
+    if (uHasMask2 > 0.5) fl = mix(fl, texture2D(uMask2, vec2(t * 2.0 - uK * 1.5 + uSeed, vUv.y * 0.8 - uK)).g * 1.2, 0.6);
     m *= 0.6 + fl;
     // flame: deep red at the edges of the sheet, orange, a yellow core only where it is thickest
     float heat = clamp(edge * fl * 1.5, 0.0, 1.0);
@@ -232,7 +261,7 @@ void main(){
 }`;
 const FLIP_FRAG = /* glsl */ `
 uniform sampler2D uMap; uniform vec2 uGrid; uniform float uFrame; uniform float uFrames;
-uniform vec3 uColor; uniform float uAlpha; uniform float uAdd; uniform float uGlow; uniform vec3 uLight; uniform float uSoft;
+uniform vec3 uColor; uniform float uAlpha; uniform float uAdd; uniform float uGlow; uniform vec3 uLight; uniform float uSoft; uniform float uRamp;
 varying vec2 vUv;
 vec4 cell(float f){
   f = min(f, uFrames - 1.0);
@@ -246,6 +275,8 @@ void main(){
   vec4 t = mix(cell(f), cell(f + 1.0), fract(uFrame));
   // (a sheet standing on the ground fades out along its bottom: no hard line where it meets stone)
   t.a *= mix(1.0, smoothstep(0.0, 0.16, vUv.y), uSoft);
+  // (a ramp along the sheet: a slash mark bright at its head, its tail and inner edge fading)
+  t.rgb *= mix(1.0, pow(vUv.x, 1.6) * smoothstep(0.0, 0.7, vUv.y + vUv.x * 0.3), uRamp);
   if (uAdd > 0.5) {
     // glow: the sheet's colour times its alpha, its hottest parts pushed past white for the bloom
     vec3 col = t.rgb * t.a * uColor * uAlpha;
@@ -324,7 +355,7 @@ function arcGeometry(n = 40) {
 }
 
 export class VFX {
-  constructor(scene, { heightAt = null, starUrls = [], sheets = {}, masks = null } = {}) {
+  constructor(scene, { heightAt = null, starUrls = [], sheets = {}, masks = null, masks2 = null, decals = {} } = {}) {
     this.scene = scene;
     this.heightAt = heightAt;
     // Fab masks packed in one texture (R: knife-light streak, G: torn-energy erosion, B: crystal
@@ -337,6 +368,24 @@ export class VFX {
         this.mask.value = t;
         this.hasMask.value = 1;
       });
+    this.mask2 = { value: null };
+    this.hasMask2 = { value: 0 };
+    if (masks2)
+      new THREE.TextureLoader().load(masks2, (t) => {
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        this.mask2.value = t;
+        this.hasMask2.value = 1;
+      });
+    // ground decals (Fab textures laid on the ground like the yantras)
+    this.decalTex = {};
+    for (const [name, d] of Object.entries(decals)) {
+      const D = (this.decalTex[name] = { ...d, tex: null });
+      new THREE.TextureLoader().load(d.url, (t) => {
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = 4;
+        D.tex = t;
+      });
+    }
     // flipbook sheets (Fab packs, see ASSET_MANIFEST.fx.sheets): name -> { url, grid, frames,
     // add }; each texture loads lazily and an effect asked for before it has is skipped
     this.sheets = {};
@@ -366,8 +415,9 @@ export class VFX {
     this.reduce = false; // (Reduce flashes: softer, smaller)
     this.light = new THREE.Color(1, 1, 1); // the scene's light on smoke and dust (Game sets it)
     // rings (shockwaves) and yantras: flat discs on the ground
-    this.rings = this.pool(8, () => this.groundMesh({ uK: { value: 0 }, uColor: { value: new THREE.Color() }, uCrack: { value: new THREE.Color() }, uSeed: { value: 0 }, uCracks: { value: 0 }, uInstant: { value: 0 } }, RING_FRAG));
+    this.rings = this.pool(8, () => this.groundMesh({ uK: { value: 0 }, uColor: { value: new THREE.Color() }, uCrack: { value: new THREE.Color() }, uSeed: { value: 0 }, uCracks: { value: 0 }, uInstant: { value: 0 }, uMask2: this.mask2, uHasMask2: this.hasMask2 }, RING_FRAG));
     this.sigils = this.pool(2, () => this.groundMesh({ uK: { value: 0 }, uSpin: { value: 0 }, uColor: { value: new THREE.Color() }, uAlpha: { value: 0 }, uMask: this.mask }, SIGIL_FRAG));
+    this.decals = this.pool(6, () => this.groundMesh({ uMap: { value: null }, uColor: { value: new THREE.Color() }, uAlpha: { value: 0 }, uRot: { value: 0 }, uAdd: { value: 1 }, uLight: { value: this.light }, uFlick: { value: 1 } }, DECAL_FRAG));
     this.yantras = this.pool(3, () => this.groundMesh({ uK: { value: 0 }, uDraw: { value: 0 }, uSpin: { value: 0 }, uColor: { value: new THREE.Color() }, uAlpha: { value: 0 } }, YANTRA_FRAG));
     // debris: chips of stone (lit, not glowing), one instanced mesh
     this.debrisMax = 90;
@@ -378,7 +428,7 @@ export class VFX {
     this.debrisMesh.frustumCulled = false;
     this.group.add(this.debrisMesh);
     this.debrisList = [];
-    this.slashes = this.pool(14, () => new THREE.Mesh(arcGeometry(), additive({ uK: { value: 0 }, uColor: { value: new THREE.Color() }, uCore: { value: new THREE.Color() }, uFire: { value: 0 }, uSeed: { value: 0 }, uTail: { value: 0.55 }, uMask: this.mask, uHasMask: this.hasMask }, SLASH_FRAG)));
+    this.slashes = this.pool(14, () => new THREE.Mesh(arcGeometry(), additive({ uK: { value: 0 }, uColor: { value: new THREE.Color() }, uCore: { value: new THREE.Color() }, uFire: { value: 0 }, uSeed: { value: 0 }, uTail: { value: 0.55 }, uMask: this.mask, uHasMask: this.hasMask, uMask2: this.mask2, uHasMask2: this.hasMask2 }, SLASH_FRAG)));
     this.bolts = this.pool(8, () => {
       const g = new THREE.BufferGeometry();
       const N = 48;
@@ -432,7 +482,7 @@ export class VFX {
       const m = new THREE.Mesh(
         new THREE.PlaneGeometry(1, 1),
         new THREE.ShaderMaterial({
-          uniforms: { uMap: { value: null }, uGrid: { value: new THREE.Vector2(8, 8) }, uFrame: { value: 0 }, uFrames: { value: 64 }, uColor: { value: new THREE.Color() }, uAlpha: { value: 1 }, uAdd: { value: 1 }, uGlow: { value: 0 }, uLight: { value: this.light }, uSoft: { value: 0 }, uSize: { value: new THREE.Vector2(1, 1) }, uRot: { value: 0 }, uLift: { value: 0 } },
+          uniforms: { uMap: { value: null }, uGrid: { value: new THREE.Vector2(8, 8) }, uFrame: { value: 0 }, uFrames: { value: 64 }, uColor: { value: new THREE.Color() }, uAlpha: { value: 1 }, uAdd: { value: 1 }, uGlow: { value: 0 }, uLight: { value: this.light }, uSoft: { value: 0 }, uRamp: { value: 0 }, uSize: { value: new THREE.Vector2(1, 1) }, uRot: { value: 0 }, uLift: { value: 0 } },
           vertexShader: FLIP_VERT,
           fragmentShader: FLIP_FRAG,
           transparent: true,
@@ -640,6 +690,87 @@ export class VFX {
     }
   }
 
+  /**
+   * A Fab texture laid on the ground round p (`name` from ASSET_MANIFEST.fx.decals), growing from
+   * r0 to r1 over its time, turning; glow decals flicker if asked (an electric ring), dust ones
+   * are lit like the scene. o.hold keeps it at full strength that long before it fades.
+   */
+  decal(name, p, r0, r1 = r0, { color = [1, 1, 1], dur = 1, hold = 0, spin = 0, alpha = 1, flicker = 0, follow = null } = {}) {
+    const D = this.decalTex[name];
+    if (!D || !D.tex) return null;
+    const m = this.take(this.decals);
+    const ghost = m.children[0];
+    for (const mat of [m.material, ghost.material]) {
+      mat.blending = D.add ? THREE.AdditiveBlending : THREE.NormalBlending;
+      mat.uniforms.uMap.value = D.tex;
+      mat.uniforms.uAdd.value = D.add ? 1 : 0;
+    }
+    // (dust has no ghost through the stone: only light shows through)
+    ghost.visible = D.add;
+    m.position.set(p.x, p.y, p.z);
+    m.scale.setScalar(r0);
+    this.conform(m);
+    const u = m.material.uniforms;
+    u.uColor.value.setRGB(...color).multiplyScalar(this.reduce && D.add ? 0.6 : 1);
+    u.uRot.value = Math.random() * 6.283;
+    u.uAlpha.value = 0;
+    const T = dur + hold;
+    this.live.push({
+      m,
+      t: 0,
+      dur: T,
+      step: (e, k, dt) => {
+        const g = Math.min(1, e.t / dur);
+        const r = r0 + (r1 - r0) * (1 - (1 - g) * (1 - g));
+        if (Math.abs(m.scale.x - r) > 0.01 || follow) {
+          if (follow) {
+            const f = follow();
+            if (f) m.position.set(f.x, f.y, f.z);
+          }
+          m.scale.setScalar(r);
+          this.conform(m);
+        }
+        u.uRot.value += spin * dt;
+        u.uFlick.value = flicker ? 1 - flicker + flicker * Math.random() * 1.6 : 1;
+        const out = T * 0.65;
+        u.uAlpha.value = alpha * Math.min(1, e.t / 0.06) * (e.t < out ? 1 : Math.max(0, 1 - (e.t - out) / (T - out)));
+      },
+    });
+    return m;
+  }
+
+  /** Zaps crackling round p (Vefects Zap): n short bolts of the sheet's four, flickering. */
+  zaps(p, n = 3, { size = 1.2, spread = 0.6, color = [0.9, 1.3, 3], life = 0.22, delay = 0 } = {}) {
+    for (let i = 0; i < n; i++) {
+      const v = Math.floor(Math.random() * 4) / 3;
+      this.flipbook('zap', { x: p.x + (Math.random() - 0.5) * spread * 2, y: p.y + (Math.random() - 0.3) * spread, z: p.z + (Math.random() - 0.5) * spread * 2 }, size * (0.7 + Math.random() * 0.6), { life: life * (0.7 + Math.random() * 0.6), color, from: v, to: v, glow: 1.5, fade: 0.5, rot: (Math.random() - 0.5) * 1.2, stretch: 1.4, delay: delay + Math.random() * 0.1 });
+    }
+  }
+
+  /** A star flare at p (o.kind: 'flareStar' Stylized Fire's, 'flareImpact' Impact Frames'). */
+  flare(p, size = 2, { kind = 'flareStar', color = [2.2, 1.9, 1.5], life = 0.28 } = {}) {
+    const k = kind === 'flareImpact' ? 0.55 : 4;
+    this.flipbook(kind, p, size, { life, color: color.map((c) => c * k), glow: 0.6, fade: 0.75, grow: 1.4, spin: 1.5, over: true });
+  }
+
+  /** The anime slash mark (Stylized Sword Trails) across p, turned to `rot` on screen. */
+  slashMark(p, size = 2.2, { rot = 0, color = [1.5, 1.6, 2.2], life = 0.22 } = {}) {
+    this.flipbook('animeSlash', p, size, { life, color, glow: 0.5, fade: 0.6, grow: 1.2, rot, over: true, ramp: 1, stretch: 0.7 });
+  }
+
+  /**
+   * Embers drifting up off p: small hot specks, rising, swaying, cooling (the look of the Fab
+   * "Sparks & Embers" pack, whose embers are Niagara particles with no textures to bring out).
+   */
+  embers(p, n = 20, { spread = 1.2, color = [4, 1.6, 0.4], life = 1.8 } = {}) {
+    if (this.reduce) n = Math.ceil(n / 2);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = spread * Math.sqrt(Math.random());
+      this.spark({ x: p.x + Math.sin(a) * r, y: p.y + Math.random() * 0.4, z: p.z + Math.cos(a) * r }, { x: (Math.random() - 0.5) * 0.5, y: 1, z: (Math.random() - 0.5) * 0.5 }, 0.8 + Math.random() * 1.6, { color, life: life * (0.6 + Math.random() * 0.7), size: 0.09 + Math.random() * 0.07, gravity: -0.9, drag: 0.7, stretch: 0.11 });
+    }
+  }
+
   /** The crystal sigil (Fab MagicCircle) drawn out on the ground at p, turning, then fading. */
   sigil(p, r, { color = [0.8, 1.2, 2.6], dur = 1.2, spin = 1.2 } = {}) {
     if (!this.mask.value) return;
@@ -793,7 +924,7 @@ export class VFX {
    * centring; o.fade: alpha over the last part of its life; o.from/o.to: a slice of the sheet;
    * o.glow: how far its hottest parts are pushed past white; o.over: drawn over everything.
    */
-  flipbook(name, p, size, { life = 1, color = [1, 1, 1], alpha = 1, vel = null, grow = 1, rise = false, rot = Math.random() * 6.283, spin = 0, fade = 0.3, from = 0, to = 1, glow = 1.5, delay = 0, over = false, stretch = 1 } = {}) {
+  flipbook(name, p, size, { life = 1, color = [1, 1, 1], alpha = 1, vel = null, grow = 1, rise = false, rot = Math.random() * 6.283, spin = 0, fade = 0.3, from = 0, to = 1, glow = 1.5, delay = 0, over = false, stretch = 1, ramp = 0 } = {}) {
     const S = this.sheets[name];
     if (!S || !S.tex) return null;
     const m = this.take(this.flips);
@@ -808,6 +939,7 @@ export class VFX {
     u.uGlow.value = this.reduce ? glow * 0.4 : glow;
     u.uLift.value = rise ? 0.44 : 0;
     u.uSoft.value = rise ? 1 : 0;
+    u.uRamp.value = ramp;
     u.uRot.value = rise ? 0 : rot;
     u.uAlpha.value = 0;
     u.uFrame.value = 0;

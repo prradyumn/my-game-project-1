@@ -163,6 +163,8 @@ export class Finishers {
       g.cinematics?.impactFrame(at, { dur: 0.11 });
       g.vfx?.flash(at, 2.2, { color: [2.6, 1.6, 0.8], life: 0.3 });
       g.vfx?.stars(at, 12, { spread: 1.3, size: 1.4, life: 0.7 });
+      g.vfx?.slashMark(at, 3.2, { rot: Math.random() * 0.8 - 0.4, life: 0.3 });
+      g.vfx?.flare(at, 3, { kind: 'flareImpact', life: 0.35 });
       g.vfx?.sparks(at, { x: dir.x * 0.6, y: 0.4, z: dir.z * 0.6 }, 30, { speed: 9 });
       g.audio.play('slowmo-boom', { volume: a.K.boss ? 1 : 0.85, rate: a.K.boss ? 0.85 : 1 });
       g.audio.play('blade-hit', { at, volume: 1, rate: 0.7 });

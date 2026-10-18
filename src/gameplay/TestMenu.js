@@ -40,6 +40,7 @@ export class TestMenu {
     if (from === 'title' || g.state === 'title') await g.begin(null, { skipIntro: true });
     else if (g.state === 'paused') g.resume();
     g.stopActivities?.();
+    g.siddhiMode?.restore();
     await e.run(g);
     g.ui.toast(e.label, 'Test session: progress here is not saved.', 3);
   }

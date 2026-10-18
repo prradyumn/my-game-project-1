@@ -22,6 +22,10 @@ npm run dev          # http://localhost:5173
 
 Requires Node ≥ 20 and a WebGL2 browser (Chrome, Edge, Safari 17+, Firefox).
 
+## Siddhi Mode
+
+Title screen → **Test** → **Siddhi Mode**: every power and siddhi, endless Shakti, no death, and a pack of shades that keeps rising. A panel lists all 107 moves, animation clips and effects (all 14 Fab VFX packs): `[` `]` choose, `\` perform, `=` plays the whole showcase, `;` hides the panel.
+
 ## Controls
 
 | Key | Action |

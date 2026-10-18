@@ -298,6 +298,7 @@ export class Powers {
     g.vfx?.pillar(feet, 1.1, 5.5, { color: [2, 1.5, 0.75], dur: 0.8, grow: 2.2 });
     g.vfx?.debris(feet, 22, { speed: 6 });
     g.vfx?.dirt(feet, R * 0.35, 9, { size: 1.6 });
+    g.vfx?.decal('dustRing', feet, 1.2, R * 0.95, { color: [0.85, 0.78, 0.68], dur: 1.1, hold: 0.4 });
     g.vfx?.smoke(feet, 5, { size: 2.2, spread: R * 0.25, up: 0.5, alpha: 0.7, color: [0.7, 0.64, 0.56] });
     // (the world stops on the beat for a heartbeat)
     g.slowMo(0.06, 0.09);
@@ -384,6 +385,7 @@ export class Powers {
     const P = g.player.position;
     g.cinematics?.impactFrame(null, { invert: true, dur: 0.12 });
     g.vfx?.yantra({ x: P.x, y: g.player.feetY, z: P.z }, 3.8, { color: [1.5, 0.1, 0.07], dur: 1.2, hold: SHAKTI.thirdEyeSecs - 1.2, spin: 0.5, follow: () => ({ x: g.player.position.x, y: g.player.feetY, z: g.player.position.z }) });
+    g.vfx?.decal('spellCircle', { x: P.x, y: g.player.feetY, z: P.z }, 2.2, 5.2, { color: [1.6, 0.18, 0.1], dur: 0.7, hold: SHAKTI.thirdEyeSecs - 0.7, spin: -0.35, alpha: 0.8, follow: () => ({ x: g.player.position.x, y: g.player.feetY, z: g.player.position.z }) });
     g.vfx?.pillar({ x: P.x, y: g.player.feetY, z: P.z }, 0.55, 9, { color: [1.5, 0.05, 0.03], dur: 1.1, grow: 3.5 });
     g.vfx?.shockwave({ x: P.x, y: g.player.feetY, z: P.z }, 6, { color: [1.6, 0.12, 0.08], dur: 0.8 });
     g.camRig.shake(0.3);
@@ -427,6 +429,8 @@ export class Powers {
       g.vfx?.fireburst({ x: P.x, y: fy, z: P.z }, 2.4, { n: 7, spread: R * 0.45, life: 1 });
       g.vfx?.dirt({ x: P.x, y: fy, z: P.z }, R * 0.4, 8, { size: 1.5, color: [0.4, 0.33, 0.28] });
       g.vfx?.smokeColumn({ x: P.x, y: fy, z: P.z }, 4.5, { life: 5, delay: 0.7 });
+      g.vfx?.embers({ x: P.x, y: fy, z: P.z }, 70, { spread: R * 0.8, life: 2.6 });
+      g.vfx?.decal('dustRing', { x: P.x, y: fy, z: P.z }, 1.5, R * 1.1, { color: [0.45, 0.36, 0.3], dur: 1, hold: 0.8 });
       g.slowMo(0.06, 0.1);
       g.vfx?.slash(new THREE.Vector3(P.x, fy + 0.4, P.z), VFX_FRAME.setFromEuler(_eul.set(0, a.yaw, 0, 'YXZ')).clone(), { r: 2.6, w: 1.1, arc: Math.PI * 2, fire: true, dur: 0.3, tail: 0.9 });
       g.vfx?.flash({ x: P.x, y: fy + 1, z: P.z }, 2.4, { color: [2.8, 1.2, 0.35], life: 0.35 });
@@ -579,6 +583,7 @@ export class Powers {
         }
       }
       T.pos.addScaledVector(dir, step);
+      if (Math.random() < 0.18) g.vfx?.zaps(T.pos, 1, { size: 0.7, spread: 0.25, life: 0.12 });
       // butt first, so he catches the shaft
       this.placeTrishul(T.pos, _a.copy(dir).negate(), false);
       if (T.t > 3) this.caught();
@@ -623,6 +628,9 @@ export class Powers {
     g.vfx?.sparks(T.pos, { x: -dir.x, y: 0.4, z: -dir.z }, 22, { speed: 8, color: [1.6, 2.2, 3.2] });
     g.vfx?.shockwave({ x: a.pos.x, y: a.pos.y + 0.03, z: a.pos.z }, 2.2, { color: [0.8, 1.2, 2.6], dur: 0.5 });
     g.vfx?.sigil({ x: a.pos.x, y: a.pos.y, z: a.pos.z }, 2.6, { color: [0.3, 0.6, 2.2], dur: 1.4 });
+    g.vfx?.decal('electricRing', { x: a.pos.x, y: a.pos.y, z: a.pos.z }, 0.6, 3.6, { color: [0.7, 1.1, 3], dur: 0.45, hold: 0.35, flicker: 0.6, spin: 2 });
+    g.vfx?.zaps(T.pos, 5, { size: 1.4, spread: 0.7, life: 0.3 });
+    g.vfx?.flare(T.pos, 2.6, { kind: 'flareImpact', color: [1.4, 1.8, 3] });
     g.cinematics?.impactFrame(T.pos, { dur: 0.07 });
     g.achievements?.event('trishulPin', {});
   }
@@ -694,7 +702,7 @@ export class Powers {
 
   hud() {
     const g = this.g;
-    const owned = KINDS.filter((k) => g.siddhis?.has(k));
+    const owned = KINDS.filter((k) => this.unlocked(k));
     if (!owned.length) return g.ui.setShakti?.(null);
     g.ui.setShakti?.({
       frac: this.shakti / SHAKTI.max,

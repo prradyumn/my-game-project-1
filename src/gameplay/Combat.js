@@ -1466,6 +1466,9 @@ export class Combat {
           const l = Math.hypot(dir.x, dir.z) || 1;
           if (h.blade) this.vfx.sparks(pt, { x: dir.x / l, y: 0.25, z: dir.z / l }, heavy ? 18 : 9, { speed: heavy ? 8 : 6 });
           if (heavy || final || charged) this.vfx.flash(pt, heavy ? 1.3 : 0.9, { color: [2.2, 1.4, 0.8] });
+          // the big blows: an anime slash mark across the cut, a star flare where it bit (Fab)
+          if (h.blade && (heavy || final)) this.vfx.slashMark(pt, heavy ? 2.6 : 2, { rot: (Math.random() - 0.5) * 1.4 + (mv.i % 2 ? 0.5 : -0.5) });
+          if (heavy || charged) this.vfx.flare(pt, 1.6, { kind: 'flareImpact', life: 0.2 });
         }
         if (res === 'blocked') {
           // the Kavacha's shield: the blow rings off it and throws his arm back
