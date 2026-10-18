@@ -31,6 +31,7 @@ import { RiverAarti } from '../gameplay/RiverAarti.js';
 import { Siddhis } from '../gameplay/Siddhis.js';
 import { Powers, synthDamaru, synthOm } from '../gameplay/Powers.js';
 import { SiddhiMode } from '../gameplay/SiddhiMode.js';
+import { LipSync } from '../gameplay/LipSync.js';
 import { Finishers } from '../gameplay/Finishers.js';
 import { Cinematics } from '../gameplay/Cinematics.js';
 import { Projectiles, synthFireball } from '../gameplay/Projectiles.js';
@@ -166,6 +167,8 @@ export class Game {
     const pTex = Object.fromEntries(Object.entries(M.textures).map(([k, url]) => [k, assets.image(url)]));
     const pPbr = Object.fromEntries(Object.entries(M.pbr || {}).map(([k, s]) => [k, Promise.all([assets.image(s.map), assets.image(s.normal), assets.image(s.arm)])]));
     this.audio = new AudioManager();
+    this.lipSync = new LipSync(this.audio);
+    this.audio.onVoice = (buf, t0) => this.lipSync.start(buf, t0);
     const pAudio = Object.entries(M.audio).map(([k, url]) => assets.audioBuffer(url).then((ab) => this.audio.setRaw(k, ab)));
     const physics = await Physics.create();
     this.physics = physics;
@@ -485,6 +488,7 @@ export class Game {
           manifest: M.people,
           quality: this.settings.quality,
         });
+        this.crowd.lipSync = this.lipSync;
         this.crowd.audio = this.audio; // (a bumped townsman scuffs his feet)
         console.info(`[crowd] ${this.crowd.stats.slots} people planned (${this.crowd.stats.walkers} strollers, ${this.crowd.stats.groups} conversations)`);
       } catch (e) {
@@ -902,7 +906,9 @@ export class Game {
   }
 
   /** Speak a voiced line (key = file under the voice folder). Returns { duration } once loaded. */
-  voice(key) {
+  /** A voiced line; who: the speaker whose mouth moves with it (LipSync). */
+  voice(key, who = null) {
+    this.lipSync.who = who;
     return this.audio.speak(`${ASSET_MANIFEST.voice}/${key}.mp3`);
   }
 

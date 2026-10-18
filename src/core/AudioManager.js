@@ -127,6 +127,7 @@ export class AudioManager {
       src.start();
       this.duck(buf.duration);
       this._voiceSrc = src;
+      this.onVoice?.(buf, this.ctx.currentTime); // (lip sync: LipSync.start)
     };
     this._wantVoice = url;
     if (p.buffer) {
@@ -139,6 +140,7 @@ export class AudioManager {
 
   stopVoice() {
     this._wantVoice = null;
+    this.onVoice?.(null);
     try {
       this._voiceSrc?.stop();
     } catch {

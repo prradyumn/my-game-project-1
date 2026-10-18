@@ -143,6 +143,9 @@ export class SiddhiMode {
     const g = this.g;
     if (g.state !== 'play') return;
     g.powers.shakti = SHAKTI.max;
+    g.powers.endless = true;
+    // (every siddhi stays given while the mode lasts, whatever restored a save under it)
+    if (!g.powers.unlocked('agniChakra') || !g.powers.unlocked('damaru')) g.siddhis.grantAll();
     // the pack: the fallen are replaced, rising out of the ground round him
     this.pack = this.pack.filter((a) => a.alive);
     this.respawn -= dt;

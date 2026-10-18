@@ -258,7 +258,7 @@ export class Story {
     this.g.ui.caption(who, text);
     let dur = secs || Math.max(2.2, text.length * 0.058 + 1.2);
     if (voice) {
-      const v = this.g.voice(voice);
+      const v = this.g.voice(voice, who);
       if (v?.duration) dur = Math.max(dur * 0.6, v.duration + 0.5);
     }
     c.lineT = dur;

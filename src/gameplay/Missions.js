@@ -156,7 +156,7 @@ export class Missions {
     const last = d.i === d.lines.length - 1;
     this.g.ui.showDialogue(who, text, last && d.opts.choices ? d.opts.choices : null);
     if (this.g.audio && d.i === 0 && !voice) this.g.audio.play('bell', { volume: 0.06, rate: 1.6 });
-    if (voice) this.g.voice(voice);
+    if (voice) this.g.voice(voice, who);
     else this.g.stopVoice?.();
   }
 

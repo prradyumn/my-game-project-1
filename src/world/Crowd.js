@@ -50,6 +50,7 @@ const TINTS = {
 const within = (h, r) => (r[0] <= r[1] ? h >= r[0] && h < r[1] : h >= r[0] || h < r[1]);
 
 const _v = new THREE.Vector3();
+const _mouth = { open: 0, narrow: 0 };
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
 const _m = new THREE.Matrix4();
@@ -149,6 +150,7 @@ class Body {
       rFinger: B('R_Finger2'),
       pelvis: B('Pelvis'),
       spine1: B('Spine1'),
+      jaw: B('MJaw'), // (the face: an actor's mouth moves with its voiced lines, LipSync)
     };
     // three's mixer only writes a bone whose animated value changed, so every bone the
     // procedural layer touches is restored to the mixer's clean output before each update.
@@ -967,6 +969,10 @@ export class Crowd {
         if (row) this._rowArms(s, body);
         if (s.bump) this._bumpLean(s, body);
         if (look > 0.01) this._look(s, body, look);
+      }
+      if (s.actor?.name && body.b.jaw && this.lipSync) {
+        const m = this.lipSync.mouth(s.actor.name, _mouth);
+        if (m.open > 0.003) body.b.jaw.rotateZ(m.open * 0.21);
       }
     }
     this.lampMesh.count = lamps;

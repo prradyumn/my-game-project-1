@@ -5,6 +5,7 @@ import { GROUPS } from '../core/Physics.js';
 import { clamp, damp, dampAngle, wrapAngle } from '../utils/math.js';
 import { solveTwoBone } from '../utils/bones.js';
 import { Ragdoll } from './Ragdoll.js';
+import { HitReact } from './HitReact.js';
 import { SpringChain, chainFromPoints, legSpheres, rigCloth } from './SpringBones.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { AsuraEyes, AsuraParticles, asuraMaterial, hornMaterial, hornsGeometry } from '../world/AsuraLook.js';
@@ -218,7 +219,14 @@ export class Asura {
         this.recoilUntil = this.t + (h.heavy ? 0.5 : 0.34);
       }
     }
-    this.flinch = { axis: new THREE.Vector3(dir.z, 0, -dir.x), amt: 0, vel: (h.heavy ? 8 : 5.6) / Math.sqrt(this.scale), head: this.flinch?.head || 0, headVel: this.flinch?.headVel || 0 };
+    this.flinch = { axis: new THREE.Vector3(dir.z, 0, -dir.x), amt: 0, vel: (h.heavy ? 4.5 : 3) / Math.sqrt(this.scale), head: this.flinch?.head || 0, headVel: this.flinch?.headVel || 0 };
+    // the blow through the body (HitReact): torque on every joint between where it struck and
+    // the hips; a heavy blow, a kick or a charged one leaves the arms slack a moment
+    if (this.body?.root) {
+      this.react ||= new HitReact(this.body.root, { scale: this.scale });
+      const s = h.k * (h.heavy ? 2 : 1) * (h.charged ? 1.35 : 1) * (h.kick ? 1.3 : 1) * (h.final ? 1.2 : 1);
+      this.react.hit(h.at, { x: dir.x, y: h.kick ? 0.25 : 0.05, z: dir.z }, s, { limp: h.heavy || h.kick || h.charged || h.final ? (this.K.boss ? 0.2 : 0.45) : 0 });
+    }
     // a cut sweeping across the body turns it with the edge (the torque of the blow about its
     // spine: the front of it is struck, pushed along the sweep), and it springs back to face him
     if (h.sweep) {
@@ -1279,12 +1287,36 @@ export class Asura {
         // played at the pace it really moves, so its feet don't slide (a stride grows with the body)
         const S = B.speeds;
         if (S) {
-          const nat = role === 'run' ? S.asuraRun : role === 'walkBack' ? S.asuraWalk : role === 'strafeL' ? S.asuraStrafeL : role === 'strafeR' ? S.asuraStrafeR : S.asuraWalk;
-          sp = clamp(realSpeed / ((nat || 1.4) * this.scale), 0.5, role === 'strafeL' || role === 'strafeR' ? 2.2 : 1.8);
+          // (the run's table pace is a quarter over its feet's real pace, measured in game)
+          const nat = role === 'run' ? S.asuraRun * 0.78 : role === 'walkBack' ? S.asuraWalk : role === 'strafeL' ? S.asuraStrafeL : role === 'strafeR' ? S.asuraStrafeR : S.asuraWalk;
+          const stride = (nat || 1.4) * this.scale;
+          const cap = role === 'strafeL' || role === 'strafeR' ? 1.6 : 1.8;
+          // faster than its legs can carry it (backing off, side-stepping round him): it is held to
+          // the pace its stride makes at the clip's quickest, so it never glides
+          if (realSpeed > stride * cap && role !== 'run') {
+            const k = (stride * cap) / realSpeed;
+            this.pos.x = before.x + (this.pos.x - before.x) * k;
+            this.pos.z = before.z + (this.pos.z - before.z) * k;
+            this.rb.setNextKinematicTranslation({ x: this.pos.x, y: this.pos.y + this.halfH, z: this.pos.z });
+          }
+          sp = clamp(realSpeed / stride, 0.5, cap);
         } else sp = clamp(realSpeed / (role === 'run' ? (B.runSpeed || 3.4) : B.walkSpeed || 1.4) / Math.max(0.6, this.scale * 0.85), 0.55, 1.8);
       }
       this.play(role, 0.3, { speed: sp });
-    }
+      // the legs go where it goes: a body walking on a slant to the way it faces turns its hips
+      // toward its path (the clips step straight ahead, back or sideways; anything between slid)
+      let off = 0;
+      if (realSpeed > 0.25) {
+        const w = Math.atan2(Math.sin(relYaw), Math.cos(relYaw));
+        if (role === 'walk' || role === 'run') off = w;
+        else if (role === 'walkBack') off = Math.atan2(Math.sin(w - Math.PI), Math.cos(w - Math.PI));
+        else if (role === 'strafeL') off = w - Math.PI / 2;
+        else if (role === 'strafeR') off = w + Math.PI / 2;
+        off = Math.atan2(Math.sin(off), Math.cos(off));
+        off = clamp(off, -0.9, 0.9);
+      }
+      this.pathYaw = (this.pathYaw || 0) + (off - (this.pathYaw || 0)) * Math.min(1, dt * 8);
+    } else this.pathYaw = (this.pathYaw || 0) * Math.max(0, 1 - dt * 8);
     const frozen = this.freezeT > 0;
     this.freezeT = Math.max(0, (this.freezeT || 0) - dt);
     if (this.ragdoll) return this.lateRagdoll(B);
@@ -1299,7 +1331,7 @@ export class Asura {
     const footY = tread !== null ? this.pos.y + 0.6 - tread : this.pos.y;
     this.visY = this.visY === undefined ? footY : damp(this.visY, Math.min(footY, this.pos.y + 0.05), 14, dt);
     B.holder.position.set(this.pos.x, this.visY, this.pos.z);
-    B.holder.rotation.set(0, this.yaw + (this.twist || 0), 0);
+    B.holder.rotation.set(0, this.yaw + (this.twist || 0) + (this.pathYaw || 0), 0);
     B.holder.updateMatrixWorld(true);
     // a body between the camera and Prady, or right at the lens, thins out so Prady is never lost
     // behind it (Andhaka and the Rakshasas fill the frame; a shade only when the lens is in it)
@@ -1334,6 +1366,7 @@ export class Asura {
       if (B.head) rotateWorld(B.head, F.axis, F.head * 0.4);
       if (Math.abs(F.amt) < 0.001 && Math.abs(F.vel) < 0.01 && Math.abs(F.head) < 0.002) this.flinch = null;
     }
+    this.react?.update(dt);
     // a predator's hunch: the back curls forward, the head stays up and level
     const fwd = _z.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     const side = _x.set(fwd.z, 0, -fwd.x);

@@ -4,6 +4,7 @@ import { GROUPS } from '../core/Physics.js';
 import { RNG } from '../utils/math.js';
 import { GHAT_SEGMENTS, LANDING_2, ghatToWorld } from './WorldLayout.js';
 import { makeWaterAware, shiny } from './materials.js';
+import { fractureShell } from './Fracture.js';
 
 // Loose things on the ghats that obey physics: clay matkas beside the takhts, brass lotas on
 // them, flower sellers' baskets of marigolds. Prady (and an Asura) walking or rolling into one
@@ -24,6 +25,7 @@ const KINDS = {
 const ACT = 28; // a prop near enough to be touched gets a body...
 const DEACT = 40; // ...and gives it up once he's this far and it's at rest
 const SHARDS = 72;
+const BROKEN_AT_ONCE = 5; // matkas whose real pieces can be flying at the same time
 
 const C = (hex) => new THREE.Color().setStyle(hex, THREE.SRGBColorSpace);
 const _m = new THREE.Matrix4();
@@ -104,16 +106,31 @@ export class PhysicsProps {
       game.scene.add(mesh);
       this.meshes[k] = mesh;
     }
-    // shards of broken matkas: a small pool, each a short-lived body
+    // a broken matka flies apart into its own pieces (Fracture.js: the pot's shell cut into
+    // Voronoi patches once, here), one instanced mesh per piece, each piece a short-lived body
     // (the shards' own material: the pots' carries per-instance colours and theirs doesn't, and one
     // material across both swapped shader programs every frame)
-    this.shardMesh = new THREE.InstancedMesh(shardGeometry(), makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }), { puddles: false }), SHARDS);
+    const shardMat = makeWaterAware(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide }), { puddles: false });
+    this.pieces = fractureShell(geos.matka, { pieces: 9, thickness: 0.016, seed: 11 });
+    this.pieceMeshes = this.pieces.map((pc, i) => {
+      const m = new THREE.InstancedMesh(pc.geometry, shardMat, BROKEN_AT_ONCE);
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.castShadow = true;
+      m.frustumCulled = false;
+      m.count = 0;
+      m.name = `matka-piece-${i}`;
+      game.scene.add(m);
+      return m;
+    });
+    // (small crumbs of the clay, as before, with the pieces)
+    this.shardMesh = new THREE.InstancedMesh(shardGeometry(), shardMat, SHARDS);
     this.shardMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.shardMesh.castShadow = true;
     this.shardMesh.frustumCulled = false;
     this.shardMesh.count = 0;
     game.scene.add(this.shardMesh);
     this.shards = [];
+    this.breaks = []; // { bodies: [{ body, piece }], t }
     for (const m of Object.values(this.meshes)) m.frustumCulled = false;
   }
 
@@ -421,9 +438,31 @@ export class PhysicsProps {
     g.asuras?.particles.emitDust(at.x, at.y - 0.25, at.z, 0.9, 7);
     // the water it held
     for (let i = 0; i < 4; i++) g.fx?.spray?.(at.x + (Math.random() - 0.5) * 0.3, at.y - 0.1, at.z + (Math.random() - 0.5) * 0.3);
-    // shards: curved pieces of the belly, flung out, tumbling, gone in a few seconds
+    // the pot's own pieces, each where it was in the pot, thrown out from the middle with the blow
     const R = this.physics.RAPIER;
-    for (let i = 0; i < 8; i++) {
+    if (this.breaks.length >= BROKEN_AT_ONCE) this.dropBreak(this.breaks[0]);
+    const brk = { bodies: [], t: 0 };
+    const q = p.q;
+    for (let i = 0; i < this.pieces.length; i++) {
+      const pc = this.pieces[i];
+      const off = pc.center.clone().applyQuaternion(q);
+      const out = off.clone().setY(off.y * 0.3).normalize();
+      const sp = 1.2 + Math.random() * 1.8;
+      const body = this.physics.world.createRigidBody(
+        R.RigidBodyDesc.dynamic()
+          .setTranslation(at.x + off.x, at.y + off.y, at.z + off.z)
+          .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
+          .setLinvel(vel.x + out.x * sp, vel.y * 0.8 + 0.6 + Math.random() * 1.4 + out.y, vel.z + out.z * sp)
+          .setAngvel({ x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10, z: (Math.random() - 0.5) * 10 })
+          .setCcdEnabled(true)
+      );
+      const hull = R.ColliderDesc.convexHull(pc.hull) || R.ColliderDesc.cuboid(0.06, 0.04, 0.05);
+      this.physics.world.createCollider(hull.setMass(0.3).setFriction(0.8).setRestitution(0.18).setCollisionGroups(GROUPS.prop), body);
+      brk.bodies.push({ body, piece: i });
+    }
+    this.breaks.push(brk);
+    // and crumbs
+    for (let i = 0; i < 4; i++) {
       if (this.shards.length >= SHARDS) this.dropShard(this.shards[0]);
       const a = (i / 8) * Math.PI * 2 + Math.random() * 0.4;
       const pos = { x: at.x + Math.cos(a) * 0.18, y: at.y + (Math.random() - 0.3) * 0.3, z: at.z + Math.sin(a) * 0.18 };
@@ -439,6 +478,11 @@ export class PhysicsProps {
       this.physics.world.createCollider(R.ColliderDesc.cuboid(0.07, 0.04, 0.05).setMass(0.15).setFriction(0.8).setRestitution(0.2).setCollisionGroups(GROUPS.prop), body);
       this.shards.push({ body, t: 0, s: 0.5 + Math.random() * 0.5 });
     }
+  }
+
+  dropBreak(b) {
+    for (const x of b.bodies) this.physics.world.removeRigidBody(x.body);
+    this.breaks.splice(this.breaks.indexOf(b), 1);
   }
 
   dropShard(sh) {
@@ -465,6 +509,27 @@ export class PhysicsProps {
     _s.set(1, 1, 1);
     m.count = n;
     m.instanceMatrix.needsUpdate = true;
+    // the pots' pieces: lie a while among the treads, then crumble into the dust
+    const counts = this.pieceMeshes.map(() => 0);
+    for (const b of [...this.breaks]) {
+      b.t += dt;
+      if (b.t > 14) {
+        this.dropBreak(b);
+        continue;
+      }
+      const k = 1 - Math.max(0, (b.t - 12) / 2);
+      for (const x of b.bodies) {
+        const t = x.body.translation();
+        const r = x.body.rotation();
+        _m.compose(_p.set(t.x, t.y, t.z), _q.set(r.x, r.y, r.z, r.w), _s.set(k, k, k));
+        this.pieceMeshes[x.piece].setMatrixAt(counts[x.piece]++, _m);
+      }
+    }
+    _s.set(1, 1, 1);
+    this.pieceMeshes.forEach((pm, i) => {
+      pm.count = counts[i];
+      pm.instanceMatrix.needsUpdate = true;
+    });
   }
 }
 
