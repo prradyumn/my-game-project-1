@@ -226,7 +226,8 @@ export class Player {
           this.jumpCut = true;
         } else vel.y = this.grounded ? -2 : vel.y + PLAYER.gravity * dt;
       } else {
-        vel.y += PLAYER.gravity * (vel.y < 0 ? M.fallGravityScale : 1) * dt;
+        // (gravScale: Combat's air combo hangs him at the top of a leap)
+        vel.y += PLAYER.gravity * (vel.y < 0 ? M.fallGravityScale : 1) * (this.gravScale ?? 1) * dt;
         if (this.jumpCut && !c.jumpHeld && vel.y > 0) {
           vel.y *= M.jumpCutFactor; // a tap gives a short hop, holding gives the full jump
           this.jumpCut = false;

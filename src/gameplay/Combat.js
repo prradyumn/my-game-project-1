@@ -47,6 +47,22 @@ const MOVES = {
   launcher: { clip: 'frontKick', hits: [{ t: 0.65, limb: 'RightFoot', k: 0.8 }], cancel: 0.9, ts: 1.35, kick: true, launch: true, from: 0.3 },
   // the butterfly kick (Mixamo): off a sprint, the body flat in the air, one foot then the other
   mxButterflyKick: { hits: [{ t: 1.2, limb: 'RightFoot', k: 1.15 }, { t: 1.4, limb: 'LeftFoot', k: 1.4 }], cancel: 1.85, ts: 1.55, kick: true, heavy: true, from: 0.5 },
+  // ---- the named arts (TREE below). aoe: at that hit every Asura within so many metres is struck,
+  // blade or no blade; slam: and thrown down; teleport: a shadow-step onto the target first;
+  // echo: that many shadows of him cut it again after the blow
+  // Vayu Chakra (L R): the overhead cut turned into a whirl, a ring of wind round him
+  spinCut: { clip: 'heavyCut', hits: [{ t: 0.72, blade: true, k: 1.2, aoe: 2.6 }], cancel: 0.95, ts: 1.75, sword: true, heavy: true, spin: true, track: 1.2, from: 0.22 },
+  // Chhaya Prahar (L L R): a shadow-step onto it, the cut, two shadows of him cutting after
+  shadowCut: { clip: 'slashB', hits: [{ t: 0.6, blade: true, k: 1.3 }], cancel: 0.8, ts: 1.5, sword: true, teleport: true, echo: 2, from: 0.3 },
+  // Tandava (L L L R): the cut driven into the stone; everything round him thrown down
+  tandava: { clip: 'heavyCut', hits: [{ t: 0.72, blade: true, k: 2.0, aoe: 3.8, slam: true }], cancel: 1.05, ts: 1.15, sword: true, heavy: true, finale: true, track: 1.0, from: 0.18 },
+  // Udaan with the talwar (R L): the rising slash throws it into the air
+  risingCut: { clip: 'slashA', hits: [{ t: 0.57, blade: true, k: 0.85 }], cancel: 0.78, ts: 1.4, sword: true, launch: true, from: 0.26 },
+  // bare-handed: Pavan Chakra (L R), the butterfly kick from a stand; the shadow kick (L L R); the
+  // Tandava (L L L R), the roundhouse brought down
+  spinKick: { clip: 'mxButterflyKick', hits: [{ t: 1.2, limb: 'RightFoot', k: 1.0 }, { t: 1.4, limb: 'LeftFoot', k: 1.2, aoe: 3.1 }], cancel: 1.8, ts: 1.75, kick: true, heavy: true, spin: true, from: 0.55 },
+  shadowKick: { clip: 'sideKick', hits: [{ t: 0.7, limb: 'RightFoot', k: 1.25 }], cancel: 1.0, ts: 1.7, kick: true, teleport: true, echo: 2, from: 0.3 },
+  tandavaKick: { clip: 'roundKick', hits: [{ t: 0.84, limb: 'RightFoot', k: 1.8, aoe: 3.6, slam: true }], cancel: 1.4, ts: 1.6, kick: true, heavy: true, finale: true, from: 0.35 },
 };
 export { MOVES };
 const COMBO = { armed: ['slashA', 'slashB', 'thrust'], unarmed: ['oneTwo', 'bodyShot', 'frontKick'] };
@@ -55,6 +71,18 @@ const COMBO4 = { armed: [...COMBO.armed, 'comboCut'], unarmed: [...COMBO.unarmed
 const KICK2 = (l) => l.map((n) => (n === 'frontKick' ? 'sideKick' : n));
 const COMBO_ALT = { 3: KICK2(COMBO.unarmed), 4: KICK2(COMBO4.unarmed) };
 const HEAVY = { armed: 'heavyCut', unarmed: 'roundKick' };
+
+// The arts' names (the combo HUD shows them, with the presses that made them).
+export const ARTS = {
+  gangaDhara: ['Ganga Dhara', 'Flow of the Ganga'],
+  vajraMushti: ['Vajra Mushti', 'Thunderbolt Fists'],
+  vayuChakra: ['Vayu Chakra', 'Wheel of Wind'],
+  pavanChakra: ['Pavan Chakra', 'Whirlwind'],
+  chhayaPrahar: ['Chhaya Prahar', 'Shadow Strike'],
+  tandava: ['Tandava', 'The Dance of Shiva'],
+  udaan: ['Udaan', 'Take Flight'],
+  akashKhadga: ['Akash Khadga', 'Sky Blade'],
+};
 const FEET = PLAYER.halfHeight + PLAYER.radius; // (his capsule's centre above his feet)
 const LEG = 0.88; // Prady's hip height above the foot (m): root motion is baked in these units
 const WINDOW = 0.085; // a strike connects within this much clip time of its peak
@@ -177,6 +205,75 @@ export class Combat {
     this.invuln = false; // a finisher in progress: nothing touches him
   }
 
+  /**
+   * The strings (as the action games read them): the presses so far (L light, R heavy) name the
+   * next blow. { chain: { move, art?, end? } }; a chain not in it starts over from its last press.
+   */
+  tree() {
+    const A = this.anim.clipActions;
+    const list = this.comboList();
+    const n = list.length;
+    const T = {};
+    list.forEach((m, i) => (T['L'.repeat(i + 1)] = { move: m, art: i === n - 1 ? (this.armed ? 'gangaDhara' : 'vajraMushti') : null, end: i === n - 1 }));
+    T.R = { move: HEAVY[this.armed ? 'armed' : 'unarmed'], end: true };
+    if (this.armed) {
+      T.LR = { move: 'spinCut', art: 'vayuChakra', end: true };
+      T.LLR = { move: 'shadowCut', art: 'chhayaPrahar', end: true };
+      T.LLLR = { move: 'tandava', art: 'tandava', end: true };
+      T.RL = { move: 'risingCut', art: 'udaan', end: true };
+    } else {
+      T.LR = { move: A.mxButterflyKick ? 'spinKick' : 'comboKick', art: 'pavanChakra', end: true };
+      if (A.sideKick) T.LLR = { move: 'shadowKick', art: 'chhayaPrahar', end: true };
+      T.LLLR = { move: 'tandavaKick', art: 'tandava', end: true };
+      if (A.frontKick) T.RL = { move: 'launcher', art: 'udaan', end: true };
+    }
+    T.R.end = !T.RL;
+    return T;
+  }
+
+  /** The next blow of the string for a press (key 'L' | 'R') after `from` (the chain so far). */
+  nextInChain(from, key) {
+    const T = this.tree();
+    let chain = (from || '') + key;
+    if (!T[chain]) chain = key;
+    return { chain, node: T[chain] };
+  }
+
+  /** Begin the blow a press names: from the open string (a press soon after the last blow) or afresh. */
+  press(key) {
+    const open = this.time - this.lastEnd <= 0.7 && this.chainOpen && !this.chainOpen.end ? this.chainOpen.chain : '';
+    this.begin(this.nextInChain(open, key));
+  }
+
+  begin(link) {
+    if (link.chain === 'L') this.rounds++;
+    this.onEvent('chain', { chain: link.chain, art: link.node.art || null, armed: this.armed });
+    this.start(link.node.move, false, null, link);
+  }
+
+  /** A press during a blow: the next one it names, or after that one (in the order pressed). */
+  queue(mv, key) {
+    if (!mv.queued && !mv.queuedHeavy) {
+      if (key === 'R') mv.queuedHeavy = true;
+      else mv.queued = true;
+    } else if ((mv.keys ||= []).length < 3) mv.keys.push(key);
+  }
+
+  /** Presses waiting from a run-in: the first queued on this blow, the rest carried to the next. */
+  feed(mv, keys) {
+    if (!mv || !keys?.length) return;
+    const k = keys[0];
+    if (k === 'R') mv.queuedHeavy = true;
+    else mv.queued = true;
+    mv.keys = keys.slice(1);
+  }
+
+  /** A critical: the counters and charged blows always, a big blow often, any blow now and then. */
+  critRoll(mv, big = false) {
+    if (mv?.riposte || mv?.chargedFx) return true;
+    return Math.random() < (big ? 0.22 : 0.08);
+  }
+
   /** The combo in hand (three blows, four with the Fourth Strike siddhi). */
   comboList() {
     if (!this.armed && this.rounds % 2 && this.anim.clipActions.sideKick) return COMBO_ALT[this.perks.combo4 ? 4 : 3];
@@ -241,6 +338,9 @@ export class Combat {
   }
 
   attack() {
+    // in the air over a launched one: the air combo's next cut (on the way up: the first, at the top)
+    if (this.air) return this.airStrike();
+    if (this.chase) return void (this.chase.queued = true);
     // the juggle: it hangs in the air; a strike now leaps after it and drives it down (the plunge)
     const J = this.juggle;
     if (J && this.time < J.until && J.tgt?.alive && J.tgt.launchS && !this.chase && (!this.move || this.move.struck.size > 0)) {
@@ -262,13 +362,18 @@ export class Combat {
       return;
     }
     if (this.dash) {
-      this.dash.queued = true;
+      // (each press remembered, in order: L L R pressed through the run-in is still L L R)
+      const K = (this.dash.keys ||= []);
+      if (K.length < 3) K.push('L');
       return;
     }
     if (this.move) {
       // a press during the move queues the next strike of the combo (from early in it: a
       // mashed button isn't lost)
-      if (this.move.t > 0.15 && !this.move.force && !MOVES[this.move.name].heavy && this.move.name !== HEAVY.unarmed) this.move.queued = true;
+      // (a heavy blow takes a light press only where the string goes on: R L, the launcher)
+      const mv = this.move;
+      const goes = mv.chain && !mv.node?.end && this.tree()[`${mv.chain}L`];
+      if (mv.t > 0.15 && !mv.force && (goes || (!MOVES[mv.name].heavy && mv.name !== HEAVY.unarmed))) this.queue(mv, 'L');
       return;
     }
     // on a wall run: kick off the wall onto the nearest one
@@ -299,10 +404,7 @@ export class Combat {
       if (this.move) this.move.sprint = true;
       return;
     }
-    if (this.time - this.lastEnd > 0.7) this.combo = 0;
-    if (this.combo % this.comboList().length === 0) this.rounds++;
-    const list = this.comboList();
-    this.start(list[this.combo % list.length]);
+    this.press('L');
   }
 
   /** A strike straight out of a roll or the backflip, the moment he is on his feet: a kick out of
@@ -469,10 +571,17 @@ export class Combat {
   }
 
   heavy() {
+    if (this.air) return this.airFinish();
+    // (pressed during the run-in: it comes once he is there, as the string's next press)
+    if (this.dash) {
+      const K = (this.dash.keys ||= []);
+      if (!this.dash.forced && K.length < 3) K.push('R');
+      return;
+    }
     if (this.move) {
       // buffered like the light strike: pressed any time after the first moments of a move, it
       // comes out at that move's cancel point (an early press was lost)
-      if (!this.move.force && this.move.t > 0.15) this.move.queuedHeavy = true;
+      if (!this.move.force && this.move.t > 0.15) this.queue(this.move, 'R');
       return;
     }
     if (!this.canFight() || this.blocking) return;
@@ -483,9 +592,9 @@ export class Combat {
         return;
       }
     }
-    this.start(HEAVY[this.armed ? 'armed' : 'unarmed']);
+    this.press('R');
     // Gathered Storm: held, the wind-up waits and the blow gathers (released, it falls)
-    if (this.move && this.perks.charged) {
+    if (this.move && this.perks.charged && this.move.name === HEAVY[this.armed ? 'armed' : 'unarmed']) {
       this.move.charging = true;
       this.move.charge = 0;
     }
@@ -834,7 +943,7 @@ export class Combat {
     return t?.enemy && t.pos.y < p.feetY - 0.2 ? Math.min(2.4, p.feetY - t.pos.y + 0.45) : 0.35;
   }
 
-  start(name, noDash = false, forced = null) {
+  start(name, noDash = false, forced = null, link = null) {
     const m = MOVES[name];
     const p = this.p;
     // aim the blow itself (not the hips: fighting stances stand side-on) at a dummy in front
@@ -849,27 +958,59 @@ export class Combat {
     if (tt?.enemy) this.lastTgt = tt;
     const t = tt?.pos;
     if (t) {
-      const ty = Math.atan2(t.x - p.position.x, t.z - p.position.z);
+      let ty = Math.atan2(t.x - p.position.x, t.z - p.position.z);
       // aim at the body's surface, not its centre (a broad Rakshasa is met sooner than a post)
-      const d = Math.hypot(t.x - p.position.x, t.z - p.position.z) - (tt.enemy ? tt.radius * 0.6 : 0);
+      let d = Math.hypot(t.x - p.position.x, t.z - p.position.z) - (tt.enemy ? tt.radius * 0.6 : 0);
       yaw = ty - la;
       // with the talwar the middle of the blade should meet the target, not the fist; against
       // an enemy the lunge reaches further (the lock pulls the blow in, as in any action game)
       // standing above it (the steps): get down to it, so the blade crosses its body
       const below = tt.enemy ? Math.max(0, p.feetY - tt.pos.y - 0.3) : 0;
       const reachAt = Math.hypot(L.x, L.z) + 0.08 + (m.sword ? 0.42 : 0) - below * 0.9;
-      const need = d - reachAt;
+      let need = d - reachAt;
+      // a shadow-step (Chhaya Prahar): there in a blink, up to a dozen metres, not through a wall;
+      // already within reach, through it, to cut from its back
+      if (m.teleport && tt.enemy && d < 12) {
+        const l = Math.hypot(t.x - p.position.x, t.z - p.position.z) || 1;
+        const ux = (t.x - p.position.x) / l;
+        const uz = (t.z - p.position.z) / l;
+        const behind = need <= 0.35;
+        let go = behind ? l + (tt.radius ?? 0.4) + Math.max(0.5, reachAt * 0.8) : need - 0.1;
+        // not through a wall: a ray up to its body, and (going through it) one on from its far side
+        const rad = tt.radius ?? 0.4;
+        const near = Math.max(0, l - rad - 0.3);
+        const wall = near > 0.1 ? p.physics.castRay({ x: p.position.x, y: p.position.y + 0.3, z: p.position.z }, { x: ux, y: 0, z: uz }, near, p.collider, GROUPS.mover) : null;
+        if (wall !== null) go = behind ? 0 : Math.min(go, wall - 0.45);
+        if (behind && go > 0) {
+          const o = { x: t.x + ux * (rad + 0.1), y: p.position.y + 0.3, z: t.z + uz * (rad + 0.1) };
+          const far = p.physics.castRay(o, { x: ux, y: 0, z: uz }, go - l - rad - 0.1, p.collider, GROUPS.mover);
+          if (far !== null) go = l + rad + 0.1 + far - 0.45;
+        }
+        const nx = p.position.x + ux * go;
+        const nz = p.position.z + uz * go;
+        const gy = groundHeight(nx, nz);
+        if (go > 0.6 && gy > -0.4 && Math.abs(gy - p.feetY) < 3 && (!behind || go > l + 0.3)) {
+          const ny = Math.atan2(t.x - nx, t.z - nz);
+          this.onEvent('shadowStep', { from: new THREE.Vector3(p.position.x, p.feetY, p.position.z), to: new THREE.Vector3(nx, gy, nz), yaw: ny, behind });
+          p.teleport(nx, gy, nz);
+          p.yaw = p.prevYaw = ny;
+          ty = ny;
+          yaw = ty - la;
+          d = Math.hypot(t.x - nx, t.z - nz) - (tt.radius ?? 0.3) * 0.6;
+          need = d - reachAt;
+        }
+      }
       // further than a lunge covers: run in first (a few quick strides), then strike
       if (tt.enemy && !noDash && need > 2.05) {
         const need2 = Math.max((tt.radius ?? 0.3) * 0.4 + 0.5, reachAt + 1.4);
-        this.dash = { name, tgt: tt, t: 0, need: need2, max: Math.min(1.1, Math.max(0.4, (d - need2) / 9 + 0.2)) };
+        this.dash = { name, tgt: tt, t: 0, need: need2, max: Math.min(1.1, Math.max(0.4, (d - need2) / 9 + 0.2)), link };
         this.move = null;
         return;
       }
       approach = Math.max(-0.45, Math.min(tt.enemy ? 1.9 : 1.2, need));
       this.aimAt = ty;
     }
-    this.move = { name, t: (m.from || 0) / m.ts, ts: m.ts, start: p.position.clone(), yaw, i: this.combo, queued: false, queuedHeavy: false, struck: new Set(), whoosh: false, approach, approachYaw: t ? Math.atan2(t.x - p.position.x, t.z - p.position.z) : yaw, la, pathYaw: yaw, tgt: tt?.enemy ? tt : null, tgt0: tt?.enemy ? new THREE.Vector3(tt.pos.x, 0, tt.pos.z) : null, track: { x: 0, z: 0 } };
+    this.move = { name, chain: link?.chain, node: link?.node, t: (m.from || 0) / m.ts, ts: m.ts, start: p.position.clone(), yaw, i: link ? link.chain.length - 1 : 0, queued: false, queuedHeavy: false, struck: new Set(), whoosh: false, approach, approachYaw: t ? Math.atan2(t.x - p.position.x, t.z - p.position.z) : yaw, la, pathYaw: yaw, tgt: tt?.enemy ? tt : null, tgt0: tt?.enemy ? new THREE.Vector3(tt.pos.x, 0, tt.pos.z) : null, track: { x: 0, z: 0 } };
     // Pratyuttara: the first strike after a parry is a riposte
     if ((this.perks.riposte && this.time - this.lastParryT < 1.1) || this.time < this.counterUntil) {
       this.move.riposte = true;
@@ -908,10 +1049,19 @@ export class Combat {
     this.hitStop = Math.max(0, this.hitStop - dt);
     if (this.chase && (this.p.velocity.y < 1.2 || this.time > this.chase.until)) {
       const tg = this.chase.tgt;
+      const q = this.chase.queued;
       this.chase = null;
-      if (tg?.launchS) tg.launchS.slam = true; // (driven down with him)
-      this.startPlunge();
+      // at the top, beside it: the air combo (Akash Khadga); else driven down with him
+      if (tg?.alive && tg.launchS && this.p.state === 'air') {
+        this.airStart(tg);
+        if (q) this.airStrike();
+      } else {
+        if (tg?.launchS) tg.launchS.slam = true;
+        this.startPlunge();
+      }
     }
+    if (this.air) this.airStep(dt);
+    if (this.echo) this.echoStep(dt);
     if (this.pendingDodge) {
       if (this.time > this.pendingDodge.until) this.pendingDodge = null;
       else if (this.dodge(this.pendingDodge.wish, true)) this.pendingDodge = null;
@@ -1030,8 +1180,8 @@ export class Combat {
           this.forceMove(D.name, D.tgt, { ...D.forced, noDash: true });
           return this.hold();
         }
-        this.start(D.name, true);
-        if (D.queued && this.move) this.move.queued = true;
+        this.start(D.name, true, null, D.link);
+        this.feed(this.move, D.keys);
         return this.hold();
       }
       // quick strides straight at it (down the steps if it is below)
@@ -1171,13 +1321,19 @@ export class Combat {
     // hit-confirm (Sifu, the fighting games): a blow that bit can be followed sooner, a whiff
     // leaves him open a beat longer
     const cancelAt = m.cancel + (mv.struck.size ? -0.08 : 0.06);
-    if (ct >= cancelAt && (mv.queued || mv.queuedHeavy)) {
-      if (!mv.queuedHeavy && (mv.i + 1) % this.comboList().length === 0) this.rounds++; // (round again)
-      const list = this.comboList();
-      const next = mv.queuedHeavy ? HEAVY[this.armed ? 'armed' : 'unarmed'] : list[(mv.i + 1) % list.length];
-      this.combo = mv.queuedHeavy ? 0 : mv.i + 1;
+    // a press during the launcher (before it bit, or as it did): after the one it threw up
+    if (mv.queued && !mv.queuedHeavy && m.launch && this.juggle?.tgt?.launchS && ct >= m.hits[0].t + 0.05) {
       this.move = null;
-      this.start(next);
+      this.lastEnd = this.time;
+      this.attack();
+      return true;
+    }
+    if (ct >= cancelAt && (mv.queued || mv.queuedHeavy)) {
+      // the string's next blow (L L R, R L...): a finished string starts over
+      const link = this.nextInChain(mv.node?.end ? '' : mv.chain, mv.queuedHeavy ? 'R' : 'L');
+      this.move = null;
+      this.begin(link);
+      this.feed(this.move, mv.keys);
       return true;
     }
     // the instant cancel: past the cancel point, a push of the stick breaks the follow-through and
@@ -1185,8 +1341,7 @@ export class Combat {
     if (ct >= cancelAt + 0.03 && !mv.force && (this.p.cmd?.mag ?? 0) > 0.4) {
       this.move = null;
       this.lastEnd = this.time;
-      this.combo = (mv.i + 1) % this.comboList().length;
-      if (m.heavy || mv.name === HEAVY.unarmed) this.combo = 0;
+      this.chainOpen = { chain: mv.chain, end: !mv.chain || !!mv.node?.end };
       this.anim.stop(0.16);
       this.stance(this.armed ? 8 : 3);
       return false;
@@ -1194,8 +1349,7 @@ export class Combat {
     if (ct >= dur - 0.12) {
       this.move = null;
       this.lastEnd = this.time;
-      this.combo = (mv.i + 1) % this.comboList().length;
-      if (m.heavy || mv.name === HEAVY.unarmed) this.combo = 0;
+      this.chainOpen = { chain: mv.chain, end: !mv.chain || !!mv.node?.end };
       this.stance(this.armed ? 8 : 3);
     }
     return true;
@@ -1381,6 +1535,145 @@ export class Combat {
     return true;
   }
 
+  /** An art's sweeping blow: every Asura within h.aoe metres is struck (and with h.slam thrown down). */
+  sweepHit(mv, m, h) {
+    const p = this.p;
+    const P = p.position;
+    const R = h.aoe;
+    let n = 0;
+    for (const t of this.targets?.list ?? []) {
+      if (!t.enemy || !t.alive || t.state === 'rise') continue;
+      const dx = t.pos.x - P.x;
+      const dz = t.pos.z - P.z;
+      const d = Math.hypot(dx, dz) || 0.01;
+      if (d > R + (t.radius || 0.4) || Math.abs(t.pos.y - p.feetY) > 2.2) continue;
+      const dir = { x: dx / d, z: dz / d };
+      const at = { x: t.pos.x - dir.x * (t.radius || 0.4) * 0.5, y: t.pos.y + (t.height || 1.7) * 0.55, z: t.pos.z - dir.z * (t.radius || 0.4) * 0.5 };
+      const crit = this.critRoll(mv, true);
+      const res = t.hit({ k: h.k * (1 - Math.min(1, d / R) * 0.3), dir, at, sword: !!h.blade, heavy: true, kick: !!m.kick, move: mv.name, combo: mv.i, final: true, riposte: !!mv.riposte, crit });
+      if (res === 'blocked') continue;
+      if (h.slam && t.alive && t.floor && !t.K?.boss) t.floor(dir, 1.5);
+      t.freeze?.(h.slam ? 0.16 : 0.1);
+      this.onEvent('hit', { move: mv.name, heavy: true, sword: !!h.blade, kick: !!m.kick, target: t.kind, enemy: true, k: h.k, killed: res === 'killed', final: true, crit, at, dir, aoe: true });
+      n++;
+    }
+    this.hitStop = Math.max(this.hitStop, n ? (h.slam ? 0.15 : 0.1) : 0.03);
+    this.onEvent('art', { move: mv.name, kind: h.slam ? 'tandava' : 'spin', at: new THREE.Vector3(P.x, p.feetY, P.z), yaw: p.yaw, R, n, sword: !!h.blade });
+  }
+
+  /** Chhaya Prahar's shadows: each a beat after the last, from alternate sides of it. */
+  echoStep(dt) {
+    const E = this.echo;
+    E.t -= dt;
+    if (E.t > 0) return;
+    const t = E.tgt;
+    if (!t?.alive) return (this.echo = null);
+    const P = this.p.position;
+    const dx = t.pos.x - P.x;
+    const dz = t.pos.z - P.z;
+    const l = Math.hypot(dx, dz) || 1;
+    // from his side of it, swung round a third of a turn each way
+    const side = E.i % 2 ? 1 : -1;
+    const a = Math.atan2(-dx, -dz) + side * 1.1;
+    const from = new THREE.Vector3(t.pos.x + Math.sin(a) * 1.1, t.pos.y, t.pos.z + Math.cos(a) * 1.1);
+    const dir = { x: t.pos.x - from.x, z: t.pos.z - from.z };
+    const at = { x: t.pos.x - (dir.x / 1.1) * 0.25, y: t.pos.y + (t.height || 1.7) * 0.55, z: t.pos.z - (dir.z / 1.1) * 0.25 };
+    const crit = this.critRoll(null, true);
+    const res = t.hit({ k: 0.7, dir, at, sword: E.sword, kick: E.kick, move: 'shadowEcho', combo: 3 + E.i, crit });
+    this.hitStop = Math.max(this.hitStop, 0.05);
+    t.freeze?.(0.08);
+    this.onEvent('echo', { from, yaw: Math.atan2(dir.x, dir.z), at, i: E.i, sword: E.sword, dx: dx / l, dz: dz / l });
+    if (res !== 'blocked') this.onEvent('hit', { move: 'shadowEcho', sword: E.sword, kick: E.kick, target: t.kind, enemy: true, k: 0.7, killed: res === 'killed', crit, at, dir });
+    E.i++;
+    E.t = 0.13;
+    if (E.i >= E.n || res === 'killed') this.echo = null;
+  }
+
+  /**
+   * Akash Khadga (the air combo): at the top of the leap after a launched one he hangs (gravity
+   * a fraction of itself), each light press a quick cut that keeps it up and lifts him a little;
+   * the fourth press, a heavy one, or a moment without one drives them both down (the plunge).
+   */
+  airStart(tgt) {
+    this.air = { tgt, hits: 0, cool: 0, idle: 0, pending: null, swing: 0 };
+    this.p.gravScale = 0.12;
+    this.p.velocity.y = Math.max(this.p.velocity.y, 0.6);
+  }
+
+  airStrike() {
+    const A = this.air;
+    if (A.cool > 0) return void (A.queued = true);
+    if (A.hits >= 3) return this.airFinish();
+    const t = A.tgt;
+    A.queued = false;
+    A.cool = 0.22;
+    A.idle = 0;
+    A.swing = 0.3;
+    const clip = this.armed ? (A.hits % 2 ? 'slashB' : 'slashA') : A.hits % 2 ? 'frontKick' : 'oneTwo';
+    const hitT = MOVES[clip].hits[MOVES[clip].hits.length - 1].t;
+    this.anim.play(clip, { at: Math.max(0, hitT - 0.2), timeScale: 1.6, fadeIn: 0.05, fadeOut: 0.15, cancelOnMove: false, noLook: true, noFootIK: true });
+    this.audio.play(this.armed ? 'blade-whoosh' : 'whoosh', { volume: 0.6, rate: 1.05 + Math.random() * 0.1 });
+    A.pending = { t: 0.12, clip };
+    if (t?.launchS) t.launchS.hold = Math.max(t.launchS.hold, t.launchS.t + 0.6);
+  }
+
+  airFinish() {
+    const A = this.air;
+    if (!A) return;
+    this.air = null;
+    this.p.gravScale = 1;
+    if (A.tgt?.launchS) A.tgt.launchS.slam = true;
+    if (A.hits >= 2) this.onEvent('chain', { chain: 'RL' + 'L'.repeat(A.hits) + 'R', art: 'akashKhadga', armed: this.armed });
+    this.startPlunge();
+  }
+
+  airStep(dt) {
+    const A = this.air;
+    const p = this.p;
+    const t = A.tgt;
+    if (p.state !== 'air' || this.dead || this.react) {
+      this.air = null;
+      p.gravScale = 1;
+      return;
+    }
+    A.cool -= dt;
+    A.idle += dt;
+    A.swing -= dt;
+    if (A.queued && A.cool <= 0) this.airStrike();
+    // hang beside it, facing it
+    if (t?.alive) {
+      const dx = t.pos.x - p.position.x;
+      const dz = t.pos.z - p.position.z;
+      const d = Math.hypot(dx, dz) || 1;
+      p.yaw = dampAngle(p.yaw, Math.atan2(dx, dz), 16, dt);
+      const v = Math.max(0, d - 1.1) * 4;
+      p.velocity.x = (dx / d) * v;
+      p.velocity.z = (dz / d) * v;
+    }
+    if (A.pending) {
+      A.pending.t -= dt;
+      if (A.pending.t <= 0) {
+        A.pending = null;
+        if (t?.alive && Math.hypot(t.pos.x - p.position.x, t.pos.z - p.position.z) < 3.2) {
+          A.hits++;
+          const at = { x: t.pos.x, y: t.pos.y + (t.height || 1.7) * 0.5, z: t.pos.z };
+          const dir = { x: t.pos.x - p.position.x, z: t.pos.z - p.position.z };
+          const crit = this.critRoll(null, A.hits === 3);
+          const res = t.hit({ k: 0.75, dir, at, sword: this.armed, kick: !this.armed, move: 'airCut', combo: A.hits, crit });
+          this.hitStop = 0.07;
+          t.freeze?.(0.08);
+          p.velocity.y = 1.6; // (each cut lifts him a little: the air combo keeps them up)
+          if (this.vfx && this.armed) this.vfx.sparks(at, { x: dir.x, y: 0.3, z: dir.z }, 12, { speed: 6.5, color: [3, 1.5, 0.45] });
+          this.onEvent('hit', { move: 'airCut', sword: this.armed, kick: !this.armed, target: t.kind, enemy: true, k: 0.75, killed: res === 'killed', crit, at, dir, air: true });
+          if (A.hits >= 2) this.onEvent('chain', { chain: 'RL' + 'L'.repeat(A.hits), art: 'akashKhadga', armed: this.armed });
+          if (res === 'killed') return this.airFinish();
+        }
+      }
+    }
+    // a beat without a press: down they go
+    if (A.idle > 0.75 || !t?.alive) this.airFinish();
+  }
+
   // ------------------------------------------------------------ per rendered frame (after the pose)
   late(dt) {
     const p = this.p;
@@ -1473,11 +1766,13 @@ export class Combat {
     const mv = this.move;
     const m = mv && MOVES[mv.name];
     const live = !!(m && m.sword && this.armed);
+    const airCut = !!(this.air && this.air.swing > 0 && this.armed);
     if (owned && this.armed) {
       _base.set(0, 0.12, 0).applyMatrix4(this.sword.matrixWorld);
       _tip.set(0, this.bladeLen, -0.11).applyMatrix4(this.sword.matrixWorld);
     }
-    this.trail.update(dt, _base, _tip, live && mv.t * mv.ts > m.hits[0].t - 0.22 && mv.t * mv.ts < m.hits[m.hits.length - 1].t + 0.18);
+    this.trail.update(dt, _base, _tip, airCut || (live && mv.t * mv.ts > m.hits[0].t - 0.22 && mv.t * mv.ts < m.hits[m.hits.length - 1].t + 0.18));
+    if (airCut && this.vfx) this.vfx.trail('blade', _base, _tip, { color: [2.0, 1.05, 0.3], core: [2.7, 1.9, 0.8] });
     if (!m || !this.targets) {
       this.prevBlade = null;
       return;
@@ -1505,6 +1800,12 @@ export class Combat {
         }
       }
     }
+    // the arts' sweeping blows: everything round him, at the hit's moment (Vayu Chakra, Tandava)
+    m.hits.forEach((h, hi) => {
+      if (!h.aoe || mv.struck.has(hi) || ct < h.t) return;
+      mv.struck.add(hi);
+      this.sweepHit(mv, m, h);
+    });
     // a finisher's blow lands on its target at the clip's moment, wherever the blade is
     if (mv.force) {
       m.hits.forEach((h, hi) => {
@@ -1518,7 +1819,7 @@ export class Combat {
       return;
     }
     m.hits.forEach((h, hi) => {
-      if (mv.struck.has(hi) || ct < h.t - WINDOW || ct0 > h.t + WINDOW) return;
+      if (h.aoe || mv.struck.has(hi) || ct < h.t - WINDOW || ct0 > h.t + WINDOW) return;
       const pts = [];
       if (h.blade && this.armed) {
         // the blade swept between last frame and this one (a fast cut crosses a body in a frame)
@@ -1533,6 +1834,9 @@ export class Combat {
         const b = this.anim.boneWorld(h.limb, new THREE.Vector3());
         if (b) pts.push(b);
       }
+      // a shadow-step's blow never misses the one it blinked onto (last, after the edge itself)
+      const T = mv.tgt;
+      if (m.teleport && T?.alive && Math.hypot(T.pos.x - p.position.x, T.pos.z - p.position.z) < 2.6) pts.push(new THREE.Vector3(T.pos.x, T.pos.y + (T.height || 1.7) * 0.55, T.pos.z));
       for (const pt of pts) {
         const t = this.targets.touching(pt, h.blade ? 0.08 : 0.14);
         if (!t) {
@@ -1553,10 +1857,10 @@ export class Combat {
         // the way the edge was travelling (a cut from his right turns the body the other way)
         const sweep = h.blade && this.armed && pb && pb.mv === mv ? { x: _tip.x - pb.tip.x, z: _tip.z - pb.tip.z } : null;
         // the last blow of a full combo (its final hit, for a move with more than one)
-        const list = this.comboList();
-        const final = !heavy && mv.i !== undefined && list.length > 1 && mv.i % list.length === list.length - 1 && hi === m.hits.length - 1;
+        const final = !!mv.node?.end && !!mv.node.art && hi === m.hits.length - 1;
         const launching = m.launch && t.enemy && t.launch && !t.K?.boss && !t.mini;
-        const res = t.hit({ k: h.k * (charged ? 1.25 : 1), dir, at: pt, sweep, sword: !!h.blade, heavy, kick: !!m.kick, move: mv.name, combo: mv.i, final, riposte: !!mv.riposte, charged });
+        const crit = t.enemy && this.critRoll(mv, heavy || final);
+        const res = t.hit({ k: h.k * (charged ? 1.25 : 1), dir, at: pt, sweep, sword: !!h.blade, heavy, kick: !!m.kick, move: mv.name, combo: mv.i, final, riposte: !!mv.riposte, charged, crit });
         // where it bit: steel throws sparks, a heavy blow a flash
         if (this.vfx && t.enemy) {
           const l = Math.hypot(dir.x, dir.z) || 1;
@@ -1591,7 +1895,9 @@ export class Combat {
           this.juggle = { tgt: t, until: this.time + 1.5 };
           this.onEvent('launch', { at: pt });
         }
-        this.onEvent('hit', { move: mv.name, heavy, sword: !!h.blade, kick: !!m.kick, target: t.kind, enemy: !!t.enemy, k: h.k, riposte: !!mv.riposte, charged, killed: res === 'killed', final, at: pt, dir });
+        // Chhaya Prahar: his shadows cut it again, from one side and the other
+        if (m.echo && t.enemy && t.alive && res !== 'killed') this.echo = { tgt: t, n: m.echo, i: 0, t: 0.12, sword: !!h.blade, kick: !!m.kick, move: mv.name };
+        this.onEvent('hit', { move: mv.name, heavy, sword: !!h.blade, kick: !!m.kick, target: t.kind, enemy: !!t.enemy, k: h.k, riposte: !!mv.riposte, charged, killed: res === 'killed', final, crit, at: pt, dir });
         break;
       }
     });

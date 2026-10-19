@@ -37,6 +37,7 @@ Title screen → **Test** → **Siddhi Mode**: every power and siddhi, endless S
 | C / Ctrl | Dive (under water you swim where the camera looks) |
 | E | Interact: talk · take · light a sacred flame · board / leave the boat · climb a ladder · **finish** a reeling Asura |
 | Mouse left / right | Strike (click again for a 3-hit combo, 4 with the siddhi) / heavy strike (hold to charge, with the siddhi) |
+| Combo strings (L light · R heavy) | **L L L** Ganga Dhara · **L R** Vayu Chakra (a whirl round him) · **L L R** Chhaya Prahar (a shadow-step onto it, two shadows cut after) · **L L L R** Tandava (slow motion, the stone splits, everyone thrown down) · **R L** Udaan (launch it; L to leap after it, L L L in the air: Akash Khadga, then down) |
 | Q (hold) or middle mouse | Guard; raise it just before a blow lands to **parry** (or toggle: Settings) |
 | C / Ctrl | Dodge roll (forward / diagonal), an **aerial** cartwheel (straight to the side), or a backflip (no direction) on land · dive in the water · slide down a ladder. Dodge just as a blow lands for a **perfect dodge** (slow motion, the next strike is a counter) |
 | In a fight | Strike out of a roll · strike at a sprint (a running heavy blow: the roundhouse, then the **butterfly kick**) · Space while knocked flat (**kip-up** straight to your feet) · strike falling from a height (a **plunge** that throws them flat) · strike on a wall run (kick off it onto one) · Space with one right in front (**vault** over it, land at its back) |

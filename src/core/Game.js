@@ -10,6 +10,8 @@ import { CameraRig } from '../gameplay/CameraRig.js';
 import { CharacterAnimator } from '../gameplay/CharacterAnimator.js';
 import { MooredBoats, PlayerBoat, prepareBoatGeometry, proceduralBoatGeometry } from '../gameplay/Boats.js';
 import { Player } from '../gameplay/Player.js';
+import { Afterimages } from '../world/Afterimages.js';
+import { ComboHUD } from '../ui/ComboHUD.js';
 import { PradyActions } from '../gameplay/Actions.js';
 import { ClothSway } from '../gameplay/ClothSway.js';
 import { Drapes } from '../gameplay/Drapes.js';
@@ -183,6 +185,7 @@ export class Game {
     this.lipSync = new LipSync(this.audio);
     this.damageNumbers = new DamageNumbers();
     this.style = new StyleMeter();
+    this.comboHud = new ComboHUD();
     this.offWarn = new OffscreenWarn(this.audio);
     this.audio.onVoice = (buf, t0) => this.lipSync.start(buf, t0);
     const pAudio = Object.entries(M.audio).map(([k, url]) => assets.audioBuffer(url).then((ab) => this.audio.setRaw(k, ab)));
@@ -198,6 +201,7 @@ export class Game {
     // (the mirror and the main view): 3k objects, most of them crowd bones, ~2 ms a pass
     scene.matrixWorldAutoUpdate = false;
     this.scene = scene;
+    this.afterimages = new Afterimages(scene);
     const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 3000);
     this.camera = camera;
     camera.layers.enable(1); // sky-only extras (stars) that the water mirror skips
@@ -1484,6 +1488,16 @@ export class Game {
         }
       }
       this.damageNumbers.update(dt, this.camera);
+      this.afterimages.update(dt);
+      this.comboHud.update(dt);
+      // the run-in at one: faint saffron shadows left behind him (speed you can see)
+      if (this.combat?.dash && this.state === 'play') {
+        this._ghostT = (this._ghostT ?? 0) - dt;
+        if (this._ghostT <= 0) {
+          this._ghostT = 0.055;
+          this.afterimages.spawn(this.character, { extras: this.combat.armed ? [this.combat.sword] : [], color: [1.6, 1.0, 0.45], life: 0.26, alpha: 0.3 });
+        }
+      }
       this.style.enabled = this.settings.styleMeter !== false;
       this.style.update(simDt, this.inCombat && this.state === 'play');
       this.offWarn.update(dt, this.camera, this.state === 'play' ? this.asuras?.list : null, this.player);
@@ -1910,9 +1924,12 @@ export class Game {
       // the weight of it on screen: every blow knocks the lens along the cut a little; a heavy,
       // charged, final or killing blow jolts the frame (a punch of the lens, a shudder)
       const big = data.heavy || data.charged || data.riposte || data.killed || data.final;
-      if (data.dir) this.camRig.kick(data.dir, big ? 0.07 : 0.03);
-      this.camRig.punch?.(data.killed ? 0.55 : big ? 0.4 : 0.12);
-      this.camRig.shake(data.killed ? 0.24 : big ? 0.17 : 0.07);
+      // (an art's sweep strikes many at once: its own jolt, in onArt, not one per body)
+      if (data.dir && !data.aoe) this.camRig.kick(data.dir, big ? 0.07 : 0.03);
+      if (!data.aoe) {
+        this.camRig.punch?.(data.killed ? 0.55 : big ? 0.4 : data.crit ? 0.22 : 0.12);
+        this.camRig.shake(data.killed ? 0.24 : big ? 0.17 : 0.07);
+      }
       const at = data.at ? { x: data.at.x, y: data.at.y, z: data.at.z } : this.player.position;
       if (big) this.cinematics?.impact(data.charged || data.riposte ? 0.6 : data.killed ? 0.45 : 0.3, at);
       // a kill with more of them still standing: the world catches its breath for a moment
@@ -2004,6 +2021,10 @@ export class Game {
       if (data.n) this.slowMo(0.35, 0.22);
     }
     if (type === 'shielded') this.camRig.shake(0.16);
+    if (type === 'chain') this.comboHud.chain(data.chain, data.art);
+    if (type === 'shadowStep') this.onShadowStep(data);
+    if (type === 'echo') this.onShadowEcho(data);
+    if (type === 'art') this.onArt(data);
     if (type === 'charged') {
       const h = this.animator.boneWorld('RightHand', new THREE.Vector3());
       if (h) this.asuras.particles.emitEmbers(h.x, h.y, h.z, 24, null, 0.6);
@@ -2018,6 +2039,88 @@ export class Game {
     this.missions?.onEvent?.(`combat:${type}`, data);
     this.story?.onEvent?.(`combat:${type}`, data);
     this.encounters?.onEvent?.(`combat:${type}`, data);
+  }
+
+  /** Chhaya Prahar's blink: shadows of him strung along the way he went, a bolt of blue down it. */
+  onShadowStep({ from, to, yaw }) {
+    const P = this.player;
+    const V = this.vfx;
+    const extras = this.combat.armed ? [this.combat.sword] : [];
+    const n = 4;
+    for (let i = 0; i < n; i++) {
+      const k = i / n;
+      const at = { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k, z: from.z + (to.z - from.z) * k, yaw };
+      this.afterimages.spawn(this.character, { extras, color: [0.4, 0.75, 2.6], life: 0.3 + k * 0.25, alpha: 0.35 + k * 0.35, place: { from: { x: from.x, y: from.y, z: from.z, yaw: P.yaw }, to: at } });
+    }
+    if (V) {
+      const a = new THREE.Vector3(from.x, from.y + 1.1, from.z);
+      const b = new THREE.Vector3(to.x, to.y + 1.1, to.z);
+      V.lightning(a, b, { color: [0.5, 0.8, 2.8], width: 0.09, life: 0.3, jag: 0.12 });
+      V.flash(a, 1.2, { color: [0.7, 1.1, 2.8], life: 0.16 });
+      V.flash(b, 1.5, { color: [0.8, 1.2, 3.0], life: 0.18 });
+      V.zaps(b, 3, { size: 1.1, spread: 0.5, life: 0.2 });
+    }
+    this.audio.play('whoosh', { volume: 0.85, rate: 1.65 });
+    this.audio.play('glint', { volume: 0.7, rate: 0.8 });
+    this.cinematics?.impact(0.3, { x: to.x, y: to.y + 1.1, z: to.z });
+    this.camRig.punch?.(0.25);
+    this.haptics.play('hit');
+  }
+
+  /** A shadow of him cutting the one he blinked onto, from its other side. */
+  onShadowEcho({ from, yaw, at, i, sword }) {
+    const P = this.player;
+    const V = this.vfx;
+    this.afterimages.spawn(this.character, { extras: sword ? [this.combat.sword] : [], color: [0.45, 0.8, 2.8], life: 0.42, alpha: 0.8, place: { from: { x: P.position.x, y: P.feetY, z: P.position.z, yaw: P.yaw }, to: { x: from.x, y: from.y, z: from.z, yaw } } });
+    if (V) {
+      const dx = at.x - from.x;
+      const dz = at.z - from.z;
+      const l = Math.hypot(dx, dz) || 1;
+      V.slashMark(at, 1.5, { rot: i % 2 ? 0.7 : -0.7, color: [0.6, 1.1, 3.0], life: 0.16 });
+      V.sparks(at, { x: dx / l, y: 0.3, z: dz / l }, 14, { speed: 7, color: [1.2, 1.8, 3.2] });
+      V.lightning(new THREE.Vector3(from.x, from.y + 1.1, from.z), new THREE.Vector3(at.x, at.y, at.z), { color: [0.5, 0.85, 2.8], width: 0.06, life: 0.16, jag: 0.15 });
+    }
+    this.audio.play(sword ? 'blade-whoosh' : 'whoosh', { volume: 0.7, rate: 1.25 + i * 0.1 });
+    this.camRig.shake(0.1);
+  }
+
+  /** The arts' sweeping blows: Vayu Chakra's ring of wind; the Tandava's blow into the stone. */
+  onArt({ kind, at, yaw, R }) {
+    const V = this.vfx;
+    const c = new THREE.Vector3(at.x, at.y + 1.0, at.z);
+    if (kind === 'spin') {
+      // a ring of wind round him (pale, gold-edged), a second, lower one turning the other way
+      V?.slash(c, VFX.flatFrame(yaw, 0.08), { r: R * 0.8, w: 0.7, arc: Math.PI * 2, color: [1.3, 1.7, 2.2], core: [2.6, 2.6, 2.4], dur: 0.3, tail: 0.85 });
+      V?.slash(c.clone().setY(at.y + 0.7), VFX.flatFrame(yaw + 1.2, -0.1), { r: R * 0.62, w: 0.45, arc: Math.PI * 2, color: [2.2, 1.3, 0.4], core: [2.8, 2.1, 1.0], dur: 0.26, tail: 0.7 });
+      V?.shockwave(at, R * 1.1, { color: [1.2, 1.5, 1.8], dur: 0.45 });
+      this.asuras?.particles.emitDust(at.x, at.y, at.z, R * 0.6, 12);
+      this.audio.play('heavy-whoosh', { volume: 0.9, rate: 1.2 });
+      this.camRig.punch?.(0.35);
+      this.camRig.shake(0.2);
+      return;
+    }
+    // the Tandava: the world slows, white-hot light out of the stone, two rings and the cracks
+    this.slowMo(0.25, 0.5);
+    V?.shockwave(at, R * 1.3, { cracks: 1.4, color: [2.6, 2.0, 1.3], crack: [2.6, 1.0, 0.25], dur: 0.8, linger: 1.6 });
+    this.after(0.1, () => V?.shockwave(at, R * 1.9, { color: [2.2, 1.4, 0.6], dur: 0.7 }));
+    V?.explosion({ x: at.x, y: at.y, z: at.z }, 3.0);
+    V?.pillar(at, 0.9, 7, { color: [2.6, 2.1, 1.4], dur: 0.6 });
+    V?.flash(c, 3.5, { color: [3, 2.4, 1.6], life: 0.3 });
+    V?.flare(c, 4, { kind: 'flareImpact', life: 0.3 });
+    V?.dirt(at, 1.2, 10, { size: 1.6 });
+    V?.debris(at, 24, { speed: 7 });
+    V?.smoke(at, 4, { size: 2, alpha: 0.55, color: [0.7, 0.64, 0.56] });
+    this.asuras?.particles.emitDust(at.x, at.y, at.z, R * 0.8, 24);
+    this.cinematics?.impact(0.8, c);
+    this.cinematics?.impactFrame(c, { dur: 0.1 });
+    if (!this.settings.reduceFlashes) this.ui.flash();
+    this.camRig.punch?.(0.8);
+    this.camRig.shake(0.7);
+    this.audio.play('thump', { volume: 1, rate: 0.45 });
+    this.audio.play('heavy-hit', { volume: 0.9, rate: 0.7 });
+    this.audio.hitDuck?.(0.3);
+    this.haptics.play('heavyHit');
+    this.animals?.startle(at.x, at.z, 14);
   }
 
   /** Where Prady wakes after a fall: the story's checkpoint, else the nearest ghat's first landing. */

@@ -18,7 +18,9 @@ export class DamageNumbers {
 .dmg{position:absolute;left:0;top:0;font:700 20px/1 'Cinzel','Georgia',serif;color:#ffbe55;letter-spacing:.02em;
  text-shadow:0 0 6px rgba(120,40,0,.85),0 2px 0 #4a1a00,0 0 1px #000;will-change:transform,opacity;white-space:nowrap}
 .dmg.big{font-size:30px;color:#ffd77a;text-shadow:0 0 10px rgba(255,120,20,.9),0 2px 0 #5a2200,0 0 1px #000}
-.dmg.kill{font-size:38px;color:#fff1c2;text-shadow:0 0 14px rgba(255,90,20,1),0 3px 0 #5a1a00}`;
+.dmg.kill{font-size:38px;color:#fff1c2;text-shadow:0 0 14px rgba(255,90,20,1),0 3px 0 #5a1a00}
+.dmg.crit{color:#fff4dc}
+.dmg i{display:block;font-style:normal;font-size:12px;letter-spacing:.32em;margin:0 0 3px .32em;color:#ff5a2a;text-shadow:0 0 8px rgba(255,60,10,.95),0 1px 0 #3a0a00}`;
     document.head.appendChild(st);
     (root || document.body).appendChild(this.root);
     this.items = [];
@@ -33,8 +35,8 @@ export class DamageNumbers {
     this.enabled = true;
   }
 
-  /** at: world point; n: the damage; kind: 'light' | 'big' | 'kill'. */
-  show(at, n, kind = 'light') {
+  /** at: world point; n: the damage; kind: 'light' | 'big' | 'kill'; crit: CRITICAL over it. */
+  show(at, n, kind = 'light', crit = false) {
     if (!this.enabled || !(n > 0.5)) return;
     const it = this.items[this.i];
     this.i = (this.i + 1) % this.items.length;
@@ -43,8 +45,12 @@ export class DamageNumbers {
     it.life = kind === 'kill' ? 1.1 : kind === 'big' ? 0.95 : 0.75;
     it.dx = (Math.random() - 0.5) * 40;
     it.s = kind === 'kill' ? 1.25 : kind === 'big' ? 1.1 : 1;
-    it.el.className = kind === 'light' ? 'dmg' : `dmg ${kind}`;
-    it.el.textContent = String(Math.round(n));
+    it.el.className = `dmg${kind === 'light' ? '' : ` ${kind}`}${crit ? ' crit' : ''}`;
+    if (crit) {
+      it.s *= 1.15;
+      it.life += 0.2;
+      it.el.innerHTML = `<i>CRITICAL</i>${Math.round(n)}`;
+    } else it.el.textContent = String(Math.round(n));
   }
 
   update(dt, camera) {

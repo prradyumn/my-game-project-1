@@ -190,6 +190,7 @@ export class Asura {
     if (this.open) dmg *= 1.5;
     if (h.riposte) dmg *= 3;
     if (h.charged) dmg *= 1.6;
+    if (h.crit) dmg *= 1.5;
     if (sys.g.powers?.eye > 0) dmg *= 1.3; // the Third Eye: their weak points burn
     if (this.state === 'held') dmg = Math.min(dmg, this.hp - 1); // (a finisher's last blow kills)
     if (h.finisher) dmg = this.hp + 1;
@@ -217,7 +218,7 @@ export class Asura {
       }
       sys.audio.play(this.hp <= 0 ? 'blood-gush' : 'blood-splat', { at: h.at, volume: big ? 0.7 : 0.45, rate: 0.85 + Math.random() * 0.3 });
     }
-    sys.g.damageNumbers?.show({ x: h.at.x, y: h.at.y + 0.25, z: h.at.z }, Math.min(dmg, this.hp + dmg), this.hp <= 0 ? 'kill' : h.heavy || h.kick || h.charged || h.riposte || h.finisher ? 'big' : 'light');
+    sys.g.damageNumbers?.show({ x: h.at.x, y: h.at.y + 0.25, z: h.at.z }, Math.min(dmg, this.hp + dmg), this.hp <= 0 ? 'kill' : h.heavy || h.kick || h.charged || h.riposte || h.finisher ? 'big' : 'light', !!h.crit);
     this.hurt = 1;
     this.lastHitT = this.t;
     this.barT = 4;
