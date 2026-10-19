@@ -8,6 +8,9 @@ const _q = new THREE.Quaternion();
 // walls, plus a scripted cinematic mode for the opening shot. With a lock-on target (lockAt) the
 // view turns to keep the enemy framed beside the hero; the mouse then only flicks between targets.
 
+const _probe = new THREE.Vector3();
+const _pivot = new THREE.Vector3();
+
 export class CameraRig {
   constructor(camera, physics) {
     this.camera = camera;
@@ -40,6 +43,14 @@ export class CameraRig {
   // Camera shake: trauma in [0,1] decays; offset grows with trauma^2 (feels right at any size).
   shake(amount) {
     this.trauma = Math.min(1, this.trauma + amount * this.shakeScale);
+  }
+
+  /**
+   * A heavy blow's punch: the lens lunges in toward the action (amount: metres, ~0.4 a heavy cut)
+   * and springs back out over a few frames, the frame tightening on the impact.
+   */
+  punch(amount) {
+    this.punchV = (this.punchV || 0) + amount * this.shakeScale * 22;
   }
 
   /** A blow's jolt: the lens is knocked a few centimetres along `dir` (world, xz) and springs
@@ -124,6 +135,42 @@ export class CameraRig {
       this.yaw = dampAngle(this.yaw, climb.yaw, 1.8, dt);
     }
     this.lockW = damp(this.lockW, this.lockAt ? 1 : 0, 5, dt);
+    // a fight round him (not locked on): the lens comes in closer and lower and leans toward the
+    // nearest enemy, so the two of them fill the frame (fightAt: Game, each frame)
+    const fight = this.fightAt && !this.lockAt && !climb;
+    this.fightW = damp(this.fightW || 0, fight ? 1 : 0, fight ? 1.6 : 0.8, dt);
+    // ... and eases round to over his shoulder: a little off the line from him to it, so he
+    // never stands in front of what he is fighting (only while the player isn't steering the view)
+    if (fight && this.userLook <= 0) {
+      const dx = this.fightAt.x - focus.x;
+      const dz = this.fightAt.z - focus.z;
+      if (Math.hypot(dx, dz) > 0.8) {
+        // over whichever shoulder has room behind it: the lens never swings into a takht or under
+        // an umbrella (that squeezes it in onto his head); with no room either side it is left be
+        this.sideT = (this.sideT || 0) - dt;
+        if (this.sideT <= 0) {
+          this.sideT = 0.5;
+          const base = Math.atan2(dx, dz);
+          const room = (off) => {
+            const y = base + off;
+            const d = _probe.set(-Math.sin(y) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(y) * Math.cos(this.pitch));
+            const h = this.physics.sphereCast(_pivot.set(focus.x, focus.y + 1.55, focus.z), d, 0.3, this.distance + 0.3, this.excludeCollider, GROUPS.ignorePeople);
+            return h === null ? this.distance + 0.3 : h;
+          };
+          const a = room(0.5);
+          const b = room(-0.5);
+          const want = this.distance * 0.85;
+          // (keep the side it is on unless the other is clearly better)
+          const cur = this.fightSide ?? 0.5;
+          const curRoom = cur > 0 ? a : b;
+          const othRoom = cur > 0 ? b : a;
+          if (curRoom < want && othRoom > curRoom + 0.4) this.fightSide = -cur;
+          else this.fightSide = cur;
+          this.fightOk = Math.max(a, b) >= want * 0.8;
+        }
+        if (this.fightOk) this.yaw = dampAngle(this.yaw, Math.atan2(dx, dz) + this.fightSide, 1.1, dt);
+      }
+    }
     if (this.lockAt) {
       // turn to frame the enemy: aim past the hero at it, looking a little down on both
       const dx = this.lockAt.x - focus.x;
@@ -140,8 +187,15 @@ export class CameraRig {
     this.pitch = clamp(this.pitch, -0.55, 1.2);
     if (input.wheel) this.targetDistance = clamp(this.targetDistance + input.wheel * 0.6, 1.8, 12);
     // locked on: in tight on the two of them (a giant still needs the lens further back)
-    const want = ((opts.distance ?? this.targetDistance) + this.lockW * (0.3 + Math.max(0, this.lockH - 1.9) * 0.95)) * (1 - this.climbW * 0.12);
+    const want = ((opts.distance ?? this.targetDistance) + this.lockW * (0.3 + Math.max(0, this.lockH - 1.9) * 0.95)) * (1 - this.climbW * 0.12) * (1 - (this.fightW || 0) * 0.22);
     this.distance = damp(this.distance, want, 6, dt);
+    // the punch: a stiff spring on the boom (in fast, back out), stepped finely so a long frame
+    // can't fling it, and never more than a short lunge
+    for (let h = Math.min(dt, 0.1), n = Math.ceil(h / 0.004), i = 0; i < n; i++) {
+      const s = h / n;
+      this.punchV = ((this.punchV || 0) - 380 * (this.punchP || 0) * s) * (1 - 24 * s);
+      this.punchP = Math.max(-0.3, Math.min(0.7, (this.punchP || 0) + this.punchV * s));
+    }
 
     // Follow target (head height) through a critically damped spring: tight horizontally, softer
     // vertically so step-ups and the swim bob don't jolt the view.
@@ -160,7 +214,7 @@ export class CameraRig {
     const cp = Math.cos(this.pitch);
     const dir = new THREE.Vector3(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
     const right = this.right;
-    const pivot = this.smoothedTarget.clone().addScaledVector(right, this.shoulder * Math.min(1, this.distance / 4));
+    const pivot = this.smoothedTarget.clone().addScaledVector(right, (this.shoulder + (this.fightW || 0) * (this.fightSide < 0 ? -1.25 : 0.35)) * Math.min(1, this.distance / 4));
     if (this.lockAt && this.lockW > 0.01) {
       // frame both: the point we orbit slides a third of the way toward the enemy, and up a bit
       // (less as the lens is pulled in against a wall or a canopy: a short boom must never carry
@@ -170,6 +224,13 @@ export class CameraRig {
       pivot.x += (this.lockAt.x - pivot.x) * k;
       pivot.z += (this.lockAt.z - pivot.z) * k;
       pivot.y += this.lockW * 0.25 + Math.max(0, this.lockAt.y - pivot.y) * k * 0.6;
+    }
+    if ((this.fightW || 0) > 0.01 && this.fightAt) {
+      const room = clamp(((this.currentDist ?? this.distance) - 1.3) / 2.4, 0, 1);
+      const k = this.fightW * 0.18 * room;
+      pivot.x += (this.fightAt.x - pivot.x) * k;
+      pivot.z += (this.fightAt.z - pivot.z) * k;
+      pivot.y -= this.fightW * 0.12;
     }
 
     // Collision: sweep a small sphere (the lens) so the camera never slips through wall edges.
@@ -189,7 +250,7 @@ export class CameraRig {
     // pull in instantly, ease back out
     this.currentDist = dist < this.currentDist ? dist : smoothDamp(this.currentDist, dist, this.spring, 'd', 0.35, dt);
 
-    const cam = this.camera.position.copy(pivot).addScaledVector(dir, this.currentDist);
+    const cam = this.camera.position.copy(pivot).addScaledVector(dir, Math.max(0.8, this.currentDist - (this.punchP || 0)));
     // Never sit right on the waterline (half-under views look broken): pick a side.
     if (this.waterHeightAt) {
       const s = this.waterHeightAt(cam.x, cam.z);
@@ -208,11 +269,16 @@ export class CameraRig {
     // the blow's kick (a stiff spring: out and back inside a tenth of a second)
     if (this.kickV) {
       const K = this.kickP;
-      this.kickV.addScaledVector(K, -420 * dt).multiplyScalar(Math.max(0, 1 - 26 * dt));
-      K.addScaledVector(this.kickV, dt);
-      this.rollV += (-420 * (this.roll || 0)) * dt;
-      this.rollV *= Math.max(0, 1 - 26 * dt);
-      this.roll = (this.roll || 0) + this.rollV * dt;
+      for (let h = Math.min(dt, 0.1), n = Math.ceil(h / 0.004), i = 0; i < n; i++) {
+        const s = h / n;
+        this.kickV.addScaledVector(K, -420 * s).multiplyScalar(1 - 26 * s);
+        K.addScaledVector(this.kickV, s);
+        this.rollV += -420 * (this.roll || 0) * s;
+        this.rollV *= 1 - 26 * s;
+        this.roll = (this.roll || 0) + this.rollV * s;
+      }
+      K.clampLength(0, 0.35);
+      this.roll = Math.max(-0.08, Math.min(0.08, this.roll));
       if (K.lengthSq() > 1e-8 || Math.abs(this.roll) > 1e-5) {
         cam.add(K);
         this.camera.rotateZ(this.roll);

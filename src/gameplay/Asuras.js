@@ -206,7 +206,11 @@ export class Asura {
     sys.particles.emitEmbers(h.at.x, h.at.y, h.at.z, h.sword ? 26 : 14, dir, h.heavy ? 1.4 : 1);
     sys.audio.play(h.sword ? 'blade-hit' : 'hurt', { at: h.at, volume: 0.7 + h.k * 0.2, rate: 0.92 + Math.random() * 0.16 });
     // a heavy, charged or kicking blow lands with weight under the cut
-    if (h.heavy || h.charged || h.kick || h.finisher) sys.audio.play('heavy-hit', { at: h.at, volume: h.charged || h.finisher ? 0.95 : 0.65, rate: (this.K.boss ? 0.8 : 0.95) + Math.random() * 0.1 });
+    if (h.heavy || h.charged || h.kick || h.finisher) {
+      sys.audio.play('heavy-hit', { at: h.at, volume: h.charged || h.finisher ? 0.95 : 0.65, rate: (this.K.boss ? 0.8 : 0.95) + Math.random() * 0.1 });
+      // (a deep thud under it: the weight of the blow in the chest, not just the ear)
+      sys.audio.play('thump', { at: h.at, volume: 0.75, rate: 0.55 + Math.random() * 0.08 });
+    }
     sys.audio.play('ember-hiss', { at: h.at, volume: 0.5, rate: 0.9 + Math.random() * 0.2 });
     if (this.state !== 'held' && this.state !== 'floored') {
       this.knock = { x: dir.x, z: dir.z, d: (h.heavy ? 0.9 : h.final ? 0.75 : 0.35) / Math.sqrt(this.scale), t: 0, strong: !!(h.heavy || h.kick || h.final || h.charged) };

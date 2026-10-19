@@ -1411,6 +1411,17 @@ export class Game {
     if (this.health) {
       const near = this.targets.enemies().some((e) => Math.hypot(e.pos.x - this.player.position.x, e.pos.z - this.player.position.z) < 25 && e.awake !== false);
       this.inCombat = near;
+      // in a fight the objectives step back (they come back when it is over)
+      if (this.ui.els.objective) this.ui.els.objective.style.opacity = near ? '0.25' : '';
+      // the combat lens (CameraRig.fightAt): the nearest awake enemy within a few strides
+      let best = null;
+      let bd = 7;
+      for (const e of this.targets.enemies()) {
+        if (e.awake === false || e.alive === false) continue;
+        const d = Math.hypot(e.pos.x - this.player.position.x, e.pos.z - this.player.position.z);
+        if (d < bd) (bd = d), (best = e);
+      }
+      this.camRig.fightAt = best ? best.pos : null;
       this.health.update(simDt, near);
       if (playing || paused) this.ui.setHealth(this.health.frac, this.health.frac < 0.995 || near);
       if (playing) this.lockOn.update(dt, input);
@@ -1790,7 +1801,8 @@ export class Game {
       // the weight of it on screen: every blow knocks the lens along the cut a little; a heavy,
       // charged, final or killing blow jolts the frame (a punch of the lens, a shudder)
       const big = data.heavy || data.charged || data.riposte || data.killed || data.final;
-      if (data.dir) this.camRig.kick(data.dir, big ? 0.05 : 0.022);
+      if (data.dir) this.camRig.kick(data.dir, big ? 0.07 : 0.03);
+      this.camRig.punch?.(data.killed ? 0.55 : big ? 0.4 : 0.12);
       this.camRig.shake(data.killed ? 0.24 : big ? 0.17 : 0.07);
       const at = data.at ? { x: data.at.x, y: data.at.y, z: data.at.z } : this.player.position;
       if (big) this.cinematics?.impact(data.charged || data.riposte ? 0.6 : data.killed ? 0.45 : 0.3, at);

@@ -83,8 +83,9 @@ diffuseColor.rgb = uSkin * (0.6 + 0.8 * lum);`
   float hot = 1.0 - smoothstep(0.0, 0.008, abs(n - 0.5));
   float breath = 0.6 + 0.4 * sin(uTime * 2.1 + n * 9.0);
   float v = (crack * mask + hot * mask * 1.5) * breath * (0.75 + uRage * 1.5);
-  totalEmissiveRadiance += uVein * v * (2.0 + uHurt * 7.0);
-  totalEmissiveRadiance += vec3(1.0, 0.85, 0.6) * uHurt * uHurt * 0.2;
+  totalEmissiveRadiance += uVein * v * (2.0 + uHurt * 3.2);
+  // (the instant a blow lands the whole body flares hot for two or three frames, then only the veins)
+  totalEmissiveRadiance += vec3(1.0, 0.75, 0.45) * uHurt * uHurt * 0.2 + pow(uHurt, 9.0) * vec3(0.5, 0.18, 0.05);
   // the dissolving edge glows
   if (uDissolve > 0.001) totalEmissiveRadiance += vec3(1.0, 0.45, 0.1) * (1.0 - smoothstep(0.0, 0.09, edge)) * 6.0;
 }`

@@ -999,6 +999,19 @@ export class Combat {
     }
     const m = MOVES[mv.name];
     let step = stopped ? dt * 0.06 : dt;
+    // the blow's tempo (the clip's time is bent, its hits stay on their frames): the wind-up held a
+    // touch, the strike snapping through to the contact, the follow-through held (anticipation,
+    // speed, weight: the mocap's even pace reads soft)
+    let tempo = 1;
+    if (!mv.force && m.hits.length) {
+      const c0 = mv.t * mv.ts;
+      const h0 = m.hits[0].t;
+      const h1 = m.hits[m.hits.length - 1].t;
+      if (c0 < h0 - 0.17) tempo = 0.86;
+      else if (c0 < h1 + 0.02) tempo = 1.45;
+      else if (c0 < h1 + 0.24) tempo = 0.8;
+    }
+    step *= tempo;
     // Gathered Storm: the wind-up holds (the blade glows, the blow gathers) while the button is
     // down, up to a second; a charge of a third of a second or more makes it a charged blow
     if (mv.charging) {
@@ -1013,7 +1026,7 @@ export class Combat {
         }
       } else if (ctNow > 0.18 || !this.heavyHeld) mv.charging = false;
       if (this.anim.cur) this.anim.cur.a.timeScale = mv.charging && ctNow > 0.18 ? mv.ts * 0.06 : mv.ts;
-    }
+    } else if (this.anim.cur && this.anim.isPlaying(this.clipOf(mv.name))) this.anim.cur.a.timeScale = mv.ts * tempo;
     mv.t += step;
     const ct = mv.t * mv.ts; // clip time
     p.yaw = dampAngle(p.yaw, mv.yaw, 11, dt);
@@ -1400,13 +1413,13 @@ export class Combat {
       if (ct >= t0 && ct <= t1) {
         if (owned && this.armed && m.sword) {
           const fire = m.heavy || mv.chargedFx;
-          this.vfx.trail('blade', _base, _tip, fire ? { color: [2.2, 0.9, 0.25], core: [3.2, 2.4, 1.2] } : { color: [1.2, 1.35, 1.7], core: [2.6, 2.8, 3.2] });
+          this.vfx.trail('blade', _base, _tip, fire ? { color: [2.6, 0.7, 0.12], core: [3.0, 1.7, 0.5] } : { color: [2.0, 1.05, 0.3], core: [2.7, 1.9, 0.8] });
         } else if (m.kick) {
           const h = m.hits.find((x) => ct <= x.t + 0.1) || m.hits[0];
           const side = (h.limb || 'RightFoot').startsWith('Left') ? 'Left' : 'Right';
           const knee = this.anim.boneWorld(`${side}Leg`, _kn);
           const foot = this.anim.boneWorld(`${side}ToeBase`, _ft) || this.anim.boneWorld(`${side}Foot`, _ft);
-          if (knee && foot) this.vfx.trail(`kick${side}`, knee, foot, { color: [1.1, 1.2, 1.5], core: [2.2, 2.3, 2.6] });
+          if (knee && foot) this.vfx.trail(`kick${side}`, knee, foot, { color: [1.6, 0.95, 0.4], core: [2.3, 1.6, 0.8] });
         }
       }
     }
@@ -1464,11 +1477,11 @@ export class Combat {
         // where it bit: steel throws sparks, a heavy blow a flash
         if (this.vfx && t.enemy) {
           const l = Math.hypot(dir.x, dir.z) || 1;
-          if (h.blade) this.vfx.sparks(pt, { x: dir.x / l, y: 0.25, z: dir.z / l }, heavy ? 18 : 9, { speed: heavy ? 8 : 6 });
-          if (heavy || final || charged) this.vfx.flash(pt, heavy ? 1.3 : 0.9, { color: [2.2, 1.4, 0.8] });
+          if (h.blade) this.vfx.sparks(pt, { x: dir.x / l, y: 0.25, z: dir.z / l }, heavy ? 22 : 11, { speed: heavy ? 9 : 6.5, color: [3, 1.5, 0.45] });
+          if (heavy || final || charged) this.vfx.flash(pt, heavy ? 0.8 : 0.55, { color: [2.2, 1.2, 0.45], life: 0.12 });
           // the big blows: an anime slash mark across the cut, a star flare where it bit (Fab)
-          if (h.blade && (heavy || final)) this.vfx.slashMark(pt, heavy ? 2.6 : 2, { rot: (Math.random() - 0.5) * 1.4 + (mv.i % 2 ? 0.5 : -0.5) });
-          if (heavy || charged) this.vfx.flare(pt, 1.6, { kind: 'flareImpact', life: 0.2 });
+          if (h.blade && (heavy || final)) this.vfx.slashMark(pt, heavy ? 1.5 : 1.2, { rot: (Math.random() - 0.5) * 1.4 + (mv.i % 2 ? 0.5 : -0.5) });
+          if (heavy || charged) this.vfx.flare(pt, 1.1, { kind: 'flareImpact', life: 0.14, color: [2.4, 1.5, 0.7] });
         }
         if (res === 'blocked') {
           // the Kavacha's shield: the blow rings off it and throws his arm back
@@ -1483,10 +1496,11 @@ export class Combat {
           this.onEvent('shielded', {});
           break;
         }
-        this.hitStop = (h.k > 1.2 ? 0.09 : 0.055) + (mv.riposte || charged ? 0.05 : 0);
+        // the hit-stop, by weight: a light cut a blink, a heavy one a held beat
+        this.hitStop = (heavy || m.kick ? 0.115 : h.k > 1.2 ? 0.09 : 0.065) + (mv.riposte || charged ? 0.06 : 0);
         // the last cut of a combo and a killing blow are held a beat longer
-        if (final) this.hitStop += 0.035;
-        if (res === 'killed') this.hitStop += 0.04;
+        if (final) this.hitStop += 0.05;
+        if (res === 'killed') this.hitStop += 0.06;
         t.freeze?.(this.hitStop * 1.1);
         if (!t.enemy) this.audio.play(h.blade ? 'blade-hit' : 'thump', { volume: 0.5 + h.k * 0.3, rate: 0.9 + Math.random() * 0.2, at: pt });
         this.onEvent('hit', { move: mv.name, heavy, sword: !!h.blade, kick: !!m.kick, target: t.kind, enemy: !!t.enemy, k: h.k, riposte: !!mv.riposte, charged, killed: res === 'killed', final, at: pt, dir });

@@ -20,7 +20,10 @@ import * as THREE from 'three';
 // the stair treads included), so they climb and drop with the ghat's steps instead of sinking
 // under them; a faint copy drawn through anything in front keeps their shape where stone hides it.
 //
-// Colours are linear RGB multipliers (values above 1 bloom).
+// Colours are linear RGB multipliers (values above 1 glow; bloom takes only what passes ~3).
+// The palette, so a glance tells what made the light: Prady's blade saffron and gold, Agni
+// fire orange, Shiva's anger (the Third Eye) crimson, the Trishul cold blue, the divine glints
+// gold. Nothing is pure white-hot: a white core reads as a blown-out blob, not as power.
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -226,21 +229,21 @@ void main(){
   gl_FragColor = vec4(col, a);
 }`;
 
+const TRAIL_VERT = /* glsl */ `attribute float aFast; varying vec2 vUv; varying float vFast; void main(){ vUv = uv; vFast = aFast; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const TRAIL_FRAG = /* glsl */ `
 uniform vec3 uColor; uniform vec3 uCore; uniform float uAlpha; uniform sampler2D uMask; uniform float uHasMask;
-varying vec2 vUv;
+varying vec2 vUv; varying float vFast;
 ${NOISE}
 void main(){
   // x: age (0 the newest sample .. 1 the oldest), y: across (0 the hilt or knee .. 1 the tip)
   float age = vUv.x;
-  float fresh = pow(1.0 - age, 1.6);
-  float edge = pow(vUv.y, 2.2);
-  float wisp = 0.65 + 0.35 * vn(vec2(age * 9.0, vUv.y * 4.0));
-  float m = fresh * (edge * 1.3 + 0.15) * wisp * uAlpha;
-  // (the Fab Niagara Slash's knife-light streak: a hard bright line along the edge, smearing out
-  // behind it)
-  if (uHasMask > 0.5) m *= 0.3 + 1.7 * texture2D(uMask, vec2(age * 0.95, 0.5 + 0.48 * (1.0 - vUv.y))).r;
-  vec3 col = mix(uColor, uCore, pow(fresh * vUv.y, 4.0)) * m;
+  float fresh = pow(1.0 - age, 2.2);
+  // a hot thin line along the edge's path, a soft sheen inside it, nothing near the hilt
+  float edge = smoothstep(0.86, 1.0, vUv.y) * 1.6 + smoothstep(0.35, 1.0, vUv.y) * 0.35;
+  float wisp = 0.7 + 0.3 * vn(vec2(age * 14.0, vUv.y * 5.0));
+  float m = fresh * edge * wisp * uAlpha * vFast;
+  if (uHasMask > 0.5) m *= 0.45 + 1.1 * texture2D(uMask, vec2(age * 0.95, 0.5 + 0.48 * (1.0 - vUv.y))).r;
+  vec3 col = mix(uColor, uCore, smoothstep(0.92, 1.0, vUv.y) * fresh) * m;
   float a = clamp(max(col.r, max(col.g, col.b)), 0.0, 1.0);
   if (a < 0.004) discard;
   gl_FragColor = vec4(col, a);
@@ -464,10 +467,13 @@ export class VFX {
       const uv = new Float32Array(N * 2 * 2);
       for (let i = 0; i < N; i++) uv.set([i / (N - 1), 0, i / (N - 1), 1], i * 4);
       g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      g.setAttribute('aFast', new THREE.BufferAttribute(new Float32Array(N * 2), 1));
       const idx = [];
       for (let i = 0; i < N - 1; i++) idx.push(i * 2, i * 2 + 2, i * 2 + 1, i * 2 + 1, i * 2 + 2, i * 2 + 3);
       g.setIndex(idx);
-      const m = new THREE.Mesh(g, additive({ uColor: { value: new THREE.Color() }, uCore: { value: new THREE.Color() }, uAlpha: { value: 0 }, uMask: this.mask, uHasMask: this.hasMask }, TRAIL_FRAG));
+      const mat = additive({ uColor: { value: new THREE.Color() }, uCore: { value: new THREE.Color() }, uAlpha: { value: 0 }, uMask: this.mask, uHasMask: this.hasMask }, TRAIL_FRAG);
+      mat.vertexShader = TRAIL_VERT;
+      const m = new THREE.Mesh(g, mat);
       m.userData.N = N;
       m.userData.hist = [];
       return m;
@@ -633,7 +639,7 @@ export class VFX {
    * A burst of star glints round p: each flies out a little, spins, swells and twinkles out.
    * (The perfect dodge, a parry, a finisher's last cut.)
    */
-  stars(p, n = 8, { color = [2.4, 2.1, 1.5], spread = 0.9, size = 0.6, life = 0.55 } = {}) {
+  stars(p, n = 8, { color = [2.4, 1.7, 0.7], spread = 0.9, size = 0.6, life = 0.55 } = {}) {
     if (!this.starMats.length || !this.starMats[0].map) return;
     if (this.reduce) n = Math.ceil(n / 2);
     this.starPool ||= [];
@@ -748,13 +754,13 @@ export class VFX {
   }
 
   /** A star flare at p (o.kind: 'flareStar' Stylized Fire's, 'flareImpact' Impact Frames'). */
-  flare(p, size = 2, { kind = 'flareStar', color = [2.2, 1.9, 1.5], life = 0.28 } = {}) {
+  flare(p, size = 2, { kind = 'flareStar', color = [2.3, 1.6, 0.75], life = 0.28 } = {}) {
     const k = kind === 'flareImpact' ? 0.55 : 4;
     this.flipbook(kind, p, size, { life, color: color.map((c) => c * k), glow: 0.6, fade: 0.75, grow: 1.4, spin: 1.5, over: true });
   }
 
   /** The anime slash mark (Stylized Sword Trails) across p, turned to `rot` on screen. */
-  slashMark(p, size = 2.2, { rot = 0, color = [1.5, 1.6, 2.2], life = 0.22 } = {}) {
+  slashMark(p, size = 2.2, { rot = 0, color = [2.2, 1.2, 0.4], life = 0.13 } = {}) {
     this.flipbook('animeSlash', p, size, { life, color, glow: 0.5, fade: 0.6, grow: 1.2, rot, over: true, ramp: 1, stretch: 0.7 });
   }
 
@@ -829,7 +835,7 @@ export class VFX {
    * A crescent swept round `arc` radians at radius r about `center`, in the plane of `frame` (a
    * quaternion: the arc runs from its -X round through +Z), width w. o.dur: the sweep's time.
    */
-  slash(center, frame, { r = 1.1, w = 0.35, arc = 2.4, start = 0, color = [1.6, 1.4, 1.1], core = [3, 2.8, 2.4], fire = false, dur = 0.28, tail = 0.55 } = {}) {
+  slash(center, frame, { r = 1.1, w = 0.35, arc = 2.4, start = 0, color = [2.0, 1.1, 0.35], core = [2.8, 2.0, 0.9], fire = false, dur = 0.28, tail = 0.55 } = {}) {
     const m = this.take(this.slashes);
     const pos = m.geometry.attributes.position;
     const n = pos.count / 2 - 1;
@@ -1066,7 +1072,7 @@ export class VFX {
    * A trail: call every frame a blade (or shin) is in its blow with its two ends; it lives on
    * a moment after the last call, fading out from its old end.
    */
-  trail(id, a, b, { color = [1.5, 1.25, 0.9], core = [3, 2.8, 2.4] } = {}) {
+  trail(id, a, b, { color = [2.0, 1.05, 0.3], core = [2.8, 1.9, 0.8] } = {}) {
     let m = this.trailById.get(id);
     if (!m || !m.userData.busy) {
       m = this.take(this.trails);
@@ -1080,7 +1086,13 @@ export class VFX {
       this.live.push(e);
     }
     const H = m.userData.hist;
-    H.unshift([a.x, a.y, a.z, b.x, b.y, b.z]);
+    // (how fast the tip moves: a slow wind-up leaves almost nothing, a cut a bright line)
+    const p0 = H[0];
+    const sp = p0 ? Math.hypot(b.x - p0[3], b.y - p0[4], b.z - p0[5]) / Math.max(1e-3, this.t - p0[6]) : 0;
+    if (p0 && this.t - p0[6] < 1e-4) H.shift();
+    H.unshift([a.x, a.y, a.z, b.x, b.y, b.z, this.t, Math.min(1, Math.max(0, (sp - 2.5) / 6))]);
+    // (only the last ~0.12 s of the swing: a streak, not a sheet)
+    while (H.length > 2 && this.t - H[H.length - 1][6] > 0.12) H.pop();
     if (H.length > m.userData.N) H.length = m.userData.N;
     m.userData.last = this.t;
   }
@@ -1091,6 +1103,7 @@ export class VFX {
     const idle = this.t - m.userData.last;
     // (no new points: the old end catches up to the new, then it is gone)
     if (idle > 0.02 && H.length) H.pop();
+    while (H.length > 2 && this.t - H[H.length - 1][6] > 0.14) H.pop();
     m.material.uniforms.uAlpha.value = (this.reduce ? 0.55 : 1) * Math.min(1, H.length / 4);
     if (H.length < 2) {
       if (idle > 0.05) e.t = e.dur = 0.0001;
@@ -1099,13 +1112,24 @@ export class VFX {
     }
     m.visible = true;
     const P = m.geometry.attributes.position;
+    const F = m.geometry.attributes.aFast;
     const N = m.userData.N;
     for (let i = 0; i < N; i++) {
-      const h = H[Math.min(H.length - 1, i)];
-      P.setXYZ(i * 2, h[0], h[1], h[2]);
-      P.setXYZ(i * 2 + 1, h[3], h[4], h[5]);
+      // (the ribbon's length is its samples: spread them over all N points)
+      const f = (i / (N - 1)) * (H.length - 1);
+      const i0 = Math.floor(f);
+      const i1 = Math.min(H.length - 1, i0 + 1);
+      const k = f - i0;
+      const h0 = H[i0];
+      const h1 = H[i1];
+      P.setXYZ(i * 2, h0[0] + (h1[0] - h0[0]) * k, h0[1] + (h1[1] - h0[1]) * k, h0[2] + (h1[2] - h0[2]) * k);
+      P.setXYZ(i * 2 + 1, h0[3] + (h1[3] - h0[3]) * k, h0[4] + (h1[4] - h0[4]) * k, h0[5] + (h1[5] - h0[5]) * k);
+      const fast = h0[7] + (h1[7] - h0[7]) * k;
+      F.setX(i * 2, fast);
+      F.setX(i * 2 + 1, fast);
     }
     P.needsUpdate = true;
+    F.needsUpdate = true;
     m.geometry.computeBoundingSphere();
   }
 
