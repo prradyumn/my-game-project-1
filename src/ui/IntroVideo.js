@@ -5,6 +5,16 @@
 // (prady-intro-5m: the 8 Mbps master re-encoded two-pass at 5.5 Mbps, 24 MB instead of 36; its
 // worst frame, a cross-dissolve, looks the same side by side; SSIM 0.974 over the whole clip)
 const SRC = '/assets/video/prady-intro-5m.mp4';
+// (AV1 with film-grain synthesis: 17 MB for the same picture; the H.264 copy for browsers
+// without AV1. Each player downloads only the one it can play.)
+const SRC_AV1 = '/assets/video/prady-intro-av1.webm';
+const av1 = () => {
+  try {
+    return document.createElement('video').canPlayType('video/webm; codecs="av01.0.08M.10"') === 'probably';
+  } catch {
+    return false;
+  }
+};
 const POSTER = '/assets/video/prady-intro-poster.jpg';
 
 export function playIntro({ force = false, onDone } = {}) {
@@ -59,7 +69,7 @@ export function playIntro({ force = false, onDone } = {}) {
   video.addEventListener('ended', close);
   video.addEventListener('error', close);
   window.addEventListener('keydown', onKey, true);
-  video.src = SRC;
+  video.src = av1() ? SRC_AV1 : SRC;
   video.play().catch(() => {
     // autoplay refused even muted (rare): keep the poster and wait for a click on Skip/the video
   });

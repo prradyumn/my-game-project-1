@@ -93,15 +93,23 @@ export class AudioManager {
     this.pendingLoops = [];
   }
 
-  /** Fetch + decode a buffer on demand (battle music: not needed at the title). Cached promise. */
-  fetchBuffer(name, url) {
+  /**
+   * Fetch + decode a buffer on demand (battle music: not needed at the title). Cached promise.
+   * fallback: another url to try if the first can't be fetched or decoded (an Opus file first,
+   * its MP3 for a browser without Opus).
+   */
+  fetchBuffer(name, url, fallback = null) {
     this.fetching = this.fetching || {};
     if (this.buffers[name]) return Promise.resolve(this.buffers[name]);
     if (!this.fetching[name]) {
       const ctx = this.ctx || this._ctx;
-      this.fetching[name] = fetch(url)
-        .then((r) => (r.ok ? r.arrayBuffer() : null))
-        .then((ab) => (ab && ctx ? ctx.decodeAudioData(ab) : null))
+      const get = (u) =>
+        fetch(u)
+          .then((r) => (r.ok ? r.arrayBuffer() : null))
+          .then((ab) => (ab && ctx ? ctx.decodeAudioData(ab) : null));
+      this.fetching[name] = get(url)
+        .catch(() => null)
+        .then((b) => b || (fallback ? get(fallback).catch(() => null) : null))
         .then((b) => (b ? (this.buffers[name] = b) : null))
         .catch(() => null);
     }

@@ -49,7 +49,8 @@ export class Score {
 
   prefetch() {
     const a = this.g.audio;
-    for (const [k, url] of Object.entries(ASSET_MANIFEST.score)) a.fetchBuffer(`score-${k}`, url);
+    // (Opus copies beside the MP3s, 28% smaller; the MP3 if the browser can't decode Opus)
+    for (const [k, url] of Object.entries(ASSET_MANIFEST.score)) a.fetchBuffer(`score-${k}`, url.replace(/\.mp3$/, '.webm'), url);
   }
 
   /** Dev Deepawali begins: its own music now (conch, shehnai, the dhol building), over whatever

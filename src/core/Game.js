@@ -33,8 +33,12 @@ import { Powers, synthDamaru, synthOm } from '../gameplay/Powers.js';
 import { SiddhiMode } from '../gameplay/SiddhiMode.js';
 import { LipSync } from '../gameplay/LipSync.js';
 import { RIM, addRim } from '../world/RimLight.js';
+import { addCharacterShading } from '../world/CharacterShading.js';
 import { DamageNumbers } from '../ui/DamageNumbers.js';
 import { GroundDetail } from '../world/GroundDetail.js';
+import { Vegetation } from '../world/Vegetation.js';
+import { Decals } from '../world/Decals.js';
+import { AmbientLife } from '../world/AmbientLife.js';
 import { StyleMeter } from '../ui/StyleMeter.js';
 import { OffscreenWarn } from '../ui/OffscreenWarn.js';
 import { Blood, synthBloodGush, synthBloodSplat } from '../world/Blood.js';
@@ -261,6 +265,9 @@ export class Game {
     this.wake = new Wake(this.water, this.rs.qualityName === 'low' ? 200 : 360);
     this.flowers = new FloatingFlowers(this.water, this.rs.qualityName);
     this.groundDetail = new GroundDetail(scene, this.rs.qualityName); // petals, leaves on the steps
+    this.ambient = new AmbientLife(scene); // moths at the lamps, ash off the pyres, incense
+    this.decals = new Decals(scene); // cracks, paan, soot, kumkum, Om, rangoli on the stone
+    this.vegetation = new Vegetation(scene, this.rs.qualityName); // reeds on the banks (grass by the walls: plantGrass, once rays answer)
     scene.add(this.wake.mesh, this.flowers.mesh);
     this.underwater = new Underwater({ water: this.water, quality: this.rs.qualityName });
     scene.add(this.underwater.group);
@@ -617,6 +624,7 @@ export class Game {
               this.pradyBody = o; // (Bloodied.js stains this skin)
             }
             addRim(o.material); // (RimLight.js: an edge of the sky's light round him)
+            if (o.isSkinnedMesh && !location.search.includes('noskin')) addCharacterShading(o.material); // (skin warm in its shadows, the dhoti's sheen; ?noskin to compare)
           }
         }
       });
@@ -840,6 +848,7 @@ export class Game {
     // the score (the hours' ragas, the tension, the reveal) and the battle music: fetched once the
     // city is up, decoded off the main thread
     this.after(3, () => this.score.prefetch());
+    this.after(1, () => this.vegetation?.plantGrass(this.physics)); // (once the colliders answer rays)
     this.after(5, () => this.barks.load());
     this.after(6, () => this.battleMusic.prefetch());
     this.after(8, () => this.asuras.prewarm()); // (every villain's body ready before the first fight)
@@ -1424,6 +1433,19 @@ export class Game {
     this.drapes?.update(simDt); // (his cloth swings from wherever every pose and IK left him)
     if (this.vfx) {
       this.vfx.reduce = !!this.settings.reduceFlashes;
+      // the breeze downriver (+x), stronger in a gust (WORLD_UNIFORMS.uGust)
+      this.vfx.wind.set(0.35 + (WORLD_UNIFORMS.uGust.value || 0) * 1.8, 0, 0.12);
+      this.ambient?.update(simDt, {
+        camera: this.camera,
+        renderer: this.rs.renderer,
+        lamps: this.hazeLights,
+        night: this.sky.nightFactor ?? 0,
+        pyres: this.fire?.pyres,
+        wind: this.vfx.wind,
+        player: this.player.position,
+        vfx: this.vfx,
+        shrines: this._shrineSpots ||= (this.world?.galis?.shrines || []).map((s) => ({ x: s.center.x, y: s.y, z: s.center.z })),
+      });
       {
         // the light smoke and dust are seen by, on the same scale as the lit stone round them: the
         // sky's fill and the sun when it is up; at night a little warm light from the lamps
@@ -1565,6 +1587,12 @@ export class Game {
     this.festival.update(simDt);
     // dawn mist on the river (and a little more haze in the air with it); sun shafts
     const mist = this.mist.update(simDt, { hours: this.sky.hours, sky: this.sky, extra: this.weather?.mistExtra ?? 0 });
+    // the haze the lamps light: thicker after dark and with the mist on the river (Haze.js)
+    {
+      const night = this.sky.nightFactor ?? 0;
+      const dens = (0.002 + night * 0.022 + (this.mist.density || 0) * 0.03 + (this.weather?.rain || 0) * 0.01) * (this._under ? 0 : 1);
+      this.rs.setHaze?.(this.camera, this.hazeLights || [], this._noHaze ? 0 : dens, 0);
+    }
     if (this.scene.fog) this.scene.fog.density *= 1 + mist * 0.9;
     {
       const e = this.sky.sunDir.y;
@@ -1758,6 +1786,8 @@ export class Game {
       if (this.lampFilter) for (let i = cands.length - 1; i >= 0; i--) if (!this.lampFilter(cands[i].p)) cands.splice(i, 1);
       for (const c of cands) c.d = c.p.distanceToSquared(cam);
       cands.sort((a, b) => a.d - b.d);
+      // (the nearest dozen light the haze too: Haze.js)
+      this.hazeLights = cands.slice(0, 12).map((c) => ({ p: c.p, col: c.fire ? [1.6 * c.k, 0.75 * c.k, 0.28 * c.k] : [1.3 * c.k, 0.9 * c.k, 0.5 * c.k] }));
       this.lightChoice = this.lightPool.map((_, i) => (cands[i] && cands[i].d < 90 * 90 ? cands[i] : null));
     }
     const t = performance.now() * 0.001;

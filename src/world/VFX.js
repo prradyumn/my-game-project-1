@@ -417,6 +417,7 @@ export class VFX {
     scene.add(this.group);
     this.reduce = false; // (Reduce flashes: softer, smaller)
     this.light = new THREE.Color(1, 1, 1); // the scene's light on smoke and dust (Game sets it)
+    this.wind = new THREE.Vector3(0.4, 0, 0.1); // the breeze (m/s, Game sets it from the gusts): smoke and embers drift with it
     // rings (shockwaves) and yantras: flat discs on the ground
     this.rings = this.pool(8, () => this.groundMesh({ uK: { value: 0 }, uColor: { value: new THREE.Color() }, uCrack: { value: new THREE.Color() }, uSeed: { value: 0 }, uCracks: { value: 0 }, uInstant: { value: 0 }, uMask2: this.mask2, uHasMask2: this.hasMask2 }, RING_FRAG));
     this.sigils = this.pool(2, () => this.groundMesh({ uK: { value: 0 }, uSpin: { value: 0 }, uColor: { value: new THREE.Color() }, uAlpha: { value: 0 }, uMask: this.mask }, SIGIL_FRAG));
@@ -966,6 +967,8 @@ export class VFX {
           m.position.addScaledVector(v, dt);
           v.multiplyScalar(Math.max(0, 1 - dt * 1.5));
         }
+        // (smoke and dust ride the breeze, more as they rise and spread)
+        if (!S.add) m.position.addScaledVector(this.wind, dt * (0.3 + k));
         u.uRot.value += spin * dt;
         u.uFrame.value = f0 + (f1 - f0) * k;
         const s = size * (1 + (grow - 1) * (1 - (1 - k) * (1 - k)));
@@ -1165,6 +1168,11 @@ export class VFX {
       }
       s.v.y -= s.g * dt;
       s.v.multiplyScalar(Math.max(0, 1 - dt * s.drag));
+      // (rising embers are carried off on the breeze)
+      if (s.g < 0) {
+        s.v.x += this.wind.x * dt * 1.2;
+        s.v.z += this.wind.z * dt * 1.2;
+      }
       s.p.addScaledVector(s.v, dt);
     }
     for (const s of S) {

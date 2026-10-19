@@ -5,6 +5,7 @@ import { QUALITY_PRESETS } from '../config.js';
 import { clamp } from '../utils/math.js';
 import { ColorGradeEffect } from './Grading.js';
 import { PainterlyEffect } from './Painterly.js';
+import { HazeEffect } from './Haze.js';
 import { HeatShimmerEffect } from './HeatShimmer.js';
 import { ImpactEffect } from './Impact.js';
 import { UpscalePass } from './Upscale.js';
@@ -114,6 +115,11 @@ export class RenderSystem {
       this.godRaysPass.enabled = false;
       composer.addPass(this.godRaysPass);
     } else this.godRays = this.godRaysPass = null;
+    // the lamps' light in the haze (Haze.js), before the bloom so its brightest blooms (not on Low)
+    if (this.qualityName !== 'low') {
+      this.haze = new HazeEffect();
+      effects.push(this.haze);
+    } else this.haze = null;
     if (q.bloom) {
       // (at half resolution: a glow loses nothing by it, and it was a full-size pass)
       this.bloom = new BloomEffect({ intensity: 0.9, luminanceThreshold: 3.2, luminanceSmoothing: 0.8, mipmapBlur: true, radius: 0.6, levels: 6, resolutionScale: 0.5 });
@@ -142,6 +148,11 @@ export class RenderSystem {
     composer.addPass((this.upscalePass = new UpscalePass(q.sharpen || 0)));
     this.composer = composer;
     this.resize();
+  }
+
+  /** The haze lit by the lamps (Haze.js). */
+  setHaze(camera, lights, density, waterY) {
+    this.haze?.set(camera, lights, density, waterY);
   }
 
   /** The Painterly look, 0 off .. 1 full (eased by Game). */

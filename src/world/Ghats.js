@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { addStoneDetail } from './StoneDetail.js';
 import { GHAT_TOP } from '../config.js';
 import { MeshBuilder } from '../utils/MeshBuilder.js';
 import { GROUPS } from '../core/Physics.js';
@@ -141,7 +142,9 @@ export function buildGhats(layout, textures, physics) {
   }
 
   const geo = b.build();
-  const mat = surfaceMaterial(textures.stone, { normalScale: 1.1 });
+  // (StoneDetail.js: no visible repeat, broad variation, worn edges, moss at the water line)
+  const base = surfaceMaterial(textures.stone, { normalScale: 1.1 });
+  const mat = typeof location !== 'undefined' && location.search.includes('nostone') ? base : addStoneDetail(base); // (?nostone: without it, to compare)
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.castShadow = true;
