@@ -35,6 +35,8 @@ import { LipSync } from '../gameplay/LipSync.js';
 import { RIM, addRim } from '../world/RimLight.js';
 import { DamageNumbers } from '../ui/DamageNumbers.js';
 import { GroundDetail } from '../world/GroundDetail.js';
+import { Blood, synthBloodGush, synthBloodSplat } from '../world/Blood.js';
+import { Bloodied } from '../gameplay/Bloodied.js';
 import { Finishers } from '../gameplay/Finishers.js';
 import { Cinematics } from '../gameplay/Cinematics.js';
 import { Projectiles, synthFireball } from '../gameplay/Projectiles.js';
@@ -399,6 +401,8 @@ export class Game {
     this.guide = new Guide(this);
     this.riverAarti = new RiverAarti(this);
     this.audio.synth('ember-hiss', synthEmberHiss);
+    this.audio.synth('blood-splat', synthBloodSplat);
+    this.audio.synth('blood-gush', synthBloodGush);
     this.audio.synth('howl', synthHowl);
     this.lockOn = new LockOn({ targets: this.targets, camRig: this.camRig, player: this.player, combat: this.combat, camera, ui });
     // what Prady earns and what he can do with it; how he gets over things; what is earned
@@ -425,6 +429,14 @@ export class Game {
       return r === null ? gh : gh + 0.6 - r;
     };
     this.vfx = new VFX(scene, { heightAt: vfxGround, starUrls: ASSET_MANIFEST.fx?.stars || [], sheets: ASSET_MANIFEST.fx?.sheets || {}, masks: ASSET_MANIFEST.fx?.masks || null, masks2: ASSET_MANIFEST.fx?.masks2 || null, decals: ASSET_MANIFEST.fx?.decals || {} });
+    // blood and ichor (Blood.js: droplets, splats, pools) and Prady stained by the fight
+    // (Bloodied.js: his skin and the blade, washed off in the Ganga)
+    this.blood = new Blood(scene, { heightAt: vfxGround, light: this.vfx.light });
+    this.blood.player = this.player;
+    if (this.pradyBody) {
+      this.bloodied = new Bloodied(this.pradyBody, this.combat?.sword, this.combat?.bladeLen);
+      this.blood.bloodied = this.bloodied;
+    }
     if (this.combat) this.combat.vfx = this.vfx;
     this.traversal = new Traversal(this);
     this.player.traversal = this.traversal;
@@ -596,7 +608,10 @@ export class Game {
           o.frustumCulled = false;
           if (o.material) {
             makeWaterAware(o.material, { caustics: true, wetness: false, puddles: false, selfWet: this.pradyWet });
-            if (o.isSkinnedMesh && o.material.map && !this.cloth) this.cloth = new ClothSway(o.material);
+            if (o.isSkinnedMesh && o.material.map && !this.cloth) {
+              this.cloth = new ClothSway(o.material);
+              this.pradyBody = o; // (Bloodied.js stains this skin)
+            }
             addRim(o.material); // (RimLight.js: an edge of the sky's light round him)
           }
         }
@@ -831,6 +846,8 @@ export class Game {
     this.worldState.restore(save?.world);
     this.siddhis.restore(save?.siddhis);
     this.powers.restore(save?.powers);
+    this.blood?.clear();
+    this.bloodied?.clear();
     this.siddhiMode?.restore();
     this.health.revive(1);
     this.combat.revive();
@@ -1420,6 +1437,26 @@ export class Game {
       }
       this.vfx.update(simDt, this.camera);
       this.damageNumbers.enabled = this.settings.damageNumbers !== false;
+      if (this.blood) {
+        const gore = this.settings.gore || 'full';
+        this.blood.gore = gore;
+        const rain = this.weather?.rain || 0;
+        this.blood.wash += (simDt * rain) / 40;
+        this.blood.update(simDt, this.camera);
+        if (this.bloodied) {
+          this.bloodied.gore = gore;
+          this.bloodied.update(simDt, {
+            water: (x, z) => this.water.heightAt(x, z),
+            rain,
+            hand: this.animator?.boneWorld?.('RightHand', this._bhand || (this._bhand = new THREE.Vector3())),
+            // a red cloud loosening from him into the current
+            onRinse: (p, kind) => {
+              const wy = this.water.heightAt(p.x, p.z);
+              this.vfx.flipbook('smoke', { x: p.x + (Math.random() - 0.5) * 0.3, y: wy + 0.02, z: p.z + (Math.random() - 0.5) * 0.3 }, 0.5 + Math.random() * 0.4, { life: 1.6, color: kind ? [0.16, 0.03, 0.02] : [0.42, 0.04, 0.03], alpha: 0.5, glow: 0, grow: 2.2, fade: 0.7, vel: { x: 0.35, y: -0.02, z: 0.05 } });
+            },
+          });
+        }
+      }
       this.damageNumbers.update(dt, this.camera);
     }
     this.roofRun?.late(); // (records him, poses his chhaya: after every pose and IK)
@@ -1849,6 +1886,18 @@ export class Game {
     }
     if (type === 'hurt') {
       this.ui.hurtFlash(data.heavy ? 1 : 0.6);
+      if (this.blood?.on) {
+        // his own blood: from where it struck him, away from the one who struck
+        const P = this.player.position;
+        const f = data.from || { x: P.x + Math.sin(this.player.yaw), z: P.z + Math.cos(this.player.yaw) };
+        const dx = P.x - f.x;
+        const dz = P.z - f.z;
+        const l = Math.hypot(dx, dz) || 1;
+        const at = { x: P.x - (dx / l) * 0.18, y: this.player.feetY + 1.25, z: P.z - (dz / l) * 0.18 };
+        this.blood.spray(at, { x: dx, z: dz }, { kind: 'red', amount: data.heavy ? 1.4 : 0.7 });
+        this.bloodied?.hit(new THREE.Vector3(at.x, at.y + (Math.random() - 0.5) * 0.4, at.z), 'red', data.heavy ? 0.8 : 0.5);
+        this.audio.play('blood-splat', { at, volume: 0.6, rate: 0.9 + Math.random() * 0.2 });
+      }
       if (data.heavy) this.cinematics?.impact(0.45);
       this.camRig.shake(data.heavy ? 0.5 : 0.28);
       this.haptics.play(data.heavy ? 'hurtHeavy' : 'hurt');

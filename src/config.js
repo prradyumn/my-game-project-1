@@ -145,6 +145,7 @@ export const DEFAULT_SETTINGS = {
   invertY: false,
   showFps: false,
   damageNumbers: true, // (DamageNumbers.js)
+  gore: 'full', // blood and ichor (Blood.js, Bloodied.js): full | stylised | off
   timeSpeed: 1,
   weather: 'auto', // auto (the odd monsoon shower) | clear | rain | storm
   difficulty: 'balanced', // story | balanced | hard (DIFFICULTY)

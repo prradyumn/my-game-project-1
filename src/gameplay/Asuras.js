@@ -200,6 +200,23 @@ export class Asura {
     const line = this.K.boss ? 0.12 : this.mini ? 0.2 : sys.g.combat?.perks?.mercy ? 0.5 : 0.34;
     if (!h.finisher && !h.power && before > line && this.hp - dmg <= 0 && this.state !== 'rise' && this.state !== 'held') dmg = this.hp - this.maxHp * line * 0.6;
     this.hp -= dmg;
+    // ichor out of the wound, along the blow (Blood.js); the blade carries some of it (Bloodied.js)
+    if (sys.g.blood?.on) {
+      const big = h.heavy || h.kick || h.charged || h.finisher;
+      sys.g.blood.spray(h.at, dir, { kind: 'ichor', amount: big ? 2 : 1, kill: this.hp <= 0 });
+      if (h.sword) sys.g.bloodied?.bladeHit('ichor');
+      // close in, it spatters him: the sword hand and forearm, the chest on a heavy blow
+      const P = sys.player.position;
+      if (sys.g.bloodied && Math.hypot(P.x - this.pos.x, P.z - this.pos.z) < 1.8) {
+        const B = sys.g.bloodied;
+        const hand = sys.g.animator?.boneWorld?.(Math.random() < 0.7 ? 'RightHand' : 'RightForeArm', new THREE.Vector3());
+        if (hand && Math.random() < 0.7) B.hit(hand, 'ichor', 0.25);
+        // the dhoti and the legs (white cloth: where a fight shows most)
+        if (Math.random() < 0.45) B.hit(new THREE.Vector3(P.x + (h.at.x - P.x) * 0.12 + (Math.random() - 0.5) * 0.2, sys.player.feetY + 0.45 + Math.random() * 0.5, P.z + (h.at.z - P.z) * 0.12 + (Math.random() - 0.5) * 0.2), 'ichor', 0.25);
+        if (big && Math.random() < 0.6) B.hit(new THREE.Vector3(P.x + (h.at.x - P.x) * 0.15, sys.player.feetY + 1.2 + Math.random() * 0.3, P.z + (h.at.z - P.z) * 0.15), 'ichor', 0.3);
+      }
+      sys.audio.play(this.hp <= 0 ? 'blood-gush' : 'blood-splat', { at: h.at, volume: big ? 0.7 : 0.45, rate: 0.85 + Math.random() * 0.3 });
+    }
     sys.g.damageNumbers?.show({ x: h.at.x, y: h.at.y + 0.25, z: h.at.z }, Math.min(dmg, this.hp + dmg), this.hp <= 0 ? 'kill' : h.heavy || h.kick || h.charged || h.riposte || h.finisher ? 'big' : 'light');
     this.hurt = 1;
     this.lastHitT = this.t;
@@ -381,6 +398,8 @@ export class Asura {
 
   die(dir) {
     this.alive = false;
+    // the body's ichor pools under it as it falls (Blood.js)
+    this.sys.g.blood?.pool({ x: this.pos.x + (dir?.x || 0) * 0.5, z: this.pos.z + (dir?.z || 0) * 0.5 }, (this.K.boss ? 2.2 : 1.1) * Math.sqrt(this.scale), { kind: 'ichor', delay: 0.8 });
     this.releaseToken();
     this.setState('dead');
     this.deathDir = dir || { x: 0, z: 0 };
