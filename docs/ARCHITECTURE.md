@@ -174,6 +174,16 @@ movement is identical at 30, 60 or 120 fps.
   - **Hanging from the hands:** `hangFromHands()` moves the body toward the edge when a clip's shoulders drop past arm's reach.
   - **Braced or free:** braced where the face under the edge is within `BRACE` of the lip (feet IK'd onto the stone, stepping with the shimmy), free otherwise.
   - **Clips:** each move plays its Mixamo clip (`hangAnim()`, `playTimed()`: braced/free hang and shimmy loops, the catch, hop up, drop, climb up) and keeps the CMU stand-ins when that clip is missing. |
+| `core/Painterly.js` | The Painterly look (Settings: Look): a Kuwahara oil-paint pass (5×5 neighbourhood, four quadrants, weighted to the calmest), a soft ink line on strong edges, canvas tooth. Its own pass before the upscale, off unless chosen. |
+| `world/RimLight.js` | `addRim(material, k)`: a view-angle rim of light on Prady and the Asuras; `RIM` colour and strength set each frame by Game from the sky (cool by day, warm lamplight at night). |
+| `world/GroundDetail.js` | Petals, marigold heads, leaves and leaf-plate scraps on the ghat steps, in clusters, thickest where people gather, at the back of each tread. One InstancedMesh. |
+| `ui/DamageNumbers.js` | The damage of a blow as a numeral that pops and drifts up from where it landed (saffron; gold for heavy blows; larger for a kill). Settings: Damage numbers. |
+| `gameplay/HitReact.js` | Physical hit reactions: torque from the blow on each joint between the hit point and the hips, springs back to the clip; heavy blows leave the arms limp under gravity a moment. |
+| `world/Fracture.js` | A hollow shape cut once into surface-Voronoi pieces with thickness and broken walls (the matkas break into their own shards: PhysicsProps). |
+| `gameplay/LipSync.js` | A voice line's audio read into a 60 fps jaw track; the speaking crowd actor's jaw follows it (`g.voice(key, who)`). |
+| `gameplay/SiddhiMode.js` | The sandbox (test menu): every power, endless Shakti, no death, a respawning pack, a panel of every move, clip and effect. |
+| `gameplay/CameraRig.js` (combat) | `fightAt`: closer, lower, over whichever shoulder has room; `punch()` on heavy hits; a slow handheld breath when standing still. |
+| `core/AudioManager.js` (echo) | A convolution reverb send on sfx and voice, set by `setRoom(k)` from how closed-in the listener is (Game casts rays four times a second). |
 | `world/VFX.js` | The big moves' light: pooled, additive, drawn only while alive.
   - **Pieces:** `shockwave` (a ring racing over the ground with glowing cracks), `yantra` (a mandala drawn on the ground in light), `slash` (a crescent or a ring of flame), `lightning` (a forked bolt, re-struck), `sparks` (one instanced mesh of streaks), `flash`, and `trail` (a ribbon behind the talwar or a kicking shin, fed each frame by `Combat`), `stars`, `pillar`, `debris`, `sigil` (the Fab crystal star drawn on the ground).
   - **Flipbooks** (`flipbook`, and on top of it `explosion`, `fireburst`, `smoke`, `smokeColumn`, `dirt`): camera-facing sprite sheets from `ASSET_MANIFEST.fx.sheets`, frames cross-faded. Glow sheets are additive; smoke and dust are blended and lit by `vfx.light` (the sky's light, set by `Game` each frame) so they sit right by day and by night, while their fire glows by itself. Sheets standing on the ground fade out along their bottom edge.

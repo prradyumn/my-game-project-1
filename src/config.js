@@ -136,7 +136,7 @@ export const QUALITY_PRESETS = {
 
 export const DEFAULT_SETTINGS = {
   quality: 'medium',
-  look: 'cinematic', // cinematic (the film print, Grading.js) | natural
+  look: 'cinematic', // cinematic (the film print, Grading.js) | painterly (Painterly.js, over the film print) | natural
   adaptiveResolution: true,
   musicVolume: 0.45,
   sfxVolume: 0.8,
@@ -144,6 +144,7 @@ export const DEFAULT_SETTINGS = {
   mouseSensitivity: 1.0,
   invertY: false,
   showFps: false,
+  damageNumbers: true, // (DamageNumbers.js)
   timeSpeed: 1,
   weather: 'auto', // auto (the odd monsoon shower) | clear | rain | storm
   difficulty: 'balanced', // story | balanced | hard (DIFFICULTY)

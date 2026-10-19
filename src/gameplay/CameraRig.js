@@ -256,6 +256,23 @@ export class CameraRig {
       const s = this.waterHeightAt(cam.x, cam.z);
       if (cam.y > s - 0.3 && cam.y < s + 0.25) cam.y = pivot.y > s ? s + 0.25 : s - 0.3;
     }
+    // a handheld breath in the quiet: standing still, no fight, no input, the lens drifts a few
+    // centimetres and rolls a hair, slow (as an operator's shoulder does), gone the moment he moves
+    {
+      const still = !this.fightAt && !this.lockAt && (this.userLook || 0) <= 0 && Math.hypot(this.target.x - (this._lastT?.x ?? this.target.x), this.target.z - (this._lastT?.z ?? this.target.z)) < 0.002;
+      (this._lastT ||= new THREE.Vector3()).copy(this.target);
+      this.quietT = still ? (this.quietT || 0) + dt : 0;
+      this.breathW = damp(this.breathW || 0, this.quietT > 1.5 ? 1 : 0, this.quietT > 1.5 ? 0.6 : 4, dt);
+      this.breathT = (this.breathT || 0) + dt;
+      if (this.breathW > 0.01) {
+        const t = this.breathT;
+        const a = this.breathW * this.shakeScale;
+        cam.x += (Math.sin(t * 0.37) * 0.6 + Math.sin(t * 0.83 + 1.1) * 0.4) * 0.035 * a;
+        cam.y += (Math.sin(t * 0.29 + 2.0) * 0.6 + Math.sin(t * 0.71) * 0.4) * 0.025 * a;
+        cam.z += (Math.sin(t * 0.41 + 0.7) * 0.6 + Math.sin(t * 0.67 + 2.4) * 0.4) * 0.035 * a;
+        this.breathRoll = Math.sin(t * 0.23 + 0.5) * 0.006 * a;
+      } else this.breathRoll = 0;
+    }
     // Shake
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
     this.shakeT += dt * 30;
@@ -266,6 +283,7 @@ export class CameraRig {
       cam.z += Math.sin(this.shakeT * 1.3 + 2.1) * sh;
     }
     this.camera.lookAt(pivot.x, pivot.y + 0.05, pivot.z);
+    if (this.breathRoll) this.camera.rotateZ(this.breathRoll);
     // the blow's kick (a stiff spring: out and back inside a tenth of a second)
     if (this.kickV) {
       const K = this.kickP;

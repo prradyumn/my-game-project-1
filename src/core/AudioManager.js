@@ -46,6 +46,16 @@ export class AudioManager {
       g.connect(this.master);
       this.buses[k] = g;
     }
+    // the place's echo: footsteps, blows and voices ring off stone in a gali or under a temple's
+    // roof and are dry on the open river (a convolver on a synthesised impulse; its send is set
+    // each frame by setRoom from how closed-in the listener is)
+    this.reverb = ctx.createConvolver();
+    this.reverb.buffer = roomImpulse(ctx, 1.7);
+    this.reverbSend = ctx.createGain();
+    this.reverbSend.gain.value = 0;
+    this.buses.sfx.connect(this.reverbSend);
+    this.buses.voice.connect(this.reverbSend);
+    this.reverbSend.connect(this.reverb).connect(this.master);
     this._prep = (async () => {
       await Promise.all(
         Object.entries(this.raw).map(async ([name, ab]) => {
@@ -152,6 +162,13 @@ export class AudioManager {
   setVolume(bus, v) {
     this.volumes[bus] = v;
     if (this.buses?.[bus]) this.buses[bus].gain.setTargetAtTime(v, (this.ctx || this._ctx).currentTime, 0.1);
+  }
+
+  /** How enclosed the listener is (0 open air .. 1 a stone gali or a temple hall). */
+  setRoom(k) {
+    if (!this.reverbSend) return;
+    const ctx = this.ctx || this._ctx;
+    if (ctx) this.reverbSend.gain.setTargetAtTime(0.06 + k * 0.42, ctx.currentTime, 0.4);
   }
 
   setUnderwater(on) {
@@ -305,3 +322,21 @@ export class AudioManager {
     return handle;
   }
 }
+
+/** A room's echo, made in code: stereo noise falling away over `secs`, a few early reflections. */
+function roomImpulse(ctx, secs) {
+  const sr = ctx.sampleRate;
+  const n = Math.floor(sr * secs);
+  const b = ctx.createBuffer(2, n, sr);
+  for (let c = 0; c < 2; c++) {
+    const d = b.getChannelData(c);
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2.6) * Math.exp(-t * 2.2) * 0.6;
+    }
+    // early reflections off the near walls
+    for (const [t, a] of [[0.011, 0.5], [0.023, 0.35], [0.037, 0.3], [0.052, 0.22]]) d[Math.floor((t + c * 0.003) * sr)] += a;
+  }
+  return b;
+}
+

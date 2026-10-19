@@ -4,6 +4,7 @@ import { N8AOPostPass } from 'n8ao';
 import { QUALITY_PRESETS } from '../config.js';
 import { clamp } from '../utils/math.js';
 import { ColorGradeEffect } from './Grading.js';
+import { PainterlyEffect } from './Painterly.js';
 import { HeatShimmerEffect } from './HeatShimmer.js';
 import { ImpactEffect } from './Impact.js';
 import { UpscalePass } from './Upscale.js';
@@ -133,9 +134,21 @@ export class RenderSystem {
     composer.addPass(new EffectPass(camera, ...effects));
     // last: up to the screen's own resolution, sharpened in the same pass (Upscale.js; it was a
     // pass of its own, a whole frame's reads and writes for nothing)
+    // the Painterly look (Painterly.js): its own pass (it reads neighbours), off unless chosen
+    this.paint = new PainterlyEffect();
+    this.paintPass = new EffectPass(camera, this.paint);
+    this.paintPass.enabled = false;
+    composer.addPass(this.paintPass);
     composer.addPass((this.upscalePass = new UpscalePass(q.sharpen || 0)));
     this.composer = composer;
     this.resize();
+  }
+
+  /** The Painterly look, 0 off .. 1 full (eased by Game). */
+  setPaint(k) {
+    if (!this.paint) return;
+    this.paint.set(k, { ink: 0.6, step: 1.8 });
+    this.paintPass.enabled = k > 0.001;
   }
 
   resize() {

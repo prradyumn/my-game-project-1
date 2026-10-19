@@ -445,7 +445,9 @@ export class Combat {
 
   heavy() {
     if (this.move) {
-      if (!this.move.force && this.move.t > MOVES[this.move.name].cancel / MOVES[this.move.name].ts) this.move.queuedHeavy = true;
+      // buffered like the light strike: pressed any time after the first moments of a move, it
+      // comes out at that move's cancel point (an early press was lost)
+      if (!this.move.force && this.move.t > 0.15) this.move.queuedHeavy = true;
       return;
     }
     if (!this.canFight() || this.blocking) return;

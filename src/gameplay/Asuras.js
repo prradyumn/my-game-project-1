@@ -6,6 +6,7 @@ import { clamp, damp, dampAngle, wrapAngle } from '../utils/math.js';
 import { solveTwoBone } from '../utils/bones.js';
 import { Ragdoll } from './Ragdoll.js';
 import { HitReact } from './HitReact.js';
+import { addRim } from '../world/RimLight.js';
 import { SpringChain, chainFromPoints, legSpheres, rigCloth } from './SpringBones.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { AsuraEyes, AsuraParticles, asuraMaterial, hornMaterial, hornsGeometry } from '../world/AsuraLook.js';
@@ -199,6 +200,7 @@ export class Asura {
     const line = this.K.boss ? 0.12 : this.mini ? 0.2 : sys.g.combat?.perks?.mercy ? 0.5 : 0.34;
     if (!h.finisher && !h.power && before > line && this.hp - dmg <= 0 && this.state !== 'rise' && this.state !== 'held') dmg = this.hp - this.maxHp * line * 0.6;
     this.hp -= dmg;
+    sys.g.damageNumbers?.show({ x: h.at.x, y: h.at.y + 0.25, z: h.at.z }, Math.min(dmg, this.hp + dmg), this.hp <= 0 ? 'kill' : h.heavy || h.kick || h.charged || h.riposte || h.finisher ? 'big' : 'light');
     this.hurt = 1;
     this.lastHitT = this.t;
     this.barT = 4;
@@ -1752,6 +1754,7 @@ export class AsuraSystem {
         // camera and Prady, or right at the lens (opacity 1 otherwise: a switch at runtime would
         // recompile mid-fight)
         am.transparent = true;
+        addRim(am, 1.4); // (dark bodies: the rim keeps their shape against the night)
         if (m.alphaTest) am.alphaTest = m.alphaTest;
         if (m.map && m.alphaTest) am.side = THREE.DoubleSide;
         materials.push(am);

@@ -32,6 +32,9 @@ import { Siddhis } from '../gameplay/Siddhis.js';
 import { Powers, synthDamaru, synthOm } from '../gameplay/Powers.js';
 import { SiddhiMode } from '../gameplay/SiddhiMode.js';
 import { LipSync } from '../gameplay/LipSync.js';
+import { RIM, addRim } from '../world/RimLight.js';
+import { DamageNumbers } from '../ui/DamageNumbers.js';
+import { GroundDetail } from '../world/GroundDetail.js';
 import { Finishers } from '../gameplay/Finishers.js';
 import { Cinematics } from '../gameplay/Cinematics.js';
 import { Projectiles, synthFireball } from '../gameplay/Projectiles.js';
@@ -108,6 +111,8 @@ function saveJSON(key, v) {
 
 const ZERO_VEL = new THREE.Vector3();
 
+const _rimWarm = new THREE.Color(1.0, 0.62, 0.32);
+
 export class Game {
   constructor(canvas, uiRoot) {
     this.canvas = canvas;
@@ -168,6 +173,7 @@ export class Game {
     const pPbr = Object.fromEntries(Object.entries(M.pbr || {}).map(([k, s]) => [k, Promise.all([assets.image(s.map), assets.image(s.normal), assets.image(s.arm)])]));
     this.audio = new AudioManager();
     this.lipSync = new LipSync(this.audio);
+    this.damageNumbers = new DamageNumbers();
     this.audio.onVoice = (buf, t0) => this.lipSync.start(buf, t0);
     const pAudio = Object.entries(M.audio).map(([k, url]) => assets.audioBuffer(url).then((ab) => this.audio.setRaw(k, ab)));
     const physics = await Physics.create();
@@ -248,6 +254,7 @@ export class Game {
     });
     this.wake = new Wake(this.water, this.rs.qualityName === 'low' ? 200 : 360);
     this.flowers = new FloatingFlowers(this.water, this.rs.qualityName);
+    this.groundDetail = new GroundDetail(scene, this.rs.qualityName); // petals, leaves on the steps
     scene.add(this.wake.mesh, this.flowers.mesh);
     this.underwater = new Underwater({ water: this.water, quality: this.rs.qualityName });
     scene.add(this.underwater.group);
@@ -590,6 +597,7 @@ export class Game {
           if (o.material) {
             makeWaterAware(o.material, { caustics: true, wetness: false, puddles: false, selfWet: this.pradyWet });
             if (o.isSkinnedMesh && o.material.map && !this.cloth) this.cloth = new ClothSway(o.material);
+            addRim(o.material); // (RimLight.js: an edge of the sky's light round him)
           }
         }
       });
@@ -1404,8 +1412,15 @@ export class Game {
         L.r = Math.min(2.2, Math.max(0.14, L.r + s.sun.color.r * sun));
         L.g = Math.min(2.2, Math.max(0.12, L.g + s.sun.color.g * sun));
         L.b = Math.min(2.2, Math.max(0.12, L.b + s.sun.color.b * sun));
+        // the rim round Prady and the Asuras (RimLight.js): the sky's colour by day, the lamps'
+        // warmth at night, a little stronger after dark when the figures most need it
+        const night = s.nightFactor ?? 0;
+        RIM.uRimColor.value.copy(s.hemi.color).lerp(_rimWarm, night * 0.7);
+        RIM.uRim.value = 0.28 + night * 0.35;
       }
       this.vfx.update(simDt, this.camera);
+      this.damageNumbers.enabled = this.settings.damageNumbers !== false;
+      this.damageNumbers.update(dt, this.camera);
     }
     this.roofRun?.late(); // (records him, poses his chhaya: after every pose and IK)
     if (this.health) {
@@ -1618,10 +1633,28 @@ export class Game {
     if (this.rs.grade) {
       // the Cinematic look (eased when the setting changes) and the mood of the place he is in
       this.lookK = damp(this.lookK ?? 1, this.settings.look === 'natural' ? 0 : 1, 3, Math.min(dt, 0.1));
+      this.paintK = damp(this.paintK ?? 0, this.settings.look === 'painterly' && !this.photo ? 1 : 0, 3, Math.min(dt, 0.1));
+      this.rs.setPaint?.(this.paintK < 0.01 ? 0 : this.paintK);
       applyGrade(this.rs.grade, { sunElevation: this.sky.sunDir.y, purity: this.water.purity, underwater: under, filter: this.photo ? this.photoFilter || 0 : 0, dread: this.dread?.level ?? 0, pulse: this.dread?.pulse ?? 0, blood: (this.grahan?.blood ?? 0) * 0.8, look: this.lookK, place: this.placeMood(Math.min(dt, 0.1)) });
     }
     if (this.photo && this.rs.dofLevel > 0) this.rs.dofTarget.copy(this.character.position).add(this._dofUp || (this._dofUp = new THREE.Vector3(0, 1.45, 0)));
     this.audio.setUnderwater(under);
+    // how closed-in he stands (the echo, AudioManager.setRoom): eight rays round his head and one
+    // up, a few times a second; walls near on many sides and a roof make a ringing room
+    this._roomT = (this._roomT || 0) - dt;
+    if (this._roomT <= 0 && this.player && this.physics) {
+      this._roomT = 0.25;
+      const P = this.player.position;
+      const o = { x: P.x, y: this.player.feetY + 1.6, z: P.z };
+      let walls = 0;
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const d = this.physics.castRay(o, { x: Math.sin(a), y: 0, z: Math.cos(a) }, 12, this.player.collider, GROUPS.surface);
+        if (d !== null) walls += 1 - d / 12;
+      }
+      const roof = this.physics.castRay(o, { x: 0, y: 1, z: 0 }, 9, this.player.collider, GROUPS.surface) !== null ? 1 : 0;
+      this.audio.setRoom(Math.min(1, (walls / 8) * 1.4 + roof * 0.35));
+    }
     this.audio.updateListener(this.camera);
     this.updateAmbience(under);
 

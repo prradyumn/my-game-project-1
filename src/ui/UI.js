@@ -751,6 +751,7 @@ export class UI {
     bind('#set-time', 'timeSpeed');
     bind('#set-weather', 'weather', 'select');
     bind('#set-fps', 'showFps', 'check');
+    bind('#set-dmg', 'damageNumbers', 'check');
     const dif = $('#set-difficulty', p);
     dif.innerHTML = Object.entries(DIFFICULTY)
       .map(([k, v]) => `<option value="${k}" title="${v.note}" ${k === settings.difficulty ? 'selected' : ''}>${v.label}</option>`)
@@ -881,7 +882,7 @@ const TEMPLATE = /* html */ `
     <h2>Paused</h2>
     <div class="grid">
       <label>Graphics quality <select id="set-quality"></select></label>
-      <label>Look <select id="set-look"><option value="cinematic">Cinematic (film print)</option><option value="natural">Natural</option></select></label>
+      <label>Look <select id="set-look"><option value="cinematic">Cinematic (film print)</option><option value="painterly">Painterly (oil on canvas)</option><option value="natural">Natural</option></select></label>
       <label class="check"><input type="checkbox" id="set-adaptive"> Adaptive resolution (keeps FPS smooth)</label>
       <label>Music <input type="range" id="set-music" min="0" max="1" step="0.05"></label>
       <label>Sound effects <input type="range" id="set-sfx" min="0" max="1" step="0.05"></label>
@@ -891,6 +892,7 @@ const TEMPLATE = /* html */ `
       <label>Day speed <input type="range" id="set-time" min="0" max="6" step="0.5"></label>
       <label>Weather <select id="set-weather"><option value="auto">Auto (monsoon showers)</option><option value="clear">Clear</option><option value="rain">Monsoon rain</option><option value="storm">Thunderstorm</option></select></label>
       <label class="check"><input type="checkbox" id="set-fps"> Show FPS</label>
+      <label class="check"><input type="checkbox" id="set-dmg"> Damage numbers</label>
       <label>Difficulty <select id="set-difficulty"></select></label>
       <label>Camera shake <input type="range" id="set-shake" min="0" max="1" step="0.1"></label>
       <label>Caption size <input type="range" id="set-sub" min="0.85" max="1.5" step="0.05"></label>
