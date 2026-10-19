@@ -268,6 +268,20 @@ export class AudioManager {
     return handle;
   }
 
+  /** A heavy blow's dip: music and ambience fall away for an instant and come straight back. */
+  hitDuck(depth = 0.5) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    for (const k of ['music', 'ambience']) {
+      const g = this.buses[k].gain;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value, t);
+      g.linearRampToValueAtTime(this.volumes[k] * depth, t + 0.03);
+      g.setTargetAtTime(this.volumes[k], t + 0.12, 0.12);
+    }
+  }
+
   duck(seconds) {
     const g = this.buses.music.gain;
     const t = this.ctx.currentTime;

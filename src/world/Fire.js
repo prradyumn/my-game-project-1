@@ -254,6 +254,8 @@ export class FireSystem {
   add(pos, scale = 1, lit = false, kind = 'flame') {
     if (this.count >= this.max || this.used + 7 > this.capacity) return -1;
     const id = this.count++;
+    // (where the pyres burn: a blow can drive an Asura into one, Asuras.pyreKill)
+    if (kind === 'pyre') (this.pyres ||= []).push({ x: pos.x, y: pos.y, z: pos.z, r: 0.45 * scale + 0.4 });
     const h = 0.24 * scale;
     const w = h * 0.52;
     const seed = Math.random();

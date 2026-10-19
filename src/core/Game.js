@@ -35,6 +35,8 @@ import { LipSync } from '../gameplay/LipSync.js';
 import { RIM, addRim } from '../world/RimLight.js';
 import { DamageNumbers } from '../ui/DamageNumbers.js';
 import { GroundDetail } from '../world/GroundDetail.js';
+import { StyleMeter } from '../ui/StyleMeter.js';
+import { OffscreenWarn } from '../ui/OffscreenWarn.js';
 import { Blood, synthBloodGush, synthBloodSplat } from '../world/Blood.js';
 import { Bloodied } from '../gameplay/Bloodied.js';
 import { Finishers } from '../gameplay/Finishers.js';
@@ -176,6 +178,8 @@ export class Game {
     this.audio = new AudioManager();
     this.lipSync = new LipSync(this.audio);
     this.damageNumbers = new DamageNumbers();
+    this.style = new StyleMeter();
+    this.offWarn = new OffscreenWarn(this.audio);
     this.audio.onVoice = (buf, t0) => this.lipSync.start(buf, t0);
     const pAudio = Object.entries(M.audio).map(([k, url]) => assets.audioBuffer(url).then((ab) => this.audio.setRaw(k, ab)));
     const physics = await Physics.create();
@@ -1458,6 +1462,9 @@ export class Game {
         }
       }
       this.damageNumbers.update(dt, this.camera);
+      this.style.enabled = this.settings.styleMeter !== false;
+      this.style.update(simDt, this.inCombat && this.state === 'play');
+      this.offWarn.update(dt, this.camera, this.state === 'play' ? this.asuras?.list : null, this.player);
     }
     this.roofRun?.late(); // (records him, poses his chhaya: after every pose and IK)
     if (this.health) {
@@ -1866,6 +1873,8 @@ export class Game {
     if ((type === 'hit' && data.enemy) || type === 'hurt') this.score.hitAt = this.health.time;
     if (type === 'noSword') this.ui.toast('No sword yet', 'The guru of Tulsi Akhara keeps a talwar for those who train.', 3);
     if (type === 'hit' && data.enemy) {
+      this.style?.event('hit', data);
+      if (data.heavy || data.charged || data.killed || data.final) this.audio.hitDuck?.(data.killed ? 0.35 : 0.55);
       this.powers.gain(SHAKTI.hit * (data.k || 1) * (data.riposte ? 2 : 1));
       this.haptics.play(data.heavy || data.charged || data.riposte ? 'heavyHit' : 'hit');
       // the weight of it on screen: every blow knocks the lens along the cut a little; a heavy,
@@ -1885,6 +1894,7 @@ export class Game {
       }
     }
     if (type === 'hurt') {
+      this.style?.event('hurt');
       this.ui.hurtFlash(data.heavy ? 1 : 0.6);
       if (this.blood?.on) {
         // his own blood: from where it struck him, away from the one who struck
@@ -1908,7 +1918,14 @@ export class Game {
       this.camRig.shake(data.heavy ? 0.3 : 0.12);
       this.haptics.play('block', data.heavy ? 1.4 : 1);
     }
+    if (type === 'multiCounter') {
+      this.style?.event('counter', data);
+      this.slowMo(0.18, 0.5);
+      this.camRig.punch?.(0.5);
+      this.ui.toast(data.n >= 3 ? 'Triple Counter' : 'Double Counter', '', 1.2);
+    }
     if (type === 'parry') {
+      this.style?.event('parry');
       this.slowMo(0.22, 0.42);
       this.camRig.shake(0.22);
       this.cinematics?.impact(0.65, data.at ? { x: data.at.x, y: this.player.position.y + 0.4, z: data.at.z } : null);
@@ -1930,6 +1947,7 @@ export class Game {
     }
     if (type === 'dodged' && data.roll && this.combat.perks?.windStep) this.powers.gain(SHAKTI.dodge);
     if (type === 'perfectDodge') {
+      this.style?.event('perfectDodge');
       // the world holds its breath: everything but Prady slows, and his next blow is a counter
       this.slowMo(0.25, 0.55);
       this.cinematics?.impact(0.35);
@@ -1943,6 +1961,7 @@ export class Game {
       this.vfx?.stars({ x: pp.x, y: this.player.feetY + 1.1, z: pp.z }, 10, { color: [1.6, 2, 2.6], spread: 1.1, size: 1.1, life: 0.8 });
     }
     if (type === 'plungeLand') {
+      for (let k = 0; k < (data.n || 0); k++) this.style?.event('hit', { move: 'plunge', heavy: true });
       this.camRig.shake(0.5);
       this.cinematics?.impact(0.55, data.at);
       this.asuras.particles.emitDust(data.at.x, data.at.y, data.at.z, 1.8, 20);
@@ -2237,6 +2256,9 @@ export class Game {
     // jump with an Asura right in front: over it (and no jump)
     if ((input.hit('Space') || input.hit('Pad0')) && this.combat.tryVault()) this.player.jumpBuffer = 0;
     if (atk) this.combat.attack();
+    // auto-combo (Settings): holding the strike carries the combo on by itself
+    else if (this.settings.autoCombo && (input.down('Mouse0') || input.gpButton(5)) && this.combat.move && !this.combat.move.queued && this.combat.move.t > 0.2) this.combat.attack();
+    this.combat.assist = { low: 0.65, normal: 1, high: 1.4 }[this.settings.aimAssist] ?? 1;
     if (input.hit('Mouse2') || input.hit('Pad7')) this.combat.heavy();
     this.combat.heavyHeld = input.down('Mouse2') || input.gpButton(7);
     // (on the rooftop run, R runs it again from the ghat)

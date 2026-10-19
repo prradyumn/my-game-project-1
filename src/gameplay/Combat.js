@@ -43,6 +43,8 @@ const MOVES = {
   // the Fourth Strike siddhi: the combo ends in the overhead cut (fists: the roundhouse), quicker
   comboCut: { clip: 'heavyCut', hits: [{ t: 0.72, blade: true, k: 1.35 }], cancel: 0.96, ts: 1.45, sword: true, heavy: true, track: 1.4, from: 0.24 },
   comboKick: { clip: 'roundKick', hits: [{ t: 0.84, limb: 'RightFoot', k: 1.15 }], cancel: 1.4, ts: 1.9, kick: true, heavy: true, from: 0.35 },
+  // the launcher (Udaan): heavy with the jump held, a rising kick that throws it into the air
+  launcher: { clip: 'frontKick', hits: [{ t: 0.65, limb: 'RightFoot', k: 0.8 }], cancel: 0.9, ts: 1.35, kick: true, launch: true, from: 0.3 },
   // the butterfly kick (Mixamo): off a sprint, the body flat in the air, one foot then the other
   mxButterflyKick: { hits: [{ t: 1.2, limb: 'RightFoot', k: 1.15 }, { t: 1.4, limb: 'LeftFoot', k: 1.4 }], cancel: 1.85, ts: 1.55, kick: true, heavy: true, from: 0.5 },
 };
@@ -239,6 +241,26 @@ export class Combat {
   }
 
   attack() {
+    // the juggle: it hangs in the air; a strike now leaps after it and drives it down (the plunge)
+    const J = this.juggle;
+    if (J && this.time < J.until && J.tgt?.alive && J.tgt.launchS && !this.chase && (!this.move || this.move.struck.size > 0)) {
+      const p = this.p;
+      this.move = null;
+      this.juggle = null;
+      const dx = J.tgt.pos.x - p.position.x;
+      const dz = J.tgt.pos.z - p.position.z;
+      const d = Math.hypot(dx, dz) || 1;
+      p.yaw = Math.atan2(dx, dz);
+      p.velocity.set((dx / d) * Math.min(4, d * 2.2), 8.4, (dz / d) * Math.min(4, d * 2.2));
+      p.state = 'air';
+      p.grounded = false;
+      p.jumpCut = false;
+      this.chase = { tgt: J.tgt, until: this.time + 0.7 };
+      this.anim.play(this.anim.clipActions.backFlip ? 'backFlip' : 'jump', { fadeIn: 0.06, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: 1.6 });
+      this.audio.play('whoosh', { volume: 0.6, rate: 0.8 });
+      J.tgt.launchS.hold = Math.max(J.tgt.launchS.hold, J.tgt.launchS.t + 0.45); // (it waits for him)
+      return;
+    }
     if (this.dash) {
       this.dash.queued = true;
       return;
@@ -454,6 +476,13 @@ export class Combat {
       return;
     }
     if (!this.canFight() || this.blocking) return;
+    if (this.p.cmd?.jumpHeld && this.anim.clipActions.frontKick) {
+      const t = this.nearestTargetObj(2.8, this.p.yaw);
+      if (t?.enemy && t.alive && t.launch && !t.K?.boss && !t.mini) {
+        this.start('launcher');
+        return;
+      }
+    }
     this.start(HEAVY[this.armed ? 'armed' : 'unarmed']);
     // Gathered Storm: held, the wind-up waits and the blow gathers (released, it falls)
     if (this.move && this.perks.charged) {
@@ -622,6 +651,16 @@ export class Combat {
       if (this.time - this.blockStart < this.parryWindow) {
         // a perfect guard: the blow glances off and the attacker reels
         a.attacker?.parried?.();
+        // the multi-counter (Arkham City): any other one close by, its blow on its way, is turned
+        // aside in the same motion
+        let n = 1;
+        for (const t of this.targets?.list || []) {
+          if (n >= 3 || !t.enemy || !t.alive || t === a.attacker || t.state !== 'attack' || t.struck) continue;
+          if (Math.hypot(t.pos.x - p.position.x, t.pos.z - p.position.z) > 3.2) continue;
+          t.parried?.();
+          n++;
+        }
+        if (n > 1) this.onEvent('multiCounter', { n });
         this.flinchHit(away, 0.25);
         this.audio.play('parry', { volume: 0.9, rate: 0.95 + Math.random() * 0.1 });
         this.onEvent('parry', { at: { x: p.position.x - away.x * 0.5, z: p.position.z - away.z * 0.5 } });
@@ -766,7 +805,7 @@ export class Combat {
 
   /** What a strike goes for: the lock; else an Asura winding up a blow close by (meet it
    *  first); else the nearest along the camera; else anyone right beside him. */
-  pickTarget(camYaw) {
+  pickTarget(camYaw, stickYaw = null) {
     const p = this.p;
     const L = this.lockTarget;
     // (locked on, a strike goes for it from further: the run-in closes the distance)
@@ -774,9 +813,17 @@ export class Combat {
     const T = this.targets;
     if (!T) return null;
     const prev = this.lastTgt?.alive ? this.lastTgt : null;
+    // freeflow (as the Arkham games): the stick points at the one to strike next, from a long way
+    // off; the run-in carries him there, so a fight flows from one to the next across the pack
+    // (aim assist, Settings: how far and how wide the blow looks for its target)
+    const A = this.assist ?? 1;
+    if (stickYaw !== null) {
+      const f = T.best(p.position, 8.5 * A, stickYaw, 0.55 * A, p.feetY, null) || T.nearest(p.position, 6 * A, stickYaw, 0.9 * A, (t) => t.enemy, p.feetY);
+      if (f) return f;
+    }
     return (
-      T.best(p.position, 7, camYaw, 0.75, p.feetY, prev) ||
-      T.nearest(p.position, 4.6, camYaw, 1.9, null, p.feetY) ||
+      T.best(p.position, 7 * A, camYaw, 0.75 * A, p.feetY, prev) ||
+      T.nearest(p.position, 4.6 * A, camYaw, 1.9, null, p.feetY) ||
       T.nearest(p.position, 2.8, camYaw, Math.PI, (t) => t.enemy, p.feetY)
     );
   }
@@ -797,7 +844,8 @@ export class Combat {
     const camYaw = Math.atan2(this.cam.forward.x, this.cam.forward.z);
     let yaw = camYaw - la;
     let approach = 0;
-    const tt = forced || this.pickTarget(camYaw);
+    const stick = (p.cmd?.mag ?? 0) > 0.35 && p.cmd.wish ? Math.atan2(p.cmd.wish.x, p.cmd.wish.z) : null;
+    const tt = forced || this.pickTarget(camYaw, stick);
     if (tt?.enemy) this.lastTgt = tt;
     const t = tt?.pos;
     if (t) {
@@ -858,6 +906,12 @@ export class Combat {
     // the hit-stop runs out whatever Prady is doing (a blow taken freezes him for a beat too)
     const stopped = this.hitStop > 0;
     this.hitStop = Math.max(0, this.hitStop - dt);
+    if (this.chase && (this.p.velocity.y < 1.2 || this.time > this.chase.until)) {
+      const tg = this.chase.tgt;
+      this.chase = null;
+      if (tg?.launchS) tg.launchS.slam = true; // (driven down with him)
+      this.startPlunge();
+    }
     if (this.pendingDodge) {
       if (this.time > this.pendingDodge.until) this.pendingDodge = null;
       else if (this.dodge(this.pendingDodge.wish, true)) this.pendingDodge = null;
@@ -1114,7 +1168,10 @@ export class Combat {
       }
       return true;
     }
-    if (ct >= m.cancel && (mv.queued || mv.queuedHeavy)) {
+    // hit-confirm (Sifu, the fighting games): a blow that bit can be followed sooner, a whiff
+    // leaves him open a beat longer
+    const cancelAt = m.cancel + (mv.struck.size ? -0.08 : 0.06);
+    if (ct >= cancelAt && (mv.queued || mv.queuedHeavy)) {
       if (!mv.queuedHeavy && (mv.i + 1) % this.comboList().length === 0) this.rounds++; // (round again)
       const list = this.comboList();
       const next = mv.queuedHeavy ? HEAVY[this.armed ? 'armed' : 'unarmed'] : list[(mv.i + 1) % list.length];
@@ -1125,7 +1182,7 @@ export class Combat {
     }
     // the instant cancel: past the cancel point, a push of the stick breaks the follow-through and
     // he moves at once (the combo stays open a moment for the next strike)
-    if (ct >= m.cancel + 0.03 && !mv.force && (this.p.cmd?.mag ?? 0) > 0.4) {
+    if (ct >= cancelAt + 0.03 && !mv.force && (this.p.cmd?.mag ?? 0) > 0.4) {
       this.move = null;
       this.lastEnd = this.time;
       this.combo = (mv.i + 1) % this.comboList().length;
@@ -1498,6 +1555,7 @@ export class Combat {
         // the last blow of a full combo (its final hit, for a move with more than one)
         const list = this.comboList();
         const final = !heavy && mv.i !== undefined && list.length > 1 && mv.i % list.length === list.length - 1 && hi === m.hits.length - 1;
+        const launching = m.launch && t.enemy && t.launch && !t.K?.boss && !t.mini;
         const res = t.hit({ k: h.k * (charged ? 1.25 : 1), dir, at: pt, sweep, sword: !!h.blade, heavy, kick: !!m.kick, move: mv.name, combo: mv.i, final, riposte: !!mv.riposte, charged });
         // where it bit: steel throws sparks, a heavy blow a flash
         if (this.vfx && t.enemy) {
@@ -1528,6 +1586,11 @@ export class Combat {
         if (res === 'killed') this.hitStop += 0.06;
         t.freeze?.(this.hitStop * 1.1);
         if (!t.enemy) this.audio.play(h.blade ? 'blade-hit' : 'thump', { volume: 0.5 + h.k * 0.3, rate: 0.9 + Math.random() * 0.2, at: pt });
+        if (launching && res !== 'killed' && t.alive) {
+          t.launch(dir);
+          this.juggle = { tgt: t, until: this.time + 1.5 };
+          this.onEvent('launch', { at: pt });
+        }
         this.onEvent('hit', { move: mv.name, heavy, sword: !!h.blade, kick: !!m.kick, target: t.kind, enemy: !!t.enemy, k: h.k, riposte: !!mv.riposte, charged, killed: res === 'killed', final, at: pt, dir });
         break;
       }

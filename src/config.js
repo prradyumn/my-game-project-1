@@ -145,6 +145,9 @@ export const DEFAULT_SETTINGS = {
   invertY: false,
   showFps: false,
   damageNumbers: true, // (DamageNumbers.js)
+  aimAssist: 'normal', // low | normal | high (Combat.pickTarget)
+  autoCombo: false, // hold the strike to carry the combo on
+  styleMeter: true, // (StyleMeter.js: the hit count and rank)
   gore: 'full', // blood and ichor (Blood.js, Bloodied.js): full | stylised | off
   timeSpeed: 1,
   weather: 'auto', // auto (the odd monsoon shower) | clear | rain | storm

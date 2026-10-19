@@ -225,7 +225,11 @@ export class Cinematics {
     this.blur = Math.max(0, this.blur - dt * 0.45);
     const slow = clamp(1 - g.timeScale, 0, 1);
     const ch = (this.chroma + slow * 0.0035) * (quiet ? 0.35 : 1);
-    const bl = (this.blur + slow * 0.02) * (quiet ? 0.5 : 1);
+    // speed: a light zoom-blur through a run-in and the swing of a heavy blow
+    const cm = g.combat;
+    const swing = cm?.move && cm.move.name && /heavy|combo|Kick/.test(cm.move.name) && !cm.hitStop ? 0.006 : 0;
+    this.speedBlur = damp(this.speedBlur || 0, cm?.dash ? 0.016 : swing, 10, dt);
+    const bl = (this.blur + slow * 0.02 + this.speedBlur) * (quiet ? 0.5 : 1);
     // the impact frame: held a few frames whole, then gone (never with Reduce flashes)
     this.frameT = Math.max(0, (this.frameT || 0) - dt);
     const fr = quiet ? 0 : this.frameT > 0 ? 1 : 0;
@@ -233,8 +237,11 @@ export class Cinematics {
     g.audio.setMuffle(clamp(slow * 1.15, 0, 0.85));
     // the lens: a sprint widens it, slow motion and a shot push in
     const sprinting = g.player.cmd?.sprint && g.player.speed > 4 && g.player.state === 'ground';
-    const want = this.shot ? this.shot.fov : this.baseFov + (sprinting ? 5 : 0) - slow * 5;
-    const f = damp(this.fov, want, this.shot ? 3 : 4, dt);
+    // (and a run-in at an enemy widens it more; a pack close round him widens it to show them all)
+    let pack = 0;
+    if (g.inCombat && g.targets) for (const e of g.targets.enemies()) if (e.alive !== false && Math.hypot(e.pos.x - g.player.position.x, e.pos.z - g.player.position.z) < 6) pack++;
+    const want = this.shot ? this.shot.fov : this.baseFov + (sprinting ? 5 : 0) + (g.combat?.dash ? 7 : 0) + (pack >= 3 ? 4 : 0) - slow * 5;
+    const f = damp(this.fov, want, this.shot ? 3 : g.combat?.dash ? 9 : 4, dt);
     const was = this.punch || 0;
     this.punch = was > 0.004 ? was * Math.exp(-dt * 7) : 0;
     if (Math.abs(f - this.fov) > 0.005 || was > 0) {

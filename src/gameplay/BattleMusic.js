@@ -44,7 +44,9 @@ export class BattleMusic {
     const level = Math.max(g.score ? g.score.fight : g.encounters.music, g.race?.music ?? 0);
     const bossUp = g.asuras.list.some((a) => a.alive && a.kind === 'boss');
     this.boss += ((bossUp ? 1 : 0) - this.boss) * Math.min(1, dt * (bossUp ? 0.8 : 0.4));
-    const want = { fight: level * (1 - this.boss) * FIGHT_VOL, boss: level * this.boss * BOSS_VOL };
+    // (the fight's style lifts it: a stylish fight is played louder, StyleMeter)
+    const lift = 0.85 + 0.3 * (g.style?.level ?? 0.5);
+    const want = { fight: level * (1 - this.boss) * FIGHT_VOL * lift, boss: level * this.boss * BOSS_VOL * lift };
     for (const k of ['fight', 'boss']) {
       let h = this.h[k];
       if (!h && want[k] > 0.02 && g.audio.buffers[`battle-${k}`]) h = this._start(k);

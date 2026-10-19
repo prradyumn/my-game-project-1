@@ -197,6 +197,7 @@ export class Powers {
     c.dash = null;
     if (c.blocking) c.setBlock(false, true);
     this.shakti -= SHAKTI.cost[kind];
+    g.style?.event('power');
     if (this.endless) this.shakti = SHAKTI.max; // (the test menu's powers practice)
     this.shownT = 3;
     g.achievements?.event('power', { kind });

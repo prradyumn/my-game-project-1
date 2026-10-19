@@ -752,6 +752,9 @@ export class UI {
     bind('#set-weather', 'weather', 'select');
     bind('#set-fps', 'showFps', 'check');
     bind('#set-dmg', 'damageNumbers', 'check');
+    bind('#set-style', 'styleMeter', 'check');
+    bind('#set-assist', 'aimAssist', 'select');
+    bind('#set-autocombo', 'autoCombo', 'check');
     bind('#set-gore', 'gore', 'select');
     const dif = $('#set-difficulty', p);
     dif.innerHTML = Object.entries(DIFFICULTY)
@@ -894,6 +897,9 @@ const TEMPLATE = /* html */ `
       <label>Weather <select id="set-weather"><option value="auto">Auto (monsoon showers)</option><option value="clear">Clear</option><option value="rain">Monsoon rain</option><option value="storm">Thunderstorm</option></select></label>
       <label class="check"><input type="checkbox" id="set-fps"> Show FPS</label>
       <label class="check"><input type="checkbox" id="set-dmg"> Damage numbers</label>
+      <label class="check"><input type="checkbox" id="set-style"> Combo and style rank</label>
+      <label>Aim assist <select id="set-assist"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></select></label>
+      <label class="check"><input type="checkbox" id="set-autocombo"> Auto-combo (hold attack)</label>
       <label>Blood <select id="set-gore"><option value="full">Full</option><option value="stylised">Stylised (less)</option><option value="off">Off</option></select></label>
       <label>Difficulty <select id="set-difficulty"></select></label>
       <label>Camera shake <input type="range" id="set-shake" min="0" max="1" step="0.1"></label>

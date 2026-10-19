@@ -231,7 +231,7 @@ export class Asura {
       sys.audio.play('thump', { at: h.at, volume: 0.75, rate: 0.55 + Math.random() * 0.08 });
     }
     sys.audio.play('ember-hiss', { at: h.at, volume: 0.5, rate: 0.9 + Math.random() * 0.2 });
-    if (this.state !== 'held' && this.state !== 'floored') {
+    if (this.state !== 'held' && this.state !== 'floored' && this.state !== 'launched') {
       this.knock = { x: dir.x, z: dir.z, d: (h.heavy ? 0.9 : h.final ? 0.75 : 0.35) / Math.sqrt(this.scale), t: 0, strong: !!(h.heavy || h.kick || h.final || h.charged) };
       // the blow shows in the body as well as the push: its own recoil while it is carried back
       // (the walk cycle would step forward under the slide, toward the one it means to reach)
@@ -385,6 +385,7 @@ export class Asura {
   }
 
   stagger(secs) {
+    if (this.launchS) return; // (in the air: it comes down first)
     this.attack = null;
     // (struck out of the air, off a wall: it drops)
     this.airborne = false;
@@ -398,6 +399,7 @@ export class Asura {
 
   die(dir) {
     this.alive = false;
+    this.launchS = null;
     // the body's ichor pools under it as it falls (Blood.js)
     this.sys.g.blood?.pool({ x: this.pos.x + (dir?.x || 0) * 0.5, z: this.pos.z + (dir?.z || 0) * 0.5 }, (this.K.boss ? 2.2 : 1.1) * Math.sqrt(this.scale), { kind: 'ichor', delay: 0.8 });
     this.releaseToken();
@@ -782,6 +784,10 @@ export class Asura {
         this.hopStep(dt);
         break;
       }
+      case 'launched': {
+        this.launchStep(dt);
+        break;
+      }
       case 'drown': {
         // carried off by the river, flailing, going under, burning out beneath the surface
         const W = sys.water;
@@ -938,6 +944,57 @@ export class Asura {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Launched (Combat's launcher): thrown up off its feet, it hangs a moment at the top (time for
+   * him to leap after it), then falls; a plunge on the way drives it into the stone.
+   */
+  launch(dir) {
+    if (!this.alive || this.K.boss || this.mini) return;
+    this.attack = null;
+    this.knock = null;
+    this.releaseToken();
+    this.launchS = { y0: this.pos.y, t: 0, h: 0, vy: 0, hold: 1.05, slam: false, dir: { x: dir.x, z: dir.z } };
+    this.airborne = true;
+    this.setState('launched');
+    this.play(this.has('stagger') ? 'stagger' : this.has('hit') ? 'hit' : 'idle', 0.06, { once: true, clamp: true, speed: 0.6 });
+    this.sys.particles.emitDust(this.pos.x, this.pos.y, this.pos.z, 0.8, 6);
+    this.sys.audio.play('whoosh', { at: this.pos, volume: 0.6, rate: 0.7 });
+    this.sys.g.slowMo?.(0.55, 0.45);
+  }
+
+  launchStep(dt) {
+    const L = this.launchS;
+    if (!L) return this.setState('circle');
+    L.t += dt;
+    const top = 2.1 / Math.sqrt(this.scale);
+    if (L.slam) {
+      // driven down with him: fast, to the stone
+      L.vy = Math.min(L.vy, -9) - 30 * dt;
+    } else if (L.t < 0.32) {
+      const k = L.t / 0.32;
+      L.h = top * (1 - (1 - k) * (1 - k));
+      L.vy = 0;
+    } else if (L.t < L.hold) {
+      // hanging at the top, turning slowly over
+      L.h = top + Math.sin((L.t - 0.32) * 5) * 0.05;
+    } else L.vy -= 18 * dt;
+    if (L.slam || L.t >= L.hold) L.h += L.vy * dt;
+    this.pos.x += L.dir.x * dt * (L.t < 0.32 ? 0.8 : 0.15);
+    this.pos.z += L.dir.z * dt * (L.t < 0.32 ? 0.8 : 0.15);
+    const ground = groundHeight(this.pos.x, this.pos.z);
+    this.pos.y = Math.max(ground, L.y0 + L.h);
+    if ((L.t > 0.4 && this.pos.y <= ground + 0.01) || L.t > 4) {
+      // down: flat on the stone, a while
+      this.pos.y = ground;
+      this.launchS = null;
+      this.airborne = false;
+      this.sys.particles.emitDust(this.pos.x, this.pos.y, this.pos.z, 1.1, 10);
+      this.sys.audio.play('thump', { at: this.pos, volume: 0.9, rate: 0.6 });
+      if (this.floor) this.floor(L.dir, L.slam ? 1.6 : 1.1);
+      else this.setState('stagger');
+    }
   }
 
   startHop(to, cling, wallYaw) {
@@ -1121,6 +1178,15 @@ export class Asura {
     _v.set(dx, dy, dz);
     this.kcc.computeColliderMovement(this.col, _v, undefined, GROUPS.enemyMover);
     const m = this.kcc.computedMovement();
+    // a strong blow that drives it into a burning pyre (Manikarnika): the fire takes it
+    if (this.knock?.strong && this.alive && !this.K.boss && !this.mini && this.state !== 'held') {
+      for (const f of this.sys.g.fire?.pyres || []) {
+        if (Math.abs(f.y - this.pos.y) < 1.5 && Math.hypot(f.x - (this.pos.x + m.x), f.z - (this.pos.z + m.z)) < f.r + this.radius) {
+          this.pyreKill(f, { x: dx, z: dz });
+          return;
+        }
+      }
+    }
     // a strong blow that drives it into a wall, a stall, a takht: stopped dead, stunned by it
     const want = Math.hypot(dx, dz);
     if (this.knock?.strong && !this.knock.slammed && want > 0.004 && Math.hypot(m.x, m.z) < want * 0.35 && this.alive) {
@@ -1180,6 +1246,24 @@ export class Asura {
     sys.onKilled(this);
     this.onDeath?.(this);
     return true;
+  }
+
+  /** Driven into a burning pyre: a roar of flame, and it is ash. */
+  pyreKill(f, dir) {
+    const sys = this.sys;
+    const g = sys.g;
+    const at = { x: f.x, y: f.y, z: f.z };
+    g.vfx?.fireburst(at, 2.4, { n: 5, spread: 0.6, life: 1.1 });
+    g.vfx?.embers(at, 80, { spread: 0.9, life: 2.6 });
+    g.vfx?.flash({ x: at.x, y: at.y + 1, z: at.z }, 1.6, { color: [2.6, 1.2, 0.35], life: 0.3 });
+    sys.audio.play('ember-hiss', { at, volume: 1, rate: 0.5 });
+    sys.audio.play('asura-death', { at, volume: 0.7, rate: 0.9, ref: 12 });
+    g.camRig?.shake(0.3);
+    g.ui?.toast('Into the pyre', '', 1.4);
+    g.style?.event('kill');
+    this.hp = 0;
+    const l = Math.hypot(dir.x, dir.z) || 1;
+    this.die({ x: dir.x / l, z: dir.z / l });
   }
 
   /** Driven into a wall by a blow: a thud through the stone, dust off it, a stun and a toll. */
@@ -1298,7 +1382,7 @@ export class Asura {
     const gloating = this.gloated && B.curRole === 'roar' && B.cur && B.cur.time < B.cur.getClip().duration - 0.05;
     // (a recoil plays out while the blow still carries it)
     const recoiling = this.recoilUntil > this.t && this.state !== 'stagger';
-    const acting = this.state === 'attack' || this.state === 'stagger' || this.state === 'dead' || this.state === 'floored' || this.state === 'pinned' || this.state === 'held' || this.state === 'hop' || this.blockT > 0 || gloating || recoiling;
+    const acting = this.state === 'launched' || this.state === 'attack' || this.state === 'stagger' || this.state === 'dead' || this.state === 'floored' || this.state === 'pinned' || this.state === 'held' || this.state === 'hop' || this.blockT > 0 || gloating || recoiling;
     if (!acting) {
       const relYaw = Math.atan2(this.vel.x, this.vel.z) - this.yaw;
       const side = Math.sin(relYaw);
@@ -1357,6 +1441,12 @@ export class Asura {
     this.visY = this.visY === undefined ? footY : damp(this.visY, Math.min(footY, this.pos.y + 0.05), 14, dt);
     B.holder.position.set(this.pos.x, this.visY, this.pos.z);
     B.holder.rotation.set(0, this.yaw + (this.twist || 0) + (this.pathYaw || 0), 0);
+    // the hit-shake (as the fighting games do it): held in the blow's freeze, the body jitters
+    if (frozen && this.alive) {
+      const j = 0.045 / Math.sqrt(this.scale);
+      B.holder.position.x += (Math.random() - 0.5) * j;
+      B.holder.position.z += (Math.random() - 0.5) * j;
+    }
     B.holder.updateMatrixWorld(true);
     // a body between the camera and Prady, or right at the lens, thins out so Prady is never lost
     // behind it (Andhaka and the Rakshasas fill the frame; a shade only when the lens is in it)
