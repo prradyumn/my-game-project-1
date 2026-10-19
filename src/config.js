@@ -95,7 +95,7 @@ export const PLAYER = {
   breathSeconds: 35,
   // Movement physics (SI units). Accelerations in m/s^2.
   move: {
-    accel: 20, // speeding up on the ground
+    accel: 28, // speeding up on the ground (quick off the mark)
     decel: 24, // slowing down
     turnDecel: 38, // braking when reversing direction
     airAccel: 6, // air control

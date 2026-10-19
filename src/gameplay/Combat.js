@@ -25,23 +25,26 @@ import { BladeTrail, makeTalwar } from './Talwar.js';
 // Blows taken (receive()) are dodged, parried, blocked or land: a flinch for a light one, a
 // knockdown for a heavy one, and at zero prana Prady falls (Health.js).
 
+// from: where in the clip the blow starts (past the mocap's idle lead-in: a light blow lands
+// ~0.2 s after the press, as fast action games do); ts: its pace; cancel: from when the next one
+// may follow (a light blow ~0.15 s after it bites)
 const MOVES = {
-  oneTwo: { hits: [{ t: 0.4, limb: 'LeftHand', k: 0.6 }, { t: 0.57, limb: 'RightHand', k: 0.8 }], cancel: 0.82, ts: 1.15 },
-  bodyShot: { hits: [{ t: 0.48, limb: 'RightHand', k: 0.9 }], cancel: 0.78, ts: 1.1 },
-  frontKick: { hits: [{ t: 0.65, limb: 'RightFoot', k: 1.1 }], cancel: 1.02, ts: 1.05, kick: true },
+  oneTwo: { hits: [{ t: 0.4, limb: 'LeftHand', k: 0.6 }, { t: 0.57, limb: 'RightHand', k: 0.8 }], cancel: 0.72, ts: 1.35, from: 0.15 },
+  bodyShot: { hits: [{ t: 0.48, limb: 'RightHand', k: 0.9 }], cancel: 0.68, ts: 1.35, from: 0.2 },
+  frontKick: { hits: [{ t: 0.65, limb: 'RightFoot', k: 1.1 }], cancel: 0.88, ts: 1.3, kick: true, from: 0.3 },
   // (the roundhouse is from video capture: a head-high chamber-and-snap, the leg held out a beat)
-  roundKick: { hits: [{ t: 0.84, limb: 'RightFoot', k: 1.3 }], cancel: 1.9, ts: 1.6, kick: true },
+  roundKick: { hits: [{ t: 0.84, limb: 'RightFoot', k: 1.3 }], cancel: 1.4, ts: 1.75, kick: true, from: 0.35 },
   // (video capture too: a head-high side kick, the combo's last blow every other round)
-  sideKick: { hits: [{ t: 0.7, limb: 'RightFoot', k: 1.15 }], cancel: 1.25, ts: 1.45, kick: true },
-  slashA: { hits: [{ t: 0.57, blade: true, k: 1.0 }], cancel: 0.86, ts: 1.15, sword: true },
-  slashB: { hits: [{ t: 0.6, blade: true, k: 1.0 }], cancel: 0.88, ts: 1.15, sword: true },
-  thrust: { hits: [{ t: 0.67, blade: true, k: 1.1 }], cancel: 1.0, ts: 1.1, sword: true, wrist: 1.45 }, // a punch turned into a thrust: the blade down the line of the arm
-  heavyCut: { hits: [{ t: 0.72, blade: true, k: 1.6 }], cancel: 1.1, ts: 1.15, sword: true, heavy: true, track: 1.0 },
+  sideKick: { hits: [{ t: 0.7, limb: 'RightFoot', k: 1.15 }], cancel: 1.02, ts: 1.6, kick: true, from: 0.3 },
+  slashA: { hits: [{ t: 0.57, blade: true, k: 1.0 }], cancel: 0.74, ts: 1.4, sword: true, from: 0.26 },
+  slashB: { hits: [{ t: 0.6, blade: true, k: 1.0 }], cancel: 0.76, ts: 1.4, sword: true, from: 0.28 },
+  thrust: { hits: [{ t: 0.67, blade: true, k: 1.1 }], cancel: 0.86, ts: 1.35, sword: true, wrist: 1.45, from: 0.32 }, // a punch turned into a thrust: the blade down the line of the arm
+  heavyCut: { hits: [{ t: 0.72, blade: true, k: 1.6 }], cancel: 0.98, ts: 1.3, sword: true, heavy: true, track: 1.0, from: 0.2 },
   // the Fourth Strike siddhi: the combo ends in the overhead cut (fists: the roundhouse), quicker
-  comboCut: { clip: 'heavyCut', hits: [{ t: 0.72, blade: true, k: 1.35 }], cancel: 1.1, ts: 1.32, sword: true, heavy: true, track: 1.4 },
-  comboKick: { clip: 'roundKick', hits: [{ t: 0.84, limb: 'RightFoot', k: 1.15 }], cancel: 1.9, ts: 1.8, kick: true, heavy: true },
+  comboCut: { clip: 'heavyCut', hits: [{ t: 0.72, blade: true, k: 1.35 }], cancel: 0.96, ts: 1.45, sword: true, heavy: true, track: 1.4, from: 0.24 },
+  comboKick: { clip: 'roundKick', hits: [{ t: 0.84, limb: 'RightFoot', k: 1.15 }], cancel: 1.4, ts: 1.9, kick: true, heavy: true, from: 0.35 },
   // the butterfly kick (Mixamo): off a sprint, the body flat in the air, one foot then the other
-  mxButterflyKick: { hits: [{ t: 1.2, limb: 'RightFoot', k: 1.15 }, { t: 1.4, limb: 'LeftFoot', k: 1.4 }], cancel: 1.85, ts: 1.4, kick: true, heavy: true },
+  mxButterflyKick: { hits: [{ t: 1.2, limb: 'RightFoot', k: 1.15 }, { t: 1.4, limb: 'LeftFoot', k: 1.4 }], cancel: 1.85, ts: 1.55, kick: true, heavy: true, from: 0.5 },
 };
 export { MOVES };
 const COMBO = { armed: ['slashA', 'slashB', 'thrust'], unarmed: ['oneTwo', 'bodyShot', 'frontKick'] };
@@ -583,7 +586,7 @@ export class Combat {
     // a dive roll is ~1 s of the 1.55 s take played fast; the backstep ~0.65 s; the backflip 1 s
     // (a slow-motion take: in the air from 12% to 72% of it, and he only travels then); the aerial
     // ~0.95 s of a slow-motion take, travelling while it turns over (12% to 88%)
-    const dur = clip ? (flip ? 1.0 : side ? 0.95 : back ? 0.65 : 0.95) : 0.55;
+    const dur = clip ? (flip ? 0.8 : side ? 0.74 : back ? 0.5 : 0.72) : 0.45;
     const far = this.perks.windStep ? 1.3 : 1;
     this.roll = { t: 0, dur, dir: { x: dx, z: dz }, dist: (flip ? 2.4 : side ? 3.0 : back ? 2.2 : 3.6) * far, yaw: back || side ? p.yaw : Math.atan2(dx, dz), clip, done: 0, air: flip ? [0.12, 0.72] : side ? [0.12, 0.88] : null };
     if (clip) this.anim.play(clip, { fadeIn: 0.08, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true, timeScale: this.anim.clipActions[clip].getClip().duration / dur });
@@ -811,14 +814,14 @@ export class Combat {
       // further than a lunge covers: run in first (a few quick strides), then strike
       if (tt.enemy && !noDash && need > 2.05) {
         const need2 = Math.max((tt.radius ?? 0.3) * 0.4 + 0.5, reachAt + 1.4);
-        this.dash = { name, tgt: tt, t: 0, need: need2, max: Math.min(1.5, Math.max(0.6, (d - need2) / 6.2 + 0.3)) };
+        this.dash = { name, tgt: tt, t: 0, need: need2, max: Math.min(1.1, Math.max(0.4, (d - need2) / 9 + 0.2)) };
         this.move = null;
         return;
       }
       approach = Math.max(-0.45, Math.min(tt.enemy ? 1.9 : 1.2, need));
       this.aimAt = ty;
     }
-    this.move = { name, t: 0, ts: m.ts, start: p.position.clone(), yaw, i: this.combo, queued: false, queuedHeavy: false, struck: new Set(), whoosh: false, approach, approachYaw: t ? Math.atan2(t.x - p.position.x, t.z - p.position.z) : yaw, la, pathYaw: yaw, tgt: tt?.enemy ? tt : null, tgt0: tt?.enemy ? new THREE.Vector3(tt.pos.x, 0, tt.pos.z) : null, track: { x: 0, z: 0 } };
+    this.move = { name, t: (m.from || 0) / m.ts, ts: m.ts, start: p.position.clone(), yaw, i: this.combo, queued: false, queuedHeavy: false, struck: new Set(), whoosh: false, approach, approachYaw: t ? Math.atan2(t.x - p.position.x, t.z - p.position.z) : yaw, la, pathYaw: yaw, tgt: tt?.enemy ? tt : null, tgt0: tt?.enemy ? new THREE.Vector3(tt.pos.x, 0, tt.pos.z) : null, track: { x: 0, z: 0 } };
     // Pratyuttara: the first strike after a parry is a riposte
     if ((this.perks.riposte && this.time - this.lastParryT < 1.1) || this.time < this.counterUntil) {
       this.move.riposte = true;
@@ -827,7 +830,7 @@ export class Combat {
     }
     // (the facing turns over the wind-up in fixed(): snapping it popped the whole body)
     const chained = this.time - this.lastEnd < 0.05 || !!this.anim.cur;
-    this.anim.play(this.clipOf(name), { fadeIn: m.kick || m.heavy ? 0.2 : chained ? 0.16 : 0.18, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: !!m.kick, timeScale: m.ts });
+    this.anim.play(this.clipOf(name), { fadeIn: m.kick || m.heavy ? 0.14 : chained ? 0.09 : 0.11, fadeOut: 0.16, cancelOnMove: false, noLook: true, noFootIK: !!m.kick, timeScale: m.ts, at: m.from || 0 });
     this.onEvent('swing', { move: name });
   }
 
@@ -978,7 +981,7 @@ export class Combat {
         return this.hold();
       }
       // quick strides straight at it (down the steps if it is below)
-      const v = Math.min(7.2, 3 + D.t * 22);
+      const v = Math.min(10, 4.5 + D.t * 34); // (a burst: a fight closes fast)
       const step = Math.min(v * dt, d - D.need + 0.05);
       p.prevPosition.copy(p.position);
       p.prevYaw = p.yaw;
@@ -1009,9 +1012,10 @@ export class Combat {
       const c0 = mv.t * mv.ts;
       const h0 = m.hits[0].t;
       const h1 = m.hits[m.hits.length - 1].t;
-      if (c0 < h0 - 0.17) tempo = 0.86;
-      else if (c0 < h1 + 0.02) tempo = 1.45;
-      else if (c0 < h1 + 0.24) tempo = 0.8;
+      const weighty = m.heavy || m.kick;
+      if (c0 < h0 - 0.17) tempo = weighty ? 0.88 : 1.05;
+      else if (c0 < h1 + 0.02) tempo = weighty ? 1.45 : 1.35;
+      else if (c0 < h1 + 0.24) tempo = weighty ? 0.82 : 0.95;
     }
     step *= tempo;
     // Gathered Storm: the wind-up holds (the blade glows, the blow gathers) while the button is
@@ -1031,7 +1035,7 @@ export class Combat {
     } else if (this.anim.cur && this.anim.isPlaying(this.clipOf(mv.name))) this.anim.cur.a.timeScale = mv.ts * tempo;
     mv.t += step;
     const ct = mv.t * mv.ts; // clip time
-    p.yaw = dampAngle(p.yaw, mv.yaw, 11, dt);
+    p.yaw = dampAngle(p.yaw, mv.yaw, 17, dt);
     p.speed = 0;
     // root motion: follow the clip's hip path, turned to our facing, through the controller
     const rm = this.rootMotion[this.clipOf(mv.name)];
@@ -1042,13 +1046,21 @@ export class Combat {
       const i = Math.floor(f);
       const a = f - i;
       const j = Math.min(rm.path.length / 2 - 1, i + 1);
-      const x = (rm.path[i * 2] * (1 - a) + rm.path[j * 2] * a - rm.path[0]) * LEG;
-      const z = (rm.path[i * 2 + 1] * (1 - a) + rm.path[j * 2 + 1] * a - rm.path[1]) * LEG;
+      // (from where the move began in the clip: a blow started past its lead-in doesn't jump)
+      if (mv.rm0 === undefined) {
+        const f0 = Math.min(rm.path.length / 2 - 1, (m.from || 0) * rm.fps);
+        const i0 = Math.floor(f0);
+        const j0 = Math.min(rm.path.length / 2 - 1, i0 + 1);
+        const a0 = f0 - i0;
+        mv.rm0 = [rm.path[i0 * 2] * (1 - a0) + rm.path[j0 * 2] * a0, rm.path[i0 * 2 + 1] * (1 - a0) + rm.path[j0 * 2 + 1] * a0];
+      }
+      const x = (rm.path[i * 2] * (1 - a) + rm.path[j * 2] * a - mv.rm0[0]) * LEG;
+      const z = (rm.path[i * 2 + 1] * (1 - a) + rm.path[j * 2 + 1] * a - mv.rm0[1]) * LEG;
       // (the clip's path keeps the facing it started with; tracking turns the body, not the path)
       const c = Math.cos(mv.pathYaw ?? mv.yaw);
       const s = Math.sin(mv.pathYaw ?? mv.yaw);
       // the approach: eased in over the wind-up, along the line to the target
-      const k = Math.min(1, ct / Math.max(0.2, m.hits[0].t));
+      const k = Math.min(1, Math.max(0, ct - (m.from || 0)) / Math.max(0.12, m.hits[0].t - (m.from || 0)));
       const ap = mv.approach * k * k * (3 - 2 * k);
       // tracking: an enemy that moves during the wind-up is followed (the facing turns with it
       // and the lunge carries its displacement), until the blow is on its way
@@ -1110,6 +1122,17 @@ export class Combat {
       this.move = null;
       this.start(next);
       return true;
+    }
+    // the instant cancel: past the cancel point, a push of the stick breaks the follow-through and
+    // he moves at once (the combo stays open a moment for the next strike)
+    if (ct >= m.cancel + 0.03 && !mv.force && (this.p.cmd?.mag ?? 0) > 0.4) {
+      this.move = null;
+      this.lastEnd = this.time;
+      this.combo = (mv.i + 1) % this.comboList().length;
+      if (m.heavy || mv.name === HEAVY.unarmed) this.combo = 0;
+      this.anim.stop(0.16);
+      this.stance(this.armed ? 8 : 3);
+      return false;
     }
     if (ct >= dur - 0.12) {
       this.move = null;
