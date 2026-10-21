@@ -4,12 +4,22 @@ import { bankSlope, bankV, groundHeight, PROFILE_LEN } from './WorldLayout.js';
 import { WORLD_UNIFORMS } from './materials.js';
 import { waterNormalTexture } from '../utils/textures.js';
 import { clamp, lerp, smoothstep } from '../utils/math.js';
+import { WaterRipples } from './WaterRipples.js';
 
 // The Ganga.
 //  - Gentle sine waves, evaluated identically on the GPU (looks) and CPU (buoyancy, swimming).
 //  - A baked height texture of the river bed gives depth-based colour, clarity and shore foam.
 //  - Optional planar reflection (the ghats mirrored in the river at dawn), quality-scaled.
 //  - `purity` (0..1, the quest) turns murky water into clear, glittering turquoise.
+//  - From Medium up (REFRACT): as the water starts to draw, the colour and depth already drawn
+//    under it are copied (grab: a blit, no second render), and the surface bends what is under
+//    it and absorbs it along the ray, red first then green (Beer-Lambert), into the silty olive
+//    of the river: the steps and legs under it, the hull of a boat, fade with depth.
+//  - The detail waves ride a flow map baked from currentAt (two phases crossfaded): faster in
+//    mid-river, slack and swirling by the ghats; the scum lines drift with it.
+//  - The ripples Prady and the boats stir (WaterRipples), the foam where the water meets things,
+//    small waves lapping the steps, the sun's road widening with distance (GGX), light through
+//    the crests toward a low sun.
 
 // Gerstner (trochoidal) waves: [dirX, dirZ, amplitude, wavelength]. Deep-water dispersion
 // c = sqrt(g / k). Steepness Q is shared out so crests sharpen without ever looping over.
@@ -31,18 +41,29 @@ const NEAR_SIZE = 180;
 const NEAR_SEGMENTS = 220;
 const _u = { x: 0, z: 0 };
 
+// The lap of the river at the steps: a quick surge, a slow draining back, travelling along the
+// bank. (The same in materials.js: the wet line on the stone follows the water's edge.)
+export const LAP_GLSL = /* glsl */ `
+  float waterLap(vec2 p, float t) {
+    float s = fract(t * 0.16 + p.x * 0.035 + p.y * 0.02);
+    return smoothstep(0.0, 0.18, s) * (1.0 - smoothstep(0.18, 1.0, s));
+  }`;
+
 const vertexShader = /* glsl */ `
   uniform float uTime;
   uniform vec4 uWaves[4];
   uniform float uSteep[4];
   uniform vec3 uNearCenter;
   uniform mat4 uTextureMatrix;
+  uniform sampler2D uHeightTex;
+  uniform vec4 uHeightBounds;
   varying vec3 vWorld;
   varying vec2 vUndisp;
   varying float vFade;
   varying vec4 vReflCoord;
   #include <common>
   #include <fog_pars_vertex>
+  ${LAP_GLSL}
   void main() {
     vec4 wp = modelMatrix * vec4(position, 1.0);
     vUndisp = wp.xz;
@@ -60,6 +81,9 @@ const vertexShader = /* glsl */ `
       }
       wp.xyz += disp * fade;
       vFade = fade;
+      // lapping: in the shallows the water surges up the bottom step and drains back
+      float gv = texture2D(uHeightTex, (wp.xz - uHeightBounds.xy) / uHeightBounds.zw).r;
+      wp.y += waterLap(wp.xz, uTime) * 0.1 * (1.0 - smoothstep(0.0, 1.2, ${WATER_LEVEL.toFixed(2)} - gv));
     #endif
     vWorld = wp.xyz;
     vReflCoord = uTextureMatrix * vec4(wp.xyz, 1.0);
@@ -91,6 +115,19 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uDeep;
   uniform vec2 uFlow;
   uniform float uRain;
+  uniform sampler2D uFlowTex;
+  uniform sampler2D uSceneColor;
+  uniform sampler2D uSceneDepth;
+  uniform vec2 uSceneRes;
+  uniform float uCamNear;
+  uniform float uCamFar;
+  uniform sampler2D uRipple;
+  uniform vec4 uRipple0; // centre x, z; size (m); on
+  uniform float uRipTexel;
+  uniform vec3 uAbsorb;  // per metre along the ray (r, g, b)
+  uniform vec3 uScatter; // the colour the depths turn to (light scattered back by the silt)
+  uniform vec3 uSSS;     // light through a crest
+  uniform float uReflBlur;
   varying vec3 vWorld;
   varying vec2 vUndisp;
   varying float vFade;
@@ -99,11 +136,14 @@ const fragmentShader = /* glsl */ `
   #include <fog_pars_fragment>
 
   float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+  float viewZ(float d) { float z = d * 2.0 - 1.0; return 2.0 * uCamNear * uCamFar / (uCamFar + uCamNear - z * (uCamFar - uCamNear)); }
+  ${LAP_GLSL}
 
   void main() {
     // Analytic Gerstner normal (GPU Gems ch.1), evaluated per pixel at the undisplaced point
     vec2 grad = vec2(0.0);
     float lift = 0.0;
+    float hw = 0.0;
     for (int i = 0; i < 4; i++) {
       vec4 w = uWaves[i];
       float k = 6.2831853 / w.w;
@@ -111,47 +151,67 @@ const fragmentShader = /* glsl */ `
       float wa = k * w.z;
       grad += wa * cos(f) * w.xy;
       lift += uSteep[i] * wa * sin(f);
+      hw += w.z * sin(f);
     }
     float dist = length(cameraPosition - vWorld);
-    // Two scrolling detail layers that drift downstream with the current
-    vec2 uv1 = vWorld.xz * 0.09 + uFlow * uTime * 0.09;
-    vec2 uv2 = vWorld.xz * 0.031 + vec2(uFlow.x * 0.55, 0.03) * uTime * 0.031;
-    vec3 n1 = texture2D(uNormalMap, uv1).xyz * 2.0 - 1.0;
-    vec3 n2 = texture2D(uNormalMap, uv2).xyz * 2.0 - 1.0;
+    vec2 P = vWorld.xz;
+    vec2 huv = (P - uHeightBounds.xy) / uHeightBounds.zw;
+    float ground = texture2D(uHeightTex, huv).r;
+    float depth = max(vWorld.y - ground, 0.0);
+    // the current here (baked from currentAt): the small waves ride it, in two phases crossfaded
+    // so they never stretch (the flow-map method)
+    vec2 flow = texture2D(uFlowTex, huv).rg;
+    float ph0 = fract(uTime * 0.3);
+    float ph1 = fract(uTime * 0.3 + 0.5);
+    float wA = 1.0 - abs(1.0 - 2.0 * ph0);
+    vec2 dA = flow * ph0 * 3.333;
+    vec2 dB = flow * ph1 * 3.333;
+    vec2 nA = texture2D(uNormalMap, (P - dA) * 0.09).xy + texture2D(uNormalMap, (P - dA) * 0.031 + 0.21).xy - 1.0;
+    vec2 nB = texture2D(uNormalMap, (P - dB) * 0.09 + 0.5).xy + texture2D(uNormalMap, (P - dB) * 0.031 + 0.71).xy - 1.0;
+    // (the blend of the two is flatter at mid-phase: lifted back only part way, or the surface
+    // turns rough and scatters the sun's road)
+    vec2 nd = (nA * wA + nB * (1.0 - wA)) * 2.0 / mix(1.0, sqrt(wA * wA + (1.0 - wA) * (1.0 - wA)), 0.4);
     float detail = mix(0.55, 0.12, smoothstep(30.0, 500.0, dist));
-    vec3 N = normalize(vec3(-grad.x, 1.0 - lift, -grad.y) + vec3(n1.x + n2.x, 0.0, n1.y + n2.y) * detail);
-    // rain: expanding rings from drops on a jittered grid (two offset layers)
+    vec3 N = normalize(vec3(-grad.x, 1.0 - lift, -grad.y) + vec3(nd.x, 0.0, nd.y) * detail);
+    // the ripples stirred round him (WaterRipples), turned back off the steps
+    float ripH = 0.0;
+    vec2 rv = (P - uRipple0.xy) / uRipple0.z + 0.5;
+    if (uRipple0.w > 0.5 && rv.x > 0.0 && rv.y > 0.0 && rv.x < 1.0 && rv.y < 1.0) {
+      float h0 = texture2D(uRipple, rv).r;
+      float hx = texture2D(uRipple, rv + vec2(uRipTexel, 0.0)).r;
+      float hz = texture2D(uRipple, rv + vec2(0.0, uRipTexel)).r;
+      float edge = smoothstep(0.0, 0.1, min(min(rv.x, rv.y), min(1.0 - rv.x, 1.0 - rv.y)));
+      vec2 rs = vec2(hx - h0, hz - h0) / (uRipple0.z * uRipTexel) * edge;
+      rs *= min(1.0, 0.45 / max(length(rs), 1e-4)); // (a ripple tilts the surface a little)
+      N = normalize(N + vec3(-rs.x, 0.0, -rs.y) * 0.6);
+      ripH = h0 * edge;
+    }
+    // rain: expanding rings from drops on a jittered grid
     if (uRain > 0.01 && dist < 45.0) {
       vec2 ring = vec2(0.0);
-      for (int L = 0; L < 1; L++) {
-        vec2 gp = vWorld.xz * 1.6 + float(L) * 0.5;
-        vec2 cell = floor(gp);
-        for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
-          vec2 c = cell + vec2(float(i), float(j));
-          float h = hash12(c + float(L) * 7.0);
-          vec2 ctr = c + 0.2 + 0.6 * vec2(h, fract(h * 13.7));
-          float ph = fract(uTime * (0.9 + h * 0.6) + h * 5.0);
-          vec2 d = gp - ctr;
-          float r = length(d);
-          float rad = ph * 0.75;
-          float w = (1.0 - ph) * (1.0 - ph) * step(h, uRain);
-          float wave = sin((r - rad) * 38.0) * exp(-abs(r - rad) * 14.0) * w;
-          ring += (r > 1e-3 ? d / r : vec2(0.0)) * wave;
-        }
+      vec2 gp = P * 1.6;
+      vec2 cell = floor(gp);
+      for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+        vec2 c = cell + vec2(float(i), float(j));
+        float h = hash12(c);
+        vec2 ctr = c + 0.2 + 0.6 * vec2(h, fract(h * 13.7));
+        float ph = fract(uTime * (0.9 + h * 0.6) + h * 5.0);
+        vec2 d = gp - ctr;
+        float r = length(d);
+        float rad = ph * 0.75;
+        float w = (1.0 - ph) * (1.0 - ph) * step(h, uRain);
+        float wave = sin((r - rad) * 38.0) * exp(-abs(r - rad) * 14.0) * w;
+        ring += (r > 1e-3 ? d / r : vec2(0.0)) * wave;
       }
       N = normalize(N + vec3(ring.x, 0.0, ring.y) * 0.26 * (1.0 - smoothstep(20.0, 45.0, dist)));
     }
 
     #ifndef NEAR_WATER
-      vec2 relF = abs(vWorld.xz - uNearCenter.xz);
+      vec2 relF = abs(P - uNearCenter.xz);
       if (max(relF.x, relF.y) < ${(NEAR_SIZE / 2).toFixed(1)}) discard;
     #endif
     vec3 V = normalize(cameraPosition - vWorld);
     bool under = cameraPosition.y < vWorld.y - 0.02;
-
-    vec2 huv = (vWorld.xz - uHeightBounds.xy) / uHeightBounds.zw;
-    float ground = texture2D(uHeightTex, huv).r;
-    float depth = max(vWorld.y - ground, 0.0);
 
     if (under) {
       vec3 Nd = -N;
@@ -170,46 +230,103 @@ const fragmentShader = /* glsl */ `
 
     float cosT = clamp(dot(N, V), 0.0, 1.0);
     float F = 0.02 + 0.98 * pow(1.0 - cosT, 5.0);
+    // roughness: the waves too small to see far off still tilt the light (the sun's long road)
+    float rough = 0.035 + 0.2 * smoothstep(25.0, 650.0, dist) + 0.06 * uRain;
 
     vec3 R = reflect(-V, N);
     vec3 refl = mix(uSkyHorizon, uSkyZenith, pow(clamp(R.y, 0.0, 1.0), 0.45));
+    refl += uSunColor * uSunIntensity * pow(max(dot(R, uSunDir), 0.0), 6.0) * 0.18 * (1.0 - uNight);
     if (uUseReflection > 0.5) {
-      vec2 distortion = N.xz * 0.045 * (1.0 - smoothstep(30.0, 300.0, dist));
-      vec2 ruv = vReflCoord.xy / vReflCoord.w + distortion;
-      refl = texture2D(uReflection, ruv).rgb;
+      vec2 ruv = vReflCoord.xy / vReflCoord.w + N.xz * 0.045 * (1.0 - smoothstep(30.0, 300.0, dist));
+      // blurred by the ripples, and stretched upright as a mirror on moving water is
+      float b = (rough * 0.03 + length(nd) * detail * 0.0035) * uReflBlur;
+      vec3 r0 = texture2D(uReflection, ruv).rgb;
+      vec3 r1 = texture2D(uReflection, ruv + vec2(0.0, b)).rgb + texture2D(uReflection, ruv - vec2(0.0, b)).rgb;
+      vec3 r2 = texture2D(uReflection, ruv + vec2(b * 0.35, b * 2.2)).rgb + texture2D(uReflection, ruv - vec2(b * 0.35, b * 2.2)).rgb;
+      refl = r0 * 0.32 + r1 * 0.22 + r2 * 0.12;
     }
 
-    // Sun glitter: a tight core plus a wide sheen
+    // the sun: GGX, its highlight widening with the roughness into a road toward the horizon; near,
+    // the tight glitter of each wavelet as before; and single glints flashing in the road
     vec3 H = normalize(uSunDir + V);
     float nh = max(dot(N, H), 0.0);
-    float spec = pow(nh, 900.0) * 24.0 + pow(nh, 140.0) * 0.4 + pow(nh, 40.0) * 0.25 * uNight;
+    float a2 = rough * rough;
+    float dg = nh * nh * (a2 - 1.0) + 1.0;
+    float ggx = a2 / (3.14159 * dg * dg);
+    float fh = 0.02 + 0.98 * pow(1.0 - max(dot(H, V), 0.0), 5.0);
+    float nearK = 1.0 - smoothstep(40.0, 260.0, dist);
+    float spec = ggx * fh * 0.5 + (pow(nh, 900.0) * 24.0 + pow(nh, 140.0) * 0.4) * nearK + pow(nh, 40.0) * 0.25 * uNight;
+    // (each a tiny facet at a random point of its 20 cm cell, tilted its own way, flashing only
+    // where that tilt throws the sun into the eye, for a moment)
+    vec2 gcell = floor(P * 5.0);
+    float gr = hash12(gcell);
+    float gt = hash12(gcell + floor(uTime * (5.0 + gr * 6.0)));
+    vec2 go = vec2(gr, fract(gr * 37.3)) * 0.7 + 0.15;
+    float gdot = 1.0 - smoothstep(0.05, 0.14, length(fract(P * 5.0) - go));
+    vec3 facet = normalize(N + vec3(fract(gr * 91.7) - 0.5, 0.0, fract(gr * 53.1) - 0.5) * 0.3);
+    spec += step(0.45, gt) * gdot * pow(max(dot(facet, H), 0.0), 320.0) * 26.0 * (1.0 - smoothstep(10.0, 160.0, dist)) * (1.0 - 0.7 * uNight);
     vec3 sunSpec = uSunColor * spec * uSunIntensity * smoothstep(-0.02, 0.05, uSunDir.y);
 
-    // Water body: shallow -> deep, lit by the sky
-    float t = 1.0 - exp(-depth * mix(0.75, 0.24, uPurity));
-    vec3 body = mix(uShallow, uDeep, t) * uLight;
-    // Light scattering through the wave crests toward the sun
-    float scatter = pow(max(dot(V, -uSunDir), 0.0), 4.0) * clamp(grad.x + grad.y + 0.2, 0.0, 1.0);
-    body += uShallow * scatter * uSunIntensity * 0.15;
+    // the water body
+    vec3 body;
+    float thick = depth;
+    #ifdef REFRACT
+      // what is under it (copied as the water began to draw), bent by the surface, absorbed
+      // along the ray: red first, then green, into the silt's olive
+      vec2 suv = gl_FragCoord.xy / uSceneRes;
+      float zS = viewZ(gl_FragCoord.z);
+      float zB0 = viewZ(texture2D(uSceneDepth, suv).r);
+      vec2 off = N.xz * clamp(zB0 - zS, 0.0, 1.5) * 0.9 / max(zS, 1.0);
+      vec2 ruv2 = clamp(suv + off, vec2(0.001), vec2(0.999));
+      float zB = viewZ(texture2D(uSceneDepth, ruv2).r);
+      // (something standing in front of the surface there: not bent)
+      if (zB < zS) { ruv2 = suv; zB = zB0; }
+      vec3 under0 = texture2D(uSceneColor, ruv2).rgb;
+      float ray = max(zB - zS, 0.0) * dist / max(zS, 1e-3);
+      thick = min(depth, ray);
+      vec3 T = exp(-uAbsorb * ray);
+      body = under0 * T + uScatter * uLight * (1.0 - T);
+    #else
+      float t = 1.0 - exp(-depth * mix(0.75, 0.24, uPurity));
+      body = mix(uShallow, uDeep, t) * uLight;
+    #endif
+    // light through the crests toward a low sun: they glow
+    float crest = clamp(hw * 7.0 + 0.5, 0.0, 1.0);
+    float low = 1.0 - smoothstep(0.08, 0.6, uSunDir.y);
+    body += uSSS * pow(max(dot(-V, uSunDir), 0.0), 3.0) * crest * (0.35 + low) * uSunIntensity * (1.0 - uNight) * 0.7;
 
-    // Shore foam where the water is shallow
-    float foamTex = texture2D(uNormalMap, vWorld.xz * 0.27 + vec2(uTime * 0.05, 0.0)).r;
-    float foam = (1.0 - smoothstep(0.0, 0.32, depth)) * smoothstep(0.45, 0.7, foamTex + 0.2 * sin(uTime * 1.5 + vWorld.x));
+    // foam: where the water meets things (the steps, a post, a hull, a leg: from what is under
+    // it), the lapping lines running in to the shore, the scum the current draws out in streaks
+    float foamTex = texture2D(uNormalMap, (P - dA) * 0.27 + vec2(uTime * 0.05, 0.0)).r;
+    float edgeFoam = (1.0 - smoothstep(0.0, 0.14, thick)) * smoothstep(0.55, 0.78, foamTex + 0.15 * sin(uTime * 1.5 + vWorld.x));
+    // (the river's lap is small: thin broken lines in the last hand's depth, not surf)
+    float lapLine = (1.0 - smoothstep(0.02, 0.35, depth)) * smoothstep(0.9, 1.0, sin(depth * 14.0 + uTime * 1.4 + foamTex * 3.0)) * smoothstep(0.45, 0.7, foamTex);
+    lapLine += (1.0 - smoothstep(0.0, 0.08, depth)) * waterLap(P, uTime) * 0.5;
+    vec2 fd = normalize(flow + vec2(1e-4, 0.0));
+    vec2 fp = vec2(-fd.y, fd.x);
+    float sc = texture2D(uNormalMap, vec2(dot(P - dA, fd), dot(P - dA, fp)) * vec2(0.02, 0.16)).g * wA
+             + texture2D(uNormalMap, vec2(dot(P - dB, fd), dot(P - dB, fp)) * vec2(0.02, 0.16) + 0.37).g * (1.0 - wA);
+    float scum = smoothstep(0.74, 0.92, sc) * (1.0 - smoothstep(25.0, 140.0, dist)) * mix(0.22, 0.05, uPurity);
+    float foam = clamp(max(edgeFoam * 0.35, lapLine * 0.25) + scum, 0.0, 1.0);
 
     vec3 col = mix(body, refl, F) + sunSpec;
-    col = mix(col, vec3(0.9, 0.88, 0.82) * uLight, foam * 0.55);
+    col = mix(col, vec3(0.9, 0.88, 0.82) * uLight, foam);
 
     // Ganga's blessing: as purity rises, golden motes glitter on the surface
-    vec2 sp = vWorld.xz * 2.2;
+    vec2 sp = P * 2.2;
     vec2 cell = floor(sp);
     float rnd = hash12(cell);
     float tw = fract(uTime * (0.35 + rnd * 0.5) + rnd * 7.0);
     float glint = step(0.993, rnd) * smoothstep(0.18, 0.0, length(fract(sp) - 0.5)) * sin(tw * 3.14159);
     col += vec3(1.0, 0.72, 0.32) * glint * smoothstep(0.3, 1.0, uPurity) * (0.8 + uNight * 3.0) * (1.0 - smoothstep(15.0, 90.0, dist));
 
-    float alpha = 1.0 - exp(-depth * mix(1.8, 0.6, uPurity));
-    alpha = clamp(max(alpha, F * 0.9), 0.0, 1.0);
-    alpha = max(alpha, foam * 0.7);
+    #ifdef REFRACT
+      float alpha = 1.0;
+    #else
+      float alpha = 1.0 - exp(-depth * mix(1.8, 0.6, uPurity));
+      alpha = clamp(max(alpha, F * 0.9), 0.0, 1.0);
+      alpha = max(alpha, foam * 0.7);
+    #endif
     gl_FragColor = vec4(col, alpha);
     #include <fog_fragment>
   }
@@ -252,8 +369,24 @@ export class Water {
       uShallow: { value: new THREE.Color() },
       uDeep: { value: new THREE.Color() },
       uFlow: { value: this.flow },
+      uFlowTex: { value: null },
+      uSceneColor: { value: null },
+      uSceneDepth: { value: null },
+      uSceneRes: { value: new THREE.Vector2(1, 1) },
+      uCamNear: { value: 0.1 },
+      uCamFar: { value: 3000 },
+      uRipple: { value: null },
+      uRipple0: { value: new THREE.Vector4(0, 0, 32, 0) },
+      uRipTexel: { value: 1 / 256 },
+      uAbsorb: { value: new THREE.Vector3() },
+      uScatter: { value: new THREE.Color() },
+      uSSS: { value: new THREE.Color() },
+      uReflBlur: { value: typeof location !== 'undefined' && /[?&]noblur/.test(location.search) ? 0 : 1 },
     });
     this.uniforms = uniforms;
+    uniforms.uFlowTex.value = this.bakeFlowTexture();
+    this.ripples = new WaterRipples(renderer, uniforms.uHeightTex.value, HEIGHT_BOUNDS, WATER_LEVEL);
+    uniforms.uRipTexel.value = this.ripples.texel;
 
     const makeMat = (near) =>
       new THREE.ShaderMaterial({
@@ -270,6 +403,8 @@ export class Water {
     // Near: dense, follows the camera, displaced by the waves.
     const nearGeo = new THREE.PlaneGeometry(NEAR_SIZE, NEAR_SIZE, NEAR_SEGMENTS, NEAR_SEGMENTS).rotateX(-Math.PI / 2);
     this.near = new THREE.Mesh(nearGeo, makeMat(true));
+    // (the first of the two to draw copies what is already drawn under it: REFRACT)
+    const grab = (r) => this.refract && this.grab(r);
     this.near.frustumCulled = false;
     this.near.renderOrder = 2;
     scene.add(this.near);
@@ -281,6 +416,8 @@ export class Water {
     this.far.frustumCulled = false;
     scene.add(this.far);
     this.farGeo = farGeo;
+    this.near.onBeforeRender = grab;
+    this.far.onBeforeRender = grab;
 
     this.setQuality(quality);
   }
@@ -312,6 +449,17 @@ export class Water {
   }
 
   setQuality(q) {
+    // refraction from Medium up (the grab is a full-frame copy: Low keeps the see-through sheet)
+    // (?norefract: the old see-through sheet, for side-by-side comparison)
+    this.refract = q.reflection > 0 && !(typeof location !== 'undefined' && /[?&]norefract/.test(location.search));
+    for (const m of [this.near?.material, this.far?.material]) {
+      if (!m) continue;
+      if (this.refract) m.defines.REFRACT = '';
+      else delete m.defines.REFRACT;
+      // (still drawn with the see-through things, after every opaque one it copies; it writes
+      // alpha 1 and covers what is under it with its own bent, absorbed copy)
+      m.needsUpdate = true;
+    }
     this.reflectionScale = q.reflection;
     this.uniforms.uUseReflection.value = q.reflection > 0 ? 1 : 0;
     if (this.reflectionRT) {
@@ -425,6 +573,98 @@ export class Water {
 
   setEddy(x, z) {
     this.eddy = { x, z };
+    this.uniforms.uFlowTex.value?.dispose();
+    this.uniforms.uFlowTex.value = this.bakeFlowTexture();
+  }
+
+  /** The current over the whole river (currentAt, m/s), as a texture over the height map's bounds. */
+  bakeFlowTexture() {
+    const W = 512;
+    const H = Math.round((W * HEIGHT_BOUNDS.h) / HEIGHT_BOUNDS.w);
+    const data = new Uint16Array(W * H * 2);
+    const c = { x: 0, z: 0 };
+    const t = this.time;
+    this.time = 0; // (the slow pulse left out: the map holds the steady current)
+    for (let j = 0; j < H; j++) {
+      const z = HEIGHT_BOUNDS.z0 + ((j + 0.5) / H) * HEIGHT_BOUNDS.h;
+      for (let i = 0; i < W; i++) {
+        const x = HEIGHT_BOUNDS.x0 + ((i + 0.5) / W) * HEIGHT_BOUNDS.w;
+        this.currentAt(x, z, c);
+        data[(j * W + i) * 2] = THREE.DataUtils.toHalfFloat(c.x);
+        data[(j * W + i) * 2 + 1] = THREE.DataUtils.toHalfFloat(c.z);
+      }
+    }
+    this.time = t;
+    const tex = new THREE.DataTexture(data, W, H, THREE.RGFormat, THREE.HalfFloatType);
+    tex.magFilter = tex.minFilter = THREE.LinearFilter;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  /**
+   * As the water starts to draw (the opaque world done): copy the colour and depth drawn so far
+   * into textures of its own (a framebuffer blit), for the refraction. Once a frame.
+   */
+  grab(renderer) {
+    const frame = renderer.info.render.frame;
+    if (this.grabFrame === frame) return;
+    this.grabFrame = frame;
+    const gl = renderer.getContext();
+    const src = renderer.getRenderTarget();
+    const w = src ? src.width : gl.drawingBufferWidth;
+    const h = src ? src.height : gl.drawingBufferHeight;
+    let rt = this.grabRT;
+    if (!rt || rt.width !== w || rt.height !== h) {
+      rt?.dispose();
+      const dt = new THREE.DepthTexture(w, h);
+      dt.type = src?.depthTexture?.type ?? THREE.UnsignedIntType;
+      dt.format = src?.depthTexture?.format ?? THREE.DepthFormat;
+      rt = this.grabRT = new THREE.WebGLRenderTarget(w, h, { type: src?.texture.type ?? THREE.HalfFloatType, depthBuffer: true, depthTexture: dt, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+      rt.texture.generateMipmaps = false;
+      renderer.initRenderTarget(rt);
+      renderer.setRenderTarget(src); // (its target bound again, through three's own state)
+      this.grabChecked = 0;
+      this.uniforms.uSceneColor.value = rt.texture;
+      this.uniforms.uSceneDepth.value = rt.depthTexture;
+    }
+    this.uniforms.uSceneRes.value.set(w, h);
+    const sp = src ? renderer.properties.get(src) : null;
+    const from = sp ? sp.__webglMultisampledFramebuffer || sp.__webglFramebuffer : null;
+    const to = renderer.properties.get(rt).__webglFramebuffer;
+    // (through three's state cache, so its own later blits, the mirror's resolve, read from the
+    // framebuffer it believes is bound)
+    const st = renderer.state;
+    const bind = (t, f) => {
+      gl.bindFramebuffer(t, f);
+      st.bindFramebuffer(t, f);
+    };
+    bind(gl.READ_FRAMEBUFFER, from);
+    bind(gl.DRAW_FRAMEBUFFER, to);
+    gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT | (this.noDepthBlit ? 0 : gl.DEPTH_BUFFER_BIT), gl.NEAREST);
+    // (the first few: a depth format that will not blit is caught, and the colour still copied)
+    if (this.grabChecked < 3) {
+      this.grabChecked++;
+      if (gl.getError() !== gl.NO_ERROR && !this.noDepthBlit) {
+        this.noDepthBlit = true;
+        console.warn('Water: the depth would not copy; refraction without it');
+        gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+      }
+    }
+    bind(gl.DRAW_FRAMEBUFFER, from); // (drawing on into it, as three left it)
+  }
+
+  /** Something touched the river at (x, z): ripples (radius m, strength m). */
+  disturb(x, z, radius, strength) {
+    this.ripples.disturb(x, z, radius, strength);
+  }
+
+  /** Step the ripples round focus (before the frame's render). */
+  simulate(dt, focus) {
+    this.ripples.update(dt, focus);
+    const u = this.uniforms;
+    u.uRipple.value = this.ripples.texture;
+    u.uRipple0.value.set(this.ripples.center.x, this.ripples.center.y, this.ripples.size, this.ripples.active ? 1 : 0);
   }
 
   // ---------------------------------------------------------------- per frame
@@ -454,6 +694,12 @@ export class Water {
     u.uShallow.value.setRGB(lerp(0.17, 0.05, p), lerp(0.16, 0.34, p), lerp(0.1, 0.3, p));
     u.uDeep.value.setRGB(lerp(0.04, 0.008, p), lerp(0.05, 0.075, p), lerp(0.032, 0.09, p));
     WORLD_UNIFORMS.uPurity.value = p;
+    // along the ray: the silt takes the blue and the water the red; purified, only the red goes
+    u.uAbsorb.value.set(lerp(0.85, 0.34, p), lerp(0.5, 0.075, p), lerp(0.72, 0.06, p));
+    u.uScatter.value.setRGB(lerp(0.06, 0.006, p), lerp(0.066, 0.055, p), lerp(0.038, 0.07, p));
+    u.uSSS.value.setRGB(lerp(0.32, 0.08, p), lerp(0.3, 0.45, p), lerp(0.1, 0.4, p));
+    u.uCamNear.value = camera.near;
+    u.uCamFar.value = camera.far;
     WORLD_UNIFORMS.uUnderwaterColor.value.copy(u.uDeep.value).multiplyScalar(u.uLight.value * 1.4);
 
     // Near mesh follows the camera, snapped to its grid so vertices don't swim.

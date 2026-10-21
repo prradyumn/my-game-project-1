@@ -728,20 +728,24 @@ export class Game {
     let swimOn = false;
     return {
       splash(x, y, z, power) {
+        g.water.disturb(x, z, 0.4 + power * 0.5, 0.04 + power * 0.07);
         g.splash.spawn(new THREE.Vector3(x, y, z), Math.round(30 * power + 10), 2 + power * 3);
         g.ripples.spawn(x, y, z, 2.5 * power + 1, 2.2);
         g.audio.play('splash', { at: new THREE.Vector3(x, y, z), volume: 0.5 + power * 0.5 });
       },
       spray(x, y, z) {
+        g.water.disturb(x, z, 0.25, 0.02);
         g.splash.spawn(new THREE.Vector3(x, y, z), 6, 1.8, 0.5);
         if (Math.random() < 0.3) g.ripples.spawn(x, y, z, 1.2, 1.2);
       },
       wade(x, y, z) {
+        g.water.disturb(x, z, 0.3, 0.018);
         g.ripples.spawn(x, y, z, 1.2, 1.2);
         g.splash.spawn(new THREE.Vector3(x, y, z), 4, 1.2, 0.3);
         g.audio.play('splash', { at: new THREE.Vector3(x, y, z), volume: 0.18, rate: 1.3 + Math.random() * 0.2 });
       },
       ripple(x, y, z, size) {
+        g.water.disturb(x, z, 0.2 + size * 0.12, 0.006 * size);
         g.ripples.spawn(x, y, z, size, 1.8);
       },
       footstep(speed) {
@@ -763,6 +767,7 @@ export class Game {
       bump(x, z, speed) {
         g.audio.play('thump', { at: new THREE.Vector3(x, 0.4, z), volume: Math.min(1, 0.3 + speed * 0.25), rate: 0.7 + Math.random() * 0.15, ref: 8 });
         g.ripples.spawn(x, 0, z, 1.2 + speed * 0.4, 1.4);
+        g.water.disturb(x, z, 0.5, 0.03 + speed * 0.02);
       },
       oar(x, z) {
         g.audio.play('oar', { at: new THREE.Vector3(x, 0, z), volume: 0.8, rate: 0.95 + Math.random() * 0.1 });
@@ -1309,6 +1314,7 @@ export class Game {
       this.update(dt);
       this.scene.updateMatrixWorld();
       this.water.renderReflection(this.camera);
+      this.water.simulate(dt, this.player?.position || this.camera.position);
       this.rs.render(this.sky.exposure * this.weather.exposureScale());
       if (this.state === 'play' || this.state === 'intro') this.rs.adapt(dt, (performance.now() - t0) / 1000);
       this.rs.prewarm(this.scene, this.camera, dt); // (after adapt: its compile is not this frame's cost)
@@ -1393,6 +1399,18 @@ export class Game {
     this.weather.update(simDt, { sky: this.sky, underwater: this._under, hours: this.sky.hours });
     this.pradyWet.value = this.actions?.wet ?? 0;
     this.water.update(simDt, this.camera, this.sky);
+    // the river stirred as things move through it (WaterRipples): Prady wading or swimming, the
+    // bow of the boat he rows
+    {
+      const pl = this.player;
+      const wet = this.water.heightAt(pl.position.x, pl.position.z) - pl.feetY;
+      if ((pl.state === 'swim' || (pl.state === 'ground' && wet > 0.08)) && pl.speed > 0.35) this.water.disturb(pl.position.x, pl.position.z, pl.state === 'swim' ? 0.4 : 0.28, Math.min(0.0028, pl.speed * 0.0007) * Math.min(2, simDt * 60));
+      const bt = this.boat;
+      if (bt && Math.abs(bt.speed || 0) > 0.3) {
+        const bf = bt.forward;
+        this.water.disturb(bt.x + bf.x * 2.2, bt.z + bf.z * 2.2, 0.5, Math.min(0.004, Math.abs(bt.speed) * 0.0012) * Math.min(2, simDt * 60));
+      }
+    }
     // (a frightening night: the houses have shuttered up, their windows dim with the gloom)
     this.world.city.setNight(this.sky.nightFactor * (1 - 0.88 * (this.sky.gloom || 0)));
     this.world.props.setNight?.(this.sky.nightFactor);

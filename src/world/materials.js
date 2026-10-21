@@ -192,7 +192,9 @@ export function makeWaterAware(material, { caustics = true, wetness = true, pudd
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
-        float wLine = uWaterLevel + 0.1 + 0.06 * sin(uTime * 0.9 + vWorldPosW.x * 0.35 + vWorldPosW.z * 0.2);
+        // (the water's edge laps up the step and drains back: Water.js LAP_GLSL, the same)
+        float wLapS = fract(uTime * 0.16 + vWorldPosW.x * 0.035 + vWorldPosW.z * 0.02);
+        float wLine = uWaterLevel + 0.06 + 0.1 * smoothstep(0.0, 0.18, wLapS) * (1.0 - smoothstep(0.18, 1.0, wLapS));
         float wWet = ${wetness ? '1.0 - smoothstep(wLine - 0.05, wLine + 0.45, vWorldPosW.y)' : '0.0'};
         diffuseColor.rgb *= mix(1.0, 0.58, wWet);
         // rain: everything darkens and turns glossy; flat stone gathers mirror puddles
@@ -231,6 +233,17 @@ export function makeWaterAware(material, { caustics = true, wetness = true, pudd
         }`
       )
       .replace(
+        '#include <aomap_fragment>',
+        `#include <aomap_fragment>
+        // under the river nothing mirrors the sky or the sun: the water above takes that light
+        // (the glossier slabs of a submerged step flashed white with it)
+        {
+          float wSub = smoothstep(0.0, 0.12, uWaterLevel - vWorldPosW.y);
+          reflectedLight.directSpecular *= 1.0 - wSub;
+          reflectedLight.indirectSpecular *= 1.0 - wSub;
+        }`
+      )
+      .replace(
         '#include <opaque_fragment>',
         `// warm light from the diyas and lamps (baked map, falls off with height above the lamps)
         if (uNightLight > 0.001) {
@@ -240,6 +253,8 @@ export function makeWaterAware(material, { caustics = true, wetness = true, pudd
             float lampY = texture2D(uNLHeight, nlUv).r * 40.0 - 5.0;
             float ndy = vWorldPosW.y - lampY;
             float fall = exp(-max(ndy, 0.0) * 0.45) * exp(min(ndy, 0.0) * 0.9);
+            // (under the river the lamps' light is taken by the water within a hand or two)
+            fall *= exp(-max(uWaterLevel - vWorldPosW.y, 0.0) * 3.0);
             outgoingLight += diffuseColor.rgb * nl * fall * uNightLight * 2.4;
           }
         }
