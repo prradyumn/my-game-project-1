@@ -233,7 +233,8 @@ export class Asura {
     }
     sys.audio.play('ember-hiss', { at: h.at, volume: 0.5, rate: 0.9 + Math.random() * 0.2 });
     if (this.state !== 'held' && this.state !== 'floored' && this.state !== 'launched') {
-      this.knock = { x: dir.x, z: dir.z, d: (h.heavy ? 0.9 : h.final ? 0.75 : 0.35) / Math.sqrt(this.scale), t: 0, strong: !!(h.heavy || h.kick || h.final || h.charged) };
+      // (a heavy blow drives it back a body's length, skidding: the weight of it you can see)
+      this.knock = { x: dir.x, z: dir.z, d: (h.heavy ? 1.5 : h.final ? 1.15 : h.kick ? 0.8 : 0.4) / Math.sqrt(this.scale), t: 0, dur: h.heavy || h.final ? 0.36 : 0.25, strong: !!(h.heavy || h.kick || h.final || h.charged) };
       // the blow shows in the body as well as the push: its own recoil while it is carried back
       // (the walk cycle would step forward under the slide, toward the one it means to reach)
       // (a shade has no recoil clip of its own: the start of its stagger, played quick, is one)
@@ -839,10 +840,16 @@ export class Asura {
     if (this.knock && !(this.freezeT > 0)) {
       const kb = this.knock;
       kb.t += dt;
+      const D = kb.dur || 0.25;
       const e = (x) => 1 - (1 - x) * (1 - x);
-      const s = (e(Math.min(1, kb.t / 0.25)) - e(Math.min(1, (kb.t - dt) / 0.25))) * kb.d;
+      const s = (e(Math.min(1, kb.t / D)) - e(Math.min(1, (kb.t - dt) / D))) * kb.d;
       this.move(kb.x * s, kb.z * s);
-      if (kb.t > 0.25) this.knock = null;
+      // a strong blow: it skids, dust off its heels
+      if (kb.strong && (kb.dustT = (kb.dustT ?? 0) - dt) <= 0 && kb.t < D * 0.8) {
+        kb.dustT = 0.06;
+        this.sys.particles.emitDust(this.pos.x - kb.x * 0.2, this.pos.y + 0.05, this.pos.z - kb.z * 0.2, 0.35, 2);
+      }
+      if (kb.t > D) this.knock = null;
     }
     // caught in the shallows (a knock, a bad step): wade back up onto the stone first
     if ((this.state === 'stalk' || this.state === 'circle' || this.state === 'approach') && sys.water.heightAt(this.pos.x, this.pos.z) - this.pos.y > this.wadeDepth * 0.78) {

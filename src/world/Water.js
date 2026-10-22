@@ -36,7 +36,7 @@ const WAVE_DATA = WAVES.map(([x, z, a, l]) => {
   return { dx: x / len, dz: z / len, a, k, c: Math.sqrt(9.81 / k), q: STEEPNESS / (k * a * WAVES.length) };
 });
 
-const HEIGHT_BOUNDS = { x0: WORLD.xMin - 30, z0: WORLD.zMin - 10, w: WORLD.xMax - WORLD.xMin + 60, h: WORLD.zMax - WORLD.zMin + 20 };
+export const HEIGHT_BOUNDS = { x0: WORLD.xMin - 30, z0: WORLD.zMin - 10, w: WORLD.xMax - WORLD.xMin + 60, h: WORLD.zMax - WORLD.zMin + 20 };
 const NEAR_SIZE = 180;
 const NEAR_SEGMENTS = 220;
 const _u = { x: 0, z: 0 };

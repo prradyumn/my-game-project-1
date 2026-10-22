@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "kind": "rig-pose",
+  "poseMode": "a-pose",
+  "passed": false,
+  "scale": 1.5218904,
+  "thresholds": {
+    "minimumElbowDegrees": 130,
+    "minimumExtensionRatio": 0.88,
+    "maximumSegmentAsymmetryRatio": 1.2,
+    "maximumElbowAsymmetryDegrees": 15,
+    "maximumWristHeightAsymmetryScale": 0.08,
+    "maximumTPoseWristShoulderDeltaScale": 0.08
+  },
+  "arms": {
+    "left": {
+      "shoulder": [
+        0.1812186,
+        1.3620245,
+        -0.0970212
+      ],
+      "elbow": [
+        0.3246838,
+        1.1732556,
+        -0.0954827
+      ],
+      "wrist": [
+        0.504342,
+        1.1811711,
+        0.0901002
+      ],
+      "upperArmLength": 0.2371041,
+      "forearmLength": 0.2584197,
+      "chainLength": 0.4955237,
+      "elbowDegrees": 113.6364152,
+      "extensionRatio": 0.8372693
+    },
+    "right": {
+      "shoulder": [
+        -0.1812186,
+        1.3582494,
+        -0.0975049
+      ],
+      "elbow": [
+        -0.3095814,
+        1.1770307,
+        -0.0998065
+      ],
+      "wrist": [
+        -0.4977181,
+        1.1812237,
+        0.0780861
+      ],
+      "upperArmLength": 0.2220867,
+      "forearmLength": 0.258957,
+      "chainLength": 0.4810437,
+      "elbowDegrees": 113.5522064,
+      "extensionRatio": 0.8375893
+    }
+  },
+  "failures": [
+    "left-elbow-below-130-degrees",
+    "left-extension-below-0.88",
+    "left-a-pose-wrist-not-below-elbow",
+    "right-elbow-below-130-degrees",
+    "right-extension-below-0.88",
+    "right-a-pose-wrist-not-below-elbow"
+  ],
+  "advisories": [
+    "left-elbow-below-130-degrees",
+    "right-elbow-below-130-degrees"
+  ]
+}

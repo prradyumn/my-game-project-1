@@ -228,7 +228,7 @@ export class Cinematics {
     // speed: a light zoom-blur through a run-in and the swing of a heavy blow
     const cm = g.combat;
     const swing = cm?.move && cm.move.name && /heavy|combo|Kick/.test(cm.move.name) && !cm.hitStop ? 0.006 : 0;
-    this.speedBlur = damp(this.speedBlur || 0, cm?.dash ? 0.016 : swing, 10, dt);
+    this.speedBlur = damp(this.speedBlur || 0, cm?.dash || cm?.roll?.fast || cm?.airDashT > 0 ? 0.016 : swing, 10, dt);
     const bl = (this.blur + slow * 0.02 + this.speedBlur) * (quiet ? 0.5 : 1);
     // the impact frame: held a few frames whole, then gone (never with Reduce flashes)
     this.frameT = Math.max(0, (this.frameT || 0) - dt);

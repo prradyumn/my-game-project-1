@@ -4,6 +4,7 @@ import { GROUPS } from '../core/Physics.js';
 import { MeshBuilder } from '../utils/MeshBuilder.js';
 import { RNG } from '../utils/math.js';
 import { windowTexture } from '../utils/textures.js';
+import { addWeathering } from './Weathering.js';
 import { frameAtX, frameToWorld } from './WorldLayout.js';
 import { shiny, surfaceMaterial } from './materials.js';
 import { buildTemple, chhatri, shikhara } from './Temple.js';
@@ -225,8 +226,14 @@ export function buildCity(layout, textures, physics) {
 
   // Meshes
   // water-aware = also receives the baked night light (no cost by day)
+  // (and the monsoon's marks on them: Weathering.js; ?noweather to compare)
+  const weather = typeof location === 'undefined' || !/[?&]noweather/.test(location.search);
   const plasterMat = surfaceMaterial(textures.plaster, { normalScale: 0.9 });
   const stoneMat = surfaceMaterial(textures.stone, { normalScale: 1.0 });
+  if (weather) {
+    addWeathering(plasterMat, { streaks: 1, grime: 1, patches: 1 });
+    addWeathering(stoneMat, { streaks: 0.7, grime: 0.9, patches: 0.5 });
+  }
   const goldMat = shiny(new THREE.MeshStandardMaterial({ color: 0xffbf52, metalness: 1, roughness: 0.28, vertexColors: true }));
   const carvedMat = surfaceMaterial(textures.carving || textures.stone, { normalScale: 1.4 });
   // At night the temples are floodlit (warm uplight on the carvings) and the gold spires glow.

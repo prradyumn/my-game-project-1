@@ -11,6 +11,11 @@ import { CharacterAnimator } from '../gameplay/CharacterAnimator.js';
 import { MooredBoats, PlayerBoat, prepareBoatGeometry, proceduralBoatGeometry } from '../gameplay/Boats.js';
 import { Player } from '../gameplay/Player.js';
 import { Afterimages } from '../world/Afterimages.js';
+import { GrassField, WildBank, addGrassGround } from '../world/Grass.js';
+import { ShivaStatue } from '../world/ShivaStatue.js';
+import { SacredTrees } from '../world/Trees.js';
+import { Streamer } from './Streaming.js';
+import { HEIGHT_BOUNDS } from '../world/Water.js';
 import { ComboHUD } from '../ui/ComboHUD.js';
 import { PradyActions } from '../gameplay/Actions.js';
 import { ClothSway } from '../gameplay/ClothSway.js';
@@ -179,6 +184,10 @@ export class Game {
     const pMixamo = M.character.mixamo ? assets.track(fetch(M.character.mixamo).then((r) => (r.ok ? r.json() : null))) : null;
     const pBoat = assets.gltfAsync(M.boat);
     const pBoatLod = assets.gltfAsync(M.boatLod);
+    // (the statue, Nandi and the trees start as their stand-ins; Streaming brings the full ones)
+    const pShiva = assets.gltfAsync(M.shivaStatueLod);
+    const pNandi = assets.gltfAsync(M.nandiLod);
+    const pPeepal = assets.gltfAsync(M.peepalLod);
     const pTex = Object.fromEntries(Object.entries(M.textures).map(([k, url]) => [k, assets.image(url)]));
     const pPbr = Object.fromEntries(Object.entries(M.pbr || {}).map(([k, s]) => [k, Promise.all([assets.image(s.map), assets.image(s.normal), assets.image(s.arm)])]));
     this.audio = new AudioManager();
@@ -272,6 +281,15 @@ export class Game {
     this.ambient = new AmbientLife(scene); // moths at the lamps, ash off the pyres, incense
     this.decals = new Decals(scene); // cracks, paan, soot, kumkum, Om, rangoli on the stone
     this.vegetation = new Vegetation(scene, this.rs.qualityName); // reeds on the banks (grass by the walls: plantGrass, once rays answer)
+    // the wild banks: a carpet of grass round the camera, kans grass and scrub on the sand
+    this.grass = new GrassField(scene, { heightTex: this.water.uniforms.uHeightTex.value, bounds: HEIGHT_BOUNDS, quality: this.rs.qualityName });
+    this.wild = new WildBank(scene, this.rs.qualityName);
+    if (this.grass.mesh) {
+      this.water.skipInReflection(this.grass.mesh);
+      const terr = scene.getObjectByName('terrain');
+      const sandMat = Array.isArray(terr?.material) ? terr.material[0] : terr?.material;
+      if (sandMat) addGrassGround(sandMat, this.grass.mapTex, HEIGHT_BOUNDS);
+    }
     scene.add(this.wake.mesh, this.flowers.mesh);
     this.underwater = new Underwater({ water: this.water, quality: this.rs.qualityName });
     scene.add(this.underwater.group);
@@ -324,6 +342,14 @@ export class Game {
     const lodGeo = (lodG && prepareBoatGeometry(lodG.scene)) || boatGeo;
     if (lodGeo !== boatGeo) makeWaterAware(lodGeo.material, { wetness: false, puddles: false });
     this.moored = new MooredBoats(lodGeo, this.world.layout.boats.moored);
+    this.shiva = new ShivaStatue({ scene, physics, textures, gltf: await pShiva, nandi: await pNandi });
+    this.trees = new SacredTrees({ scene, physics, gltf: await pPeepal, quality: this.rs.qualityName });
+    // level streaming: the full models in as Prady comes within reach, out once he is well away
+    this.streamer = new Streamer(assets);
+    const sh = this.shiva;
+    this.streamer.add({ name: 'shiva', at: sh.center, near: 420, far: 560, url: M.shivaStatue, apply: (g) => sh.setDetail('shiva', g), drop: () => sh.setDetail('shiva', null) });
+    this.streamer.add({ name: 'nandi', at: sh.center, near: 170, far: 250, url: M.nandi, apply: (g) => sh.setDetail('nandi', g), drop: () => sh.setDetail('nandi', null) });
+    this.streamer.add({ name: 'trees', distance: (p) => this.trees.distance(p), near: 200, far: 290, url: M.peepal, apply: (g) => this.trees.setDetail(g), drop: () => this.trees.setDetail(null) });
     // solid hulls: a swimmer goes round them (or climbs aboard), never through
     // the moored hulls as they are built (measured off the boat model, the same for all): the
     // bottom boards, the sides to the gunwale, three thwarts and the raised decks at bow and stern.
@@ -367,6 +393,19 @@ export class Game {
     // loose things that tumble, shatter and float (pots, lotas, baskets)
     this.looseProps = new PhysicsProps(this);
     this.player = new Player({ physics, water: this.water, model: this.character, animator: this.animator, start, fx: this.fx });
+    // the double jump: not while a move owns the air (the air combo, the leap after a launched
+    // one, a plunge, a vault, a wall run), nor in the water
+    this.player.canAirJump = () => {
+      const c = this.combat;
+      return !!c && !c.air && !c.chase && !c.plunge && !c.arc && !c.move && !c.dead && this.player.state === 'air' && !this.player.inputLocked && !this.traversal?.act;
+    };
+    this.player.onAirJump = () => {
+      const A = this.animator.clipActions;
+      // a front flip: the backflip played backwards from its landing (as the vault)
+      if (A.backFlip) this.animator.play('backFlip', { reverse: true, at: 1.66, timeScale: 2.5, fadeIn: 0.06, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true });
+      this.audio.play('whoosh', { volume: 0.6, rate: 1.15 });
+      this.afterimages?.spawn(this.character, { extras: this.combat?.armed ? [this.combat.sword] : [], color: [1.4, 1.1, 0.7], life: 0.3, alpha: 0.35 });
+    };
     this.camRig.excludeCollider = this.player.collider;
     this.actions = new PradyActions(this.player, {
       scene,
@@ -1399,6 +1438,14 @@ export class Game {
     this.weather.update(simDt, { sky: this.sky, underwater: this._under, hours: this.sky.hours });
     this.pradyWet.value = this.actions?.wet ?? 0;
     this.water.update(simDt, this.camera, this.sky);
+    this.grass?.update(this.camera);
+    if (this.player) {
+      this.streamer?.update(simDt, this.player.position);
+      if ((this._treeT = (this._treeT ?? 0) - simDt) <= 0) {
+        this._treeT = 0.5;
+        this.trees?.update(this.player.position);
+      }
+    }
     // the river stirred as things move through it (WaterRipples): Prady wading or swimming, the
     // bow of the boat he rows
     {
@@ -1508,8 +1555,8 @@ export class Game {
       this.damageNumbers.update(dt, this.camera);
       this.afterimages.update(dt);
       this.comboHud.update(dt);
-      // the run-in at one: faint saffron shadows left behind him (speed you can see)
-      if (this.combat?.dash && this.state === 'play') {
+      // the run-in at one, a dash, an air dash: faint shadows left behind him (speed you can see)
+      if ((this.combat?.dash || this.combat?.roll?.fast || this.combat?.airDashT > 0) && this.state === 'play') {
         this._ghostT = (this._ghostT ?? 0) - dt;
         if (this._ghostT <= 0) {
           this._ghostT = 0.055;
@@ -1942,6 +1989,7 @@ export class Game {
       // the weight of it on screen: every blow knocks the lens along the cut a little; a heavy,
       // charged, final or killing blow jolts the frame (a punch of the lens, a shudder)
       const big = data.heavy || data.charged || data.riposte || data.killed || data.final;
+      if (data.crit) this.audio.play('art-crit', { at: data.at, volume: 0.6, rate: 0.95 + Math.random() * 0.1 });
       // (an art's sweep strikes many at once: its own jolt, in onArt, not one per body)
       if (data.dir && !data.aoe) this.camRig.kick(data.dir, big ? 0.07 : 0.03);
       if (!data.aoe) {
@@ -2040,6 +2088,13 @@ export class Game {
     }
     if (type === 'shielded') this.camRig.shake(0.16);
     if (type === 'chain') this.comboHud.chain(data.chain, data.art);
+    // the agility moves kick up the ground they leave
+    if ((type === 'dodge' && data.fast) || type === 'airDash') {
+      const P = this.player.position;
+      if (type === 'dodge') this.asuras?.particles.emitDust(P.x, this.player.feetY + 0.05, P.z, 0.5, 6);
+      this.camRig.punch?.(0.12);
+    }
+    if (type === 'launch') this.audio.play('art-launch', { at: data.at, volume: 0.85 });
     if (type === 'shadowStep') this.onShadowStep(data);
     if (type === 'echo') this.onShadowEcho(data);
     if (type === 'art') this.onArt(data);
@@ -2078,8 +2133,8 @@ export class Game {
       V.flash(b, 1.5, { color: [0.8, 1.2, 3.0], life: 0.18 });
       V.zaps(b, 3, { size: 1.1, spread: 0.5, life: 0.2 });
     }
-    this.audio.play('whoosh', { volume: 0.85, rate: 1.65 });
-    this.audio.play('glint', { volume: 0.7, rate: 0.8 });
+    this.audio.play('art-shadowstep', { volume: 0.9 });
+    this.audio.play('glint', { volume: 0.4, rate: 0.8 });
     this.cinematics?.impact(0.3, { x: to.x, y: to.y + 1.1, z: to.z });
     this.camRig.punch?.(0.25);
     this.haptics.play('hit');
@@ -2098,7 +2153,7 @@ export class Game {
       V.sparks(at, { x: dx / l, y: 0.3, z: dz / l }, 14, { speed: 7, color: [1.2, 1.8, 3.2] });
       V.lightning(new THREE.Vector3(from.x, from.y + 1.1, from.z), new THREE.Vector3(at.x, at.y, at.z), { color: [0.5, 0.85, 2.8], width: 0.06, life: 0.16, jag: 0.15 });
     }
-    this.audio.play(sword ? 'blade-whoosh' : 'whoosh', { volume: 0.7, rate: 1.25 + i * 0.1 });
+    this.audio.play('art-echo', { volume: 0.75, rate: 1 + i * 0.08 });
     this.camRig.shake(0.1);
   }
 
@@ -2112,7 +2167,7 @@ export class Game {
       V?.slash(c.clone().setY(at.y + 0.7), VFX.flatFrame(yaw + 1.2, -0.1), { r: R * 0.62, w: 0.45, arc: Math.PI * 2, color: [2.2, 1.3, 0.4], core: [2.8, 2.1, 1.0], dur: 0.26, tail: 0.7 });
       V?.shockwave(at, R * 1.1, { color: [1.2, 1.5, 1.8], dur: 0.45 });
       this.asuras?.particles.emitDust(at.x, at.y, at.z, R * 0.6, 12);
-      this.audio.play('heavy-whoosh', { volume: 0.9, rate: 1.2 });
+      this.audio.play('art-spin', { volume: 0.95 });
       this.camRig.punch?.(0.35);
       this.camRig.shake(0.2);
       return;
@@ -2134,8 +2189,8 @@ export class Game {
     if (!this.settings.reduceFlashes) this.ui.flash();
     this.camRig.punch?.(0.8);
     this.camRig.shake(0.7);
-    this.audio.play('thump', { volume: 1, rate: 0.45 });
-    this.audio.play('heavy-hit', { volume: 0.9, rate: 0.7 });
+    this.audio.play('art-tandava', { volume: 1 });
+    this.audio.play('thump', { volume: 0.8, rate: 0.45 });
     this.audio.hitDuck?.(0.3);
     this.haptics.play('heavyHit');
     this.animals?.startle(at.x, at.z, 14);
@@ -2424,7 +2479,12 @@ export class Game {
     if (dodge) {
       const c = this.player.cmd;
       this.combat.dodge(c.mag > 0.2 ? { x: c.wish.x, z: c.wish.z } : null);
+    } else if ((input.hit('KeyC') || input.hit('ControlLeft') || (input.hit('Pad1') && !lt)) && this.player.state === 'air') {
+      // in the air: the air dash
+      const c = this.player.cmd;
+      this.combat.airDash(c.mag > 0.2 ? { x: c.wish.x, z: c.wish.z } : null);
     }
+    this.combat.engaged = this.inCombat || !!this.combat.lockTarget;
     if (input.hit('Tab') || input.hit('Pad11')) this.lockOn.toggle();
     if ((input.hit('Space') || input.hit('Pad0')) && this.player.state === 'boat') {
       // in the race, Space is the stroke's catch; otherwise it's over the side

@@ -226,6 +226,15 @@ export class Player {
           this.jumpCut = true;
         } else vel.y = this.grounded ? -2 : vel.y + PLAYER.gravity * dt;
       } else {
+        // the double jump: once in the air, a second leap (a front flip), if nothing else owns
+        // the air (Game: canAirJump)
+        if (this.jumpBuffer > 0 && (this.airJumps ?? 0) > 0 && this.canAirJump?.()) {
+          this.airJumps--;
+          this.jumpBuffer = 0;
+          vel.y = PLAYER.jumpSpeed;
+          this.jumpCut = false;
+          this.onAirJump?.();
+        }
         // (gravScale: Combat's air combo hangs him at the top of a leap)
         vel.y += PLAYER.gravity * (vel.y < 0 ? M.fallGravityScale : 1) * (this.gravScale ?? 1) * dt;
         if (this.jumpCut && !c.jumpHeld && vel.y > 0) {
@@ -368,9 +377,15 @@ export class Player {
       this.airTime += dt;
       if (this.airTime > 0.12) this.state = 'air';
     } else this.airTime = 0;
+    if (this.state === 'ground' && this.grounded) {
+      this.airJumps = 1;
+      this.airDashes = 1;
+    }
     if (this.state === 'air' && this.grounded && vel.y <= 0) {
       const impact = -vel.y;
       this.state = 'ground';
+      this.airJumps = 1;
+      this.airDashes = 1;
       if (!wasGrounded) {
         this.fx.land?.(impact);
         if (impact > 7) this.landTimer = 0.22;

@@ -127,6 +127,15 @@ export const ASSET_MANIFEST = {
   },
   boat: `${A}/opt/models/boat-game-1k.glb`, // the boat you ride (1K textures, 23.7k tris)
   boatLod: `${A}/opt/models/boat-lod.glb`, // moored boats (simplified to 3.5k tris)
+  // Shiva in meditation past Assi (Genex model from a generated reference image; the 27 MB
+  // original in /source-assets/shiva, baked to 117k tris, 2K WebP textures, meshopt: 3 MB)
+  shivaStatue: `${A}/opt/models/shiva-statue.glb`,
+  nandi: `${A}/opt/models/nandi.glb`, // (Genex; 74k tris, 2K WebP: 1.5 MB)
+  peepal: `${A}/opt/models/peepal.glb`, // sacred peepal with its platform (Genex; 35k tris: 1.25 MB)
+  // their stand-ins, loaded with the game (the full ones above stream in near: Streaming.js)
+  shivaStatueLod: `${A}/opt/models/shiva-statue-lod.glb`, // (8k tris, 512 textures: 0.28 MB)
+  nandiLod: `${A}/opt/models/nandi-lod.glb`, // (0.11 MB)
+  peepalLod: `${A}/opt/models/peepal-lod.glb`, // (0.41 MB)
   // the ghats' animals: Genex models, quadruped-rigged, one walk clip each (in place, 2.6 s);
   // baked to 1K WebP textures + meshopt from /source-assets/animals. front: the yaw that turns
   // the model's nose to +Z; scale: metres per model unit; stride: model units per second the
@@ -287,6 +296,13 @@ export const ASSET_MANIFEST = {
     block: `${A}/audio/sfx/block-impact.mp3`,
     hurt: `${A}/audio/sfx/body-hit.mp3`,
     'heavy-hit': `${A}/audio/sfx/heavy-hit.mp3`,
+    // the combo arts (Genex sfx)
+    'art-shadowstep': `${A}/audio/sfx/shadow-step-teleport-a-sharp-electric-wh-cmvijhyb.mp3`,
+    'art-spin': `${A}/audio/sfx/fast-sword-spin-a-whirling-wind-whoosh-c-cmviji0d.mp3`,
+    'art-tandava': `${A}/audio/sfx/massive-ground-slam-a-deep-boom-of-stone-cmviji2j.mp3`,
+    'art-launch': `${A}/audio/sfx/a-quick-rising-sword-whoosh-launching-up-cmviji4i.mp3`,
+    'art-crit': `${A}/audio/sfx/crisp-critical-sword-hit-a-bright-metall-cmviji6l.mp3`,
+    'art-echo': `${A}/audio/sfx/ghostly-echo-sword-slash-a-thin-shimmeri-cmviji8n.mp3`,
     'shield-clang': `${A}/audio/sfx/shield-clang.mp3`,
     // cinematic beats: the finisher's slow motion in and its last blow
     'slowmo-swell': `${A}/audio/sfx/slowmo-swell.mp3`,

@@ -407,6 +407,31 @@ export class Combat {
     this.press('L');
   }
 
+  /**
+   * The air dash: a burst through the air the way he steers (or the way he faces), a somersault
+   * in it, hung for a beat before he falls again; once per leap (Player.airDashes).
+   */
+  airDash(wish) {
+    const p = this.p;
+    if (p.state !== 'air' || this.dead || this.air || this.chase || this.plunge || !(p.airDashes > 0)) return false;
+    p.airDashes--;
+    let dx = wish?.x ?? Math.sin(p.yaw);
+    let dz = wish?.z ?? Math.cos(p.yaw);
+    const l = Math.hypot(dx, dz) || 1;
+    dx /= l;
+    dz /= l;
+    p.velocity.x = dx * 11;
+    p.velocity.z = dz * 11;
+    p.velocity.y = Math.max(p.velocity.y, 1.2);
+    p.yaw = Math.atan2(dx, dz);
+    p.gravScale = 0.15;
+    this.airDashT = 0.2;
+    if (this.anim.clipActions.dodgeRoll) this.anim.play('dodgeRoll', { fadeIn: 0.05, fadeOut: 0.2, cancelOnMove: false, noLook: true, noFootIK: true, at: 0.25, timeScale: 2.6 });
+    this.audio.play('whoosh', { volume: 0.7, rate: 1.4 });
+    this.onEvent('airDash', {});
+    return true;
+  }
+
   /** A strike straight out of a roll or the backflip, the moment he is on his feet: a kick out of
    *  the roll bare-handed, a lunging thrust with the talwar (a counter, after a perfect dodge). */
   rollAttack() {
@@ -718,6 +743,25 @@ export class Combat {
     const flip = back && !!this.anim.clipActions.backFlip;
     // straight out to his side: an aerial that way (a no-hands cartwheel), still facing his foe
     const lat = back ? 0 : dx * Math.cos(p.yaw) - dz * Math.sin(p.yaw); // (+: toward his left hand)
+    const fwd = back ? -1 : dx * Math.sin(p.yaw) + dz * Math.cos(p.yaw);
+    const A = this.anim.clipActions;
+    // in a fight: the quick ways out (as the action games dash): a hop to the side, still facing
+    // the foe, and a step straight back; out of one, a cartwheel or a roll as before
+    if (this.engaged && !back) {
+      const hop = Math.abs(lat) > 0.7 ? (lat > 0 ? 'mxHopL' : 'mxHopR') : null;
+      const step = fwd < -0.6 && A.dodgeBack ? 'dodgeBack' : null;
+      const qc = hop && A[hop] ? hop : step;
+      if (qc) {
+        const dur = qc === 'dodgeBack' ? 0.36 : 0.3;
+        this.roll = { t: 0, dur, dir: { x: dx, z: dz }, dist: (qc === 'dodgeBack' ? 3.0 : 3.4) * (this.perks.windStep ? 1.3 : 1), yaw: p.yaw, clip: qc, done: 0, air: null, fast: true };
+        const clipDur = A[qc].getClip().duration;
+        // (the hop's own lead-in skipped: off the mark at once)
+        this.anim.play(qc, { fadeIn: 0.05, fadeOut: 0.16, cancelOnMove: false, noLook: true, noFootIK: true, at: qc === 'dodgeBack' ? 0 : clipDur * 0.22, timeScale: (clipDur * (qc === 'dodgeBack' ? 1 : 0.62)) / dur });
+        this.audio.play('whoosh', { volume: 0.5, rate: 1.3 });
+        this.onEvent('dodge', { fast: true });
+        return true;
+      }
+    }
     const aerial = Math.abs(lat) > 0.75 ? (lat > 0 ? 'aerialL' : 'aerialR') : null;
     const side = !!(aerial && this.anim.clipActions[aerial]);
     const clip = flip ? 'backFlip' : side ? aerial : back && this.anim.clipActions.dodgeBack ? 'dodgeBack' : this.anim.clipActions.dodgeRoll ? 'dodgeRoll' : null;
@@ -1062,6 +1106,10 @@ export class Combat {
     }
     if (this.air) this.airStep(dt);
     if (this.echo) this.echoStep(dt);
+    if (this.airDashT > 0) {
+      this.airDashT -= dt;
+      if (this.airDashT <= 0 && !this.air) this.p.gravScale = 1;
+    }
     if (this.pendingDodge) {
       if (this.time > this.pendingDodge.until) this.pendingDodge = null;
       else if (this.dodge(this.pendingDodge.wish, true)) this.pendingDodge = null;
@@ -1836,7 +1884,7 @@ export class Combat {
       }
       // a shadow-step's blow never misses the one it blinked onto (last, after the edge itself)
       const T = mv.tgt;
-      if (m.teleport && T?.alive && Math.hypot(T.pos.x - p.position.x, T.pos.z - p.position.z) < 2.6) pts.push(new THREE.Vector3(T.pos.x, T.pos.y + (T.height || 1.7) * 0.55, T.pos.z));
+      if ((m.teleport || m.launch) && T?.alive && Math.hypot(T.pos.x - p.position.x, T.pos.z - p.position.z) < 2.6) pts.push(new THREE.Vector3(T.pos.x, T.pos.y + (T.height || 1.7) * 0.55, T.pos.z));
       for (const pt of pts) {
         const t = this.targets.touching(pt, h.blade ? 0.08 : 0.14);
         if (!t) {

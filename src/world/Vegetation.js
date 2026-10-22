@@ -145,6 +145,31 @@ export class Vegetation {
         }
       }
     }
+    // ---- weeds in the joints of the steps: where a riser meets the tread below it (the damp
+    // lower flights most), small tufts against the stone
+    const risers = [];
+    for (let v = 0.2, prev = ghatHeight(0.2); v < PROFILE_LEN - 0.3; v += 0.04) {
+      const h = ghatHeight(v);
+      if (prev - h > 0.08) risers.push(v + 0.04);
+      prev = h;
+    }
+    for (const g of GHAT_SEGMENTS) {
+      const n = Math.round(55 * k);
+      for (let i = 0; i < n; i++) {
+        // (more of them toward the water: the low steps stay damp)
+        const r = risers[Math.min(risers.length - 1, Math.floor(Math.pow(rng.next(), 0.55) * risers.length))];
+        if (r === undefined) break;
+        const v = r + rng.range(0.02, 0.07);
+        const y = ghatHeight(v);
+        if (y < 0.25) continue;
+        const u = rng.range(0.6, g.width - 0.6);
+        const cl = 1 + Math.floor(rng.next() * 3);
+        for (let j = 0; j < cl; j++) {
+          const w = ghatToWorld(g, u + rng.range(-0.25, 0.25), v + rng.range(0, 0.04));
+          grass.push({ x: w.x, y, z: w.z, s: rng.range(0.1, 0.24), tone: rng.next() });
+        }
+      }
+    }
     this.grass = this.build(this.scene, grass, tuftGeometry(7, 0.12), swayMaterial(0.5), ['#4d6b2a', '#6b7d34', '#8a8a3e', '#5a7a30'], 'veg-grass');
   }
 
