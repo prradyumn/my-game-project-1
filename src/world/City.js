@@ -5,6 +5,7 @@ import { MeshBuilder } from '../utils/MeshBuilder.js';
 import { RNG } from '../utils/math.js';
 import { windowTexture } from '../utils/textures.js';
 import { addWeathering } from './Weathering.js';
+import { windowMaterial } from './Windows.js';
 import { frameAtX, frameToWorld } from './WorldLayout.js';
 import { shiny, surfaceMaterial } from './materials.js';
 import { buildTemple, chhatri, shikhara } from './Temple.js';
@@ -33,6 +34,8 @@ export function buildCity(layout, textures, physics) {
   const carved = new MeshBuilder();
   const windowsDark = [];
   const windowsLit = [];
+  const wallsDark = []; // (each window's house colour: its reveal is painted the same)
+  const wallsLit = [];
   const balconies = [];
   const tanks = [];
   const flags = [];
@@ -49,7 +52,9 @@ export function buildCity(layout, textures, physics) {
     const p = local(b, lx, lz);
     _q.setFromAxisAngle(_up, b.yaw + yaw);
     _m.compose(_p.set(p.x, y, p.z), _q, _s.set(w, h, 1));
-    (rng.chance(litChance) ? windowsLit : windowsDark).push(_m.clone());
+    const lit = rng.chance(litChance);
+    (lit ? windowsLit : windowsDark).push(_m.clone());
+    (lit ? wallsLit : wallsDark).push(b.color);
     return { p, yaw: b.yaw + yaw };
   };
 
@@ -260,11 +265,11 @@ export function buildCity(layout, textures, physics) {
 
   const winGeo = new THREE.PlaneGeometry(1, 1);
   const winTex = windowTexture({ lit: false });
-  const litTex = windowTexture({ lit: true });
-  const winMat = new THREE.MeshStandardMaterial({ map: winTex, alphaTest: 0.5, roughness: 0.55 });
-  const litMat = new THREE.MeshStandardMaterial({ map: winTex, emissiveMap: litTex, emissive: 0xffffff, emissiveIntensity: 0, alphaTest: 0.5, roughness: 0.55 });
-  group.add(instanced(winGeo, winMat, windowsDark, 'windows'));
-  const litMesh = instanced(winGeo, litMat, windowsLit, 'windows-lit');
+  // (recessed, shuttered, with rooms behind: Windows.js)
+  const winMat = windowMaterial({ map: winTex });
+  const litMat = windowMaterial({ map: winTex, lit: true });
+  group.add(instanced(withWallColours(winGeo, wallsDark), winMat, windowsDark, 'windows'));
+  const litMesh = instanced(withWallColours(winGeo, wallsLit), litMat, windowsLit, 'windows-lit');
   group.add(litMesh);
   const balcMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, map: textures.wood?.map || null, normalMap: textures.wood?.normalMap || null });
   const balcMesh = instanced(balconyGeo, balcMat, balconies, 'balconies');
@@ -279,12 +284,21 @@ export function buildCity(layout, textures, physics) {
     flags,
     bells,
     setNight(n) {
-      litMat.emissiveIntensity = n * 2.2;
+      litMat.setNight(n);
       carvedMat.emissiveIntensity = n * 0.32;
       goldMat.emissiveIntensity = n * 0.4;
     },
     stats: { windows: windowsDark.length + windowsLit.length, balconies: balconies.length },
   };
+}
+
+function withWallColours(geo, colours) {
+  const g = geo.clone();
+  const a = new Float32Array(Math.max(1, colours.length) * 3);
+  const c = new THREE.Color();
+  colours.forEach((hex, i) => c.set(hex).toArray(a, i * 3));
+  g.setAttribute('aWall', new THREE.InstancedBufferAttribute(a, 3));
+  return g;
 }
 
 function instanced(geo, mat, matrices, name) {

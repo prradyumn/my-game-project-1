@@ -9,6 +9,7 @@ export const WORLD_UNIFORMS = {
   uPushVel: { value: new THREE.Vector3() },
   uWaterLevel: { value: WATER_LEVEL },
   uSunColor: { value: new THREE.Color(1, 1, 1) },
+  uSunDir: { value: new THREE.Vector3(0, 1, 0) }, // toward the sun, world space
   uCaustics: { value: 1 },
   uPurity: { value: 0 },
   uUnderwaterColor: { value: new THREE.Color(0.05, 0.08, 0.06) },

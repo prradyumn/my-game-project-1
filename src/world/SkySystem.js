@@ -6,6 +6,8 @@ import { lerp, smoothstep } from '../utils/math.js';
 import { moonTexture } from '../utils/textures.js';
 import { FOG } from './Atmosphere.js';
 
+const _skyBounce = new THREE.Color();
+
 // Day/night cycle. The sun rises over the river (+Z, east), passes high to the south (-X)
 // and sets behind the city (-Z, west) — exactly like dawn on the real ghats.
 
@@ -71,6 +73,13 @@ export class SkySystem {
     this.envSky.scale.setScalar(50);
     this.envSky.material = this.sky.material;
     this.envScene.add(this.envSky);
+    // and the ground beneath it: sunlit sandstone, the river, the far bank. The sky alone painted
+    // the whole lower half of the environment blue, so every shade (under a ledge, a temple's
+    // white side) came out cold; real shade on the ghats is half lit by warm light off the stone
+    this.envGround = new THREE.Mesh(new THREE.CircleGeometry(24, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+    this.envGround.position.y = -1;
+    this.envScene.add(this.envGround);
+    this.groundK = 4; // (in the sky shader's own units: matched by eye on a white wall in shade)
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.envRT = null;
     this.lastEnvSunY = -9;
@@ -289,6 +298,9 @@ export class SkySystem {
       this.lastEnvSunY = elev;
       this.lastEnvOvercast = oc;
       const old = this.envRT;
+      // (sandstone and river under this sun and sky: albedo x light, the sky's share greyer)
+      const sunOn = smoothstep(-0.02, 0.1, elev) * Math.max(0, elev) * (1 - 0.75 * oc);
+      this.envGround.material.color.setRGB(0.42, 0.34, 0.25).multiply(this.sunColor).multiplyScalar(this.groundK * sunOn).add(_skyBounce.setRGB(0.05, 0.05, 0.05).multiplyScalar(this.groundK * day));
       this.envRT = this.pmrem.fromScene(this.envScene, 0, 0.1, 100);
       this.scene.environment = this.envRT.texture;
       if (old) old.dispose();

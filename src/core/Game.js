@@ -1450,6 +1450,7 @@ export class Game {
     }
     WORLD_UNIFORMS.uSunColor.value.copy(this.sky.sunColor).multiplyScalar(Math.min(1.2, this.sky.sun.intensity / 3.0) + 0.05);
     WORLD_UNIFORMS.uCaustics.value = this.sky.sunDir.y > 0 ? 1 : 0.15;
+    WORLD_UNIFORMS.uSunDir.value.copy(this.sky.sunDir);
     this.weather.applyToSky(this.sky, this.scene);
     this.weather.update(simDt, { sky: this.sky, underwater: this._under, hours: this.sky.hours });
     this.pradyWet.value = this.actions?.wet ?? 0;

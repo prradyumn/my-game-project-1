@@ -6,7 +6,7 @@ import { BlendFunction, Effect, EffectAttribute } from 'postprocessing';
 // each pixel a short ray walks toward the sun through the depth buffer; if the scene stands in
 // front of it within a hand's thickness, the pixel is in a contact shadow. Sharpest where the
 // occluder is nearest (the walk stops at the first hit and fades with distance along it), gone
-// past 60 m (where the shadow map's own detail is all there is to see). HDR, before the tone map;
+// past 42 m (where the shadow map's own detail is all there is to see). HDR, before the tone map;
 // strength follows the sun (Game: setSun).
 
 const fragment = /* glsl */ `
@@ -29,6 +29,18 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   float z0 = csZ(depth);
   if (-z0 > 42.0) return;
   vec3 P = csView(uv, depth);
+  // the surface's normal from its neighbours (the nearer one on each axis, so an edge doesn't
+  // borrow the background's slope): only what faces the sun can have a sunlit contact shadow;
+  // a face turned away is already in the shadow map's shade, and darkening it again blackened
+  // whole walls and left a dotted fringe where the ray slipped past their edges
+  vec3 Px1 = csView(uv + vec2(texelSize.x, 0.0), readDepth(uv + vec2(texelSize.x, 0.0)));
+  vec3 Px0 = csView(uv - vec2(texelSize.x, 0.0), readDepth(uv - vec2(texelSize.x, 0.0)));
+  vec3 Py1 = csView(uv + vec2(0.0, texelSize.y), readDepth(uv + vec2(0.0, texelSize.y)));
+  vec3 Py0 = csView(uv - vec2(0.0, texelSize.y), readDepth(uv - vec2(0.0, texelSize.y)));
+  vec3 dx = abs(Px1.z - P.z) < abs(P.z - Px0.z) ? Px1 - P : P - Px0;
+  vec3 dy = abs(Py1.z - P.z) < abs(P.z - Py0.z) ? Py1 - P : P - Py0;
+  float ndl = dot(normalize(cross(dx, dy)), uL);
+  if (ndl < 0.06) return;
   float dist = -P.z;
   float L = uLen * (0.7 + dist * 0.025);
   const int N = 10;
@@ -49,7 +61,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
       break;
     }
   }
-  float fade = 1.0 - smoothstep(26.0, 42.0, dist);
+  float fade = (1.0 - smoothstep(26.0, 42.0, dist)) * smoothstep(0.06, 0.3, ndl);
   outputColor = vec4(inputColor.rgb * (1.0 - occ * uK * fade), inputColor.a);
 }
 `;
