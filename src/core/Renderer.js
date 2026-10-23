@@ -4,6 +4,7 @@ import { N8AOPostPass } from 'n8ao';
 import { QUALITY_PRESETS } from '../config.js';
 import { clamp } from '../utils/math.js';
 import { ColorGradeEffect } from './Grading.js';
+import { AerialPerspectiveEffect } from './Aerial.js';
 import { ContactShadowEffect } from './ContactShadows.js';
 import { WetReflectionEffect } from './WetReflections.js';
 import { PainterlyEffect } from './Painterly.js';
@@ -120,6 +121,9 @@ export class RenderSystem {
     // contact shadows first: on the scene's own light, before haze, bloom and the tone map
     this.contact = typeof location !== 'undefined' && /[?&]nocontact/.test(location.search) ? null : new ContactShadowEffect(camera);
     if (this.contact) effects.push(this.contact);
+    // then the sunlight the air scatters toward the lens (Aerial.js; ?noaerial to compare)
+    this.aerial = typeof location !== 'undefined' && /[?&]noaerial/.test(location.search) ? null : new AerialPerspectiveEffect();
+    if (this.aerial) effects.push(this.aerial);
     // sun shafts through the havelis, umbrellas and mist at sunrise / sunset (not on Low); in a
     // pass of their own so they cost nothing (no light pass, no blur) when the sun is high or set
     if (this.qualityName !== 'low') {

@@ -1715,6 +1715,14 @@ export class Game {
       const amount = (0.25 + 0.75 * low) * (e > -0.04 ? 1 : 0) * (1 - (this.weather?.overcast ?? 0));
       this.rs.updateGodRays(this.camera, this.sky.sunDir, this.sky.sunColor, amount);
     }
+    // the air lit by the sun: strongest with the sun low, a faint warmth at noon, gone under cloud,
+    // at night and under water
+    if (this.rs.aerial) {
+      const e = this.sky.sunDir.y;
+      const s0 = Math.max(0, Math.min(1, (e + 0.04) / 0.08));
+      const low = 1 - Math.max(0, Math.min(1, (e - 0.08) / 0.42));
+      this.rs.aerial.set(this.camera, this.sky.sunDir, this.sky.sunColor, s0 * (0.3 + 0.7 * low) * (1 - 0.8 * (this.weather?.overcast ?? 0)) * (this._under ? 0 : 1));
+    }
     this.world.street.update(1 - this.sky.nightFactor);
     this.lanterns.update(simDt, { night: this.sky.nightFactor, festival: this.festival.tonight, aarti: this.quest.eveningAarti || this.quest.aartiLit, hours: this.sky.hours });
     this.fireworks.update(simDt, { camera: this.camera, pixelRatio: pr, night: this.sky.nightFactor, festival: this.festival.tonight, raining: (this.weather?.rain ?? 0) > 0.3 });
