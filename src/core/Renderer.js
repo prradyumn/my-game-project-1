@@ -5,6 +5,7 @@ import { QUALITY_PRESETS } from '../config.js';
 import { clamp } from '../utils/math.js';
 import { ColorGradeEffect } from './Grading.js';
 import { ContactShadowEffect } from './ContactShadows.js';
+import { WetReflectionEffect } from './WetReflections.js';
 import { PainterlyEffect } from './Painterly.js';
 import { HazeEffect } from './Haze.js';
 import { HeatShimmerEffect } from './HeatShimmer.js';
@@ -92,6 +93,15 @@ export class RenderSystem {
       composer.addPass(ao);
       this.ao = ao;
     } else this.ao = null;
+    // reflections in wet stone and puddles (WetReflections.js: its own pass, before the tone
+    // map; Game switches it on only where something can be wet; ?nossr to compare)
+    if (q.ssr && !(typeof location !== 'undefined' && /[?&]nossr/.test(location.search))) {
+      this.wet = new WetReflectionEffect(camera);
+      if (this._wetWorld) this.wet.bindWorld(this._wetWorld);
+      this.wetPass = new EffectPass(camera, this.wet);
+      this.wetPass.enabled = false;
+      composer.addPass(this.wetPass);
+    } else this.wet = this.wetPass = null;
     // hot air over fires (its own pass: it bends the picture, so it can't merge with SMAA)
     if (this.qualityName !== 'low') {
       this.heat = new HeatShimmerEffect();
@@ -292,6 +302,17 @@ export class RenderSystem {
     this.dof.target = target || null;
     this.dof.bokehScale = opts.bokeh ?? (level > 1 ? 5.5 : 2.6);
     this.dof.cocMaterial.focusRange = opts.range ?? (level > 1 ? 1.6 : 3.2);
+  }
+
+  /** What wet means (WetReflectionEffect.bindWorld); kept for when the composer is rebuilt. */
+  bindWetWorld(world) {
+    this._wetWorld = world;
+    this.wet?.bindWorld(world);
+  }
+
+  /** On while something on screen can be wet (the river's edge, or rain). */
+  setWet(on) {
+    if (this.wetPass) this.wetPass.enabled = on;
   }
 
   updateHeat(camera, sources) {

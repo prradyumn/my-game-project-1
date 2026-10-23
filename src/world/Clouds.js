@@ -73,6 +73,8 @@ uniform vec3 uSunCol;
 uniform vec3 uZenith;
 uniform vec3 uHorizon;
 uniform float uCover;
+uniform float uOvercast;
+uniform float uFlash;
 uniform float uDensity;
 uniform float uTime;
 uniform float uFrame;
@@ -91,8 +93,11 @@ float density(vec3 p, bool cheap) {
   float base = remap(n.r, -(1.0 - n.g) * 0.55, 1.0, 0.0, 1.0);
   // big gaps of blue sky between the cloud fields
   float field = texture(uNoise, q * 0.12 + 0.37).g;
-  float cov = clamp(uCover + (field - 0.55) * 0.9, 0.0, 1.0);
+  // (under an overcast the fields close up into one grey deck: no blue holes over the rain)
+  float cov = clamp(uCover + (field - 0.55) * 0.9 * (1.0 - uOvercast), 0.0, 1.0);
   float d = clamp(remap(base * shape, 1.0 - cov, 1.0, 0.0, 1.0), 0.0, 1.0);
+  // and under an overcast, a deck of rain cloud in the lower slab (the cumulus alone left holes)
+  d = max(d, uOvercast * uOvercast * smoothstep(0.0, 0.05, h) * smoothstep(0.42, 0.18, h) * (0.45 + 0.55 * base));
   if (d <= 0.0 || cheap) return d * uDensity;
   // the edges eaten away by the finer noise (wispier at the base, puffier at the top)
   float det = texture(uNoise, q * 3.6 + vec3(0.0, uTime * 0.02, 0.0)).b;
@@ -132,17 +137,22 @@ void main() {
         float powder = 1.0 - exp(-d * dt * sigma * 2.0);
         float h = clamp((p.y - ${SLAB0.toFixed(1)}) / ${(SLAB1 - SLAB0).toFixed(1)}, 0.0, 1.0);
         // the sky's light: from above on the tops, little reaching the flat dark bases
-        vec3 amb = mix(uHorizon * 0.5, uZenith * 0.8, h) * (0.3 + 0.7 * h);
+        vec3 amb = mix(uHorizon * 0.5, uZenith * 0.8, h) * (0.3 + 0.7 * h) * (1.0 - 0.45 * uOvercast);
+        // under a deck: grey, not the blue it hides, and lit by the sun diffused through the whole
+        // deck, bounce on bounce (a single-scattering sum leaves an overcast's underside black);
+        // darker where it is thicker, so it has a texture of its own
+        amb = mix(amb, vec3(dot(uSunCol, vec3(0.3, 0.59, 0.11))) * 1.6 * (0.4 + 0.6 * h) * (1.0 - 0.45 * smoothstep(0.4, 1.3, d)), uOvercast);
+        amb += vec3(0.85, 0.9, 1.0) * uFlash * 2.5; // (lightning inside the deck)
         vec3 S = uSunCol * Tl * phase * mix(0.6, 1.0, powder) + amb;
         float a = exp(-d * dt * sigma);
         col += T * S * (1.0 - a);
         T *= a;
-        if (T < 0.02) break;
+        if (T < 0.02) { T = 0.0; break; } // (opaque: the sun's glow behind can't leak through)
       }
       t += dt;
     }
-    // far off they melt into the haze of the horizon
-    float fade = exp(-max(t0, 0.0) / 26000.0) * smoothstep(0.012, 0.09, rd.y);
+    // far off they melt into the haze of the horizon (an overcast runs down to it)
+    float fade = mix(exp(-max(t0, 0.0) / 26000.0), 1.0, uOvercast) * smoothstep(0.012, mix(0.09, 0.025, uOvercast), rd.y);
     res = vec4(col * fade, (1.0 - T) * fade);
   }
   // the last frames, reprojected by the ray's direction
@@ -165,9 +175,9 @@ void main() {
 export class VolumetricClouds {
   constructor(renderer, scene, { quality = 'high' } = {}) {
     this.renderer = renderer;
-    this.scale = { low: 0, medium: 0.25, high: 0.28, veryhigh: 0.32, ultra: 0.45 }[quality] ?? 0.28;
-    this.on = this.scale > 0 && !(typeof location !== 'undefined' && /[?&]noclouds/.test(location.search));
-    if (!this.on) return;
+    this.built = !(typeof location !== 'undefined' && /[?&]noclouds/.test(location.search));
+    this.on = false;
+    if (!this.built) return;
     this.cover = 0.36;
     this.frame = 0;
     this.time = 0;
@@ -190,6 +200,8 @@ export class VolumetricClouds {
       uZenith: { value: new THREE.Color(0.3, 0.45, 0.7) },
       uHorizon: { value: new THREE.Color(0.7, 0.75, 0.8) },
       uCover: { value: this.cover },
+      uOvercast: { value: 0 },
+      uFlash: { value: 0 },
       uDensity: { value: 1 },
       uTime: { value: 0 },
       uFrame: { value: 0 },
@@ -210,6 +222,7 @@ export class VolumetricClouds {
     this.dome.frustumCulled = false;
     this.dome.renderOrder = -1;
     scene.add(this.dome);
+    this.setQuality(quality);
   }
 
   /** The 64^3 noise, one layer at a time, into a 3D target. */
@@ -235,6 +248,14 @@ export class VolumetricClouds {
     mat.dispose();
     q.geometry.dispose();
     this.noise = rt;
+  }
+
+  /** Resolution of the march for a quality preset (Low: none, the sky's flat clouds instead). */
+  setQuality(quality) {
+    this.scale = { low: 0, medium: 0.25, high: 0.28, veryhigh: 0.32, ultra: 0.45 }[quality] ?? 0.28;
+    this.on = this.built && this.scale > 0;
+    if (this.dome) this.dome.visible = this.on;
+    this.hasPrev = false;
   }
 
   /** March this frame's clouds (before the main render). size: the render size in pixels. */
@@ -263,6 +284,11 @@ export class VolumetricClouds {
     U.uHorizon.value.copy(sky.horizonColor);
     U.uCover.value = THREE.MathUtils.lerp(this.cover, 0.95, sky.overcast || 0);
     U.uDensity.value = 1 + (sky.overcast || 0) * 0.8;
+    U.uOvercast.value = sky.overcast || 0;
+    U.uFlash.value = this.flash || 0;
+    if (this.flash > 0.05) this.hasPrev = false; // (a flash is instant: no smearing it over frames)
+    // (a deck of rain cloud lets little of the sun through to its own underside)
+    U.uSunCol.value.multiplyScalar(1 - 0.75 * (sky.overcast || 0));
     // the history: last frame's view, the camera's turn only (the clouds are kilometres away)
     U.uPrevVP.value.copy(this.prevVP);
     U.uBlend.value = this.hasPrev ? 0.86 : 0;

@@ -4,7 +4,7 @@ import { WORLD_UNIFORMS } from './materials.js';
 // The windows of the city, given depth they do not have. Each is still one flat quad on the wall
 // (one instanced draw for them all), but the shader looks *into* it:
 //   * the reveal: the opening's outline extruded a hand's span into the wall, found by walking the
-//     view ray through the opening mask (so arches stay arches); its sides and sill catch the light
+//     view ray through the opening's shape (so arches stay arches); its sides and sill catch the light
 //     and darken with depth
 //   * the sun's shadow cast by the wall into that recess (the back point traced toward the sun:
 //     out through the opening, or blocked by the wall around it)
@@ -13,41 +13,7 @@ import { WORLD_UNIFORMS } from './materials.js';
 //     and ceiling): lime-washed walls, a calendar, a dado; by day lit only by what comes in through
 //     the window, at night by its own bulb (the lit windows: warm, and a curtain)
 // windowMaterial({ map, lit }) replaces the flat textured material; setNight(n) on the lit one.
-
-let maskTex = null;
-
-/** R: the opening, G: the whole window with its frame (same arch as windowTexture). */
-function windowMask() {
-  if (maskTex) return maskTex;
-  const w = 128;
-  const h = 256;
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  const ctx = c.getContext('2d');
-  const arch = (inset) => {
-    ctx.beginPath();
-    const r = (w - inset * 2) / 2;
-    ctx.moveTo(inset, h - inset);
-    ctx.lineTo(inset, r + inset + 30);
-    ctx.quadraticCurveTo(inset, inset, w / 2, inset);
-    ctx.quadraticCurveTo(w - inset, inset, w - inset, r + inset + 30);
-    ctx.lineTo(w - inset, h - inset);
-    ctx.closePath();
-  };
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, w, h);
-  arch(0);
-  ctx.fillStyle = '#00ff00';
-  ctx.fill();
-  arch(12);
-  ctx.fillStyle = '#ffff00';
-  ctx.fill();
-  maskTex = new THREE.CanvasTexture(c);
-  maskTex.colorSpace = THREE.NoColorSpace;
-  maskTex.wrapS = maskTex.wrapT = THREE.ClampToEdgeWrapping;
-  return maskTex;
-}
+// The opening's outline is worked out, not looked up (winOpen): the march costs no texture reads.
 
 const VERT_HEAD = /* glsl */ `
 uniform vec3 uSunDir;
@@ -75,7 +41,6 @@ const VERT_BODY = /* glsl */ `
 `;
 
 const FRAG_HEAD = /* glsl */ `
-uniform sampler2D uWinMask;
 uniform float uLitAmt;
 varying vec3 vWall;
 varying vec3 vWinV;
@@ -85,9 +50,15 @@ varying float vWinSeed;
 float wShadow = 1.0;  // direct light kept
 float wAO = 1.0;      // indirect light kept
 vec3 wEmit = vec3(0.0);
+// the opening, exactly as windowTexture draws it (128 x 256 px, 12 px frame): straight jambs up
+// to y = 94 px from the top, then a quadratic arch to the crown; on the arch the curve's parameter
+// for a height y is t = 1 - sqrt((y - 12) / 82), and its half-width there 52 (1 - t^2)
 float winOpen(vec2 p) {
-  if (p.x <= 0.0 || p.y <= 0.0 || p.x >= 1.0 || p.y >= 1.0) return 0.0;
-  return step(0.5, texture2D(uWinMask, p).r);
+  float px = p.x * 128.0, py = (1.0 - p.y) * 256.0;
+  if (px <= 12.0 || px >= 116.0 || py <= 12.0 || py >= 244.0) return 0.0;
+  if (py >= 94.0) return 1.0;
+  float t = 1.0 - sqrt((py - 12.0) / 82.0);
+  return step(abs(px - 64.0), 52.0 * (1.0 - t * t));
 }
 float winH(float n) { return fract(sin(n * 91.3458) * 47453.5453); }
 `;
@@ -106,8 +77,11 @@ const FRAG_MAP = /* glsl */ `
     // walk the opening's outline back into the wall
     float zHit = D;
     float prev = 0.0;
+    // (half the steps past 30 m, where a window is a few pixels across)
+    float nSteps = dot(vWinV, vWinV) * dot(sz, sz) > 0.0 && length(vec3(vWinV.xy * sz, vWinV.z)) > 30.0 ? 4.0 : 8.0;
     for (int i = 1; i <= 8; i++) {
-      float z = D * float(i) / 8.0;
+      if (float(i) > nSteps) break;
+      float z = D * float(i) / nSteps;
       if (winOpen(vMapUv + slope * z) < 0.5) {
         float a = prev, b = z;
         for (int k = 0; k < 3; k++) { float m = 0.5 * (a + b); if (winOpen(vMapUv + slope * m) < 0.5) b = m; else a = m; }
@@ -222,7 +196,6 @@ export function windowMaterial({ map, lit = false }) {
   const uLitAmt = { value: 0 };
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uSunDir = WORLD_UNIFORMS.uSunDir;
-    sh.uniforms.uWinMask = { value: windowMask() };
     sh.uniforms.uLitAmt = uLitAmt;
     if (lit) sh.fragmentShader = '#define WIN_LIT_ROOMS\n' + sh.fragmentShader;
     sh.vertexShader = sh.vertexShader

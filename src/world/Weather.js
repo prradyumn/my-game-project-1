@@ -228,6 +228,9 @@ export class Weather {
     dome.frustumCulled = false;
     this.dome = dome;
     scene.add(dome);
+    // (Game: when the volumetric clouds are on they draw the deck themselves; this one is then kept
+    // for the mirrors only, the river's and the sky's reflection scene)
+    this.volumetricSky = false;
     this.footprints = new Footprints();
     scene.add(this.footprints.mesh);
     this.splashAcc = 0;
@@ -299,7 +302,8 @@ export class Weather {
     cu.uShade.value.setRGB(0.3, 0.32, 0.36).multiplyScalar(0.2 + 0.8 * day);
     cu.uHaze.value.copy(this.scene.fog.color);
     this.dome.position.copy(this.camera.position);
-    this.dome.visible = this.overcast > 0.01;
+    const deck = this.overcast > 0.01;
+    this.dome.visible = deck && !this.volumetricSky;
     // the same deck in the sky's reflection scene, so wet stone and puddles mirror grey cloud
     if (!this.envDome && sky.envScene) {
       this.envDome = new THREE.Mesh(this.dome.geometry, this.dome.material);
@@ -307,7 +311,7 @@ export class Weather {
       this.envDome.renderOrder = -1;
       sky.envScene.add(this.envDome);
     }
-    if (this.envDome) this.envDome.visible = this.dome.visible;
+    if (this.envDome) this.envDome.visible = deck;
 
     // lightning
     this.flash = 0;

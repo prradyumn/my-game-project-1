@@ -241,6 +241,9 @@ export class Game {
     this.world = buildWorld(scene, textures, physics);
     this.nav = new Navigation();
     this.water = new Water(renderer, scene, this.rs.quality);
+    // (what wet means to the screen-space reflections: the materials' rain and lap line, and the
+    // terrain under the river, so the river's own surface is left to its mirror)
+    this.rs.bindWetWorld({ rain: WORLD_UNIFORMS.uRainWet, time: WORLD_UNIFORMS.uTime, waterLevel: WORLD_UNIFORMS.uWaterLevel, heightTex: this.water.uniforms.uHeightTex.value, heightBounds: new THREE.Vector4(HEIGHT_BOUNDS.x0, HEIGHT_BOUNDS.z0, HEIGHT_BOUNDS.w, HEIGHT_BOUNDS.h) });
     this.water.drawSize = (v) => this.rs.renderSize(v); // (the mirror scales from the render, not the finer canvas)
 
     ui.setLoading(0.88, 'Lighting the lamps…');
@@ -347,12 +350,17 @@ export class Game {
     this.moored = new MooredBoats(lodGeo, this.world.layout.boats.moored);
     // the volumetric clouds own the sky; the sky's flat noise clouds only in the river's mirror
     // (and the dome kept out of it: it is drawn for the main view's pixels)
-    if (this.clouds?.on) {
+    // (at Low there is no march: the sky's own clouds stay, everywhere)
+    if (this.clouds?.built) {
       const su = this.sky.sky.material.uniforms;
-      su.cloudCoverage.value = 0;
+      const c = this.clouds;
+      su.cloudCoverage.value = c.on ? 0 : 0.45;
+      this.weather.volumetricSky = c.on;
       this.water.onReflect = (on) => {
-        su.cloudCoverage.value = on ? 0.45 : 0;
-        this.clouds.dome.visible = !on;
+        su.cloudCoverage.value = on || !c.on ? 0.45 : 0;
+        c.dome.visible = !on && c.on;
+        // (the rain's flat deck: in the mirror, or everywhere when there's no march)
+        this.weather.dome.visible = this.weather.overcast > 0.01 && (on || !c.on);
       };
     }
     this.shiva = new ShivaStatue({ scene, physics, textures, gltf: await pShiva, nandi: await pNandi });
@@ -1315,6 +1323,11 @@ export class Game {
       this.sky.configureShadows(this.rs.quality.shadows);
       this.water.setQuality(this.rs.quality);
       this.crowd?.setQuality(s.quality);
+      if (this.clouds?.built) {
+        this.clouds.setQuality(s.quality);
+        this.sky.sky.material.uniforms.cloudCoverage.value = this.clouds.on ? 0 : 0.45;
+        this.weather.volumetricSky = this.clouds.on;
+      }
     }
     this.rs.adaptive = s.adaptiveResolution;
     this.audio.setVolume('music', s.musicVolume);
@@ -1367,6 +1380,7 @@ export class Game {
       this.scene.updateMatrixWorld();
       this.water.renderReflection(this.camera);
       this.water.simulate(dt, this.player?.position || this.camera.position);
+      if (this.clouds) this.clouds.flash = this.weather.flash || 0;
       this.clouds?.render(this.camera, this.rs.renderSize(this._cloudSize || (this._cloudSize = new THREE.Vector2())), this.sky, dt);
       this.rs.render(this.sky.exposure * this.weather.exposureScale());
       if (this.state === 'play' || this.state === 'intro') this.rs.adapt(dt, (performance.now() - t0) / 1000);
@@ -1418,6 +1432,11 @@ export class Game {
     // Time of day + world uniforms
     this.sky.update(simDt, this.camera.position);
     // contact shadows follow the sun (none once it is down, less under cloud)
+    // wet reflections: in the rain, or with the river's lapped steps in view
+    {
+      const cp = this.camera.position;
+      this.rs.setWet(WORLD_UNIFORMS.uRainWet.value > 0.02 || bankCoords(cp.x, cp.z).v > -14);
+    }
     this.rs.contact?.setSun(this.sky.sunDir, 0.6 * Math.min(1, Math.max(0, (this.sky.sunDir.y - 0.02) / 0.12)) * (1 - 0.7 * (this.sky.overcast ?? 0)));
     WORLD_UNIFORMS.uTime.value += simDt;
     {
