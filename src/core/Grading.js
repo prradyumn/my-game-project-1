@@ -319,7 +319,8 @@ export function applyGrade(effect, { sunElevation, purity, underwater, filter = 
   u.get('uGain').value.copy(tmp.gain);
   u.get('uContrast').value = tmp.con;
   // Kashi blooms into colour as the Ganga is purified
-  u.get('uSaturation').value = tmp.sat * lerp(0.9, 1.04, purity);
+  // (the Neutral tone map keeps the scene's own saturation: the grade's lift is trimmed for it)
+  u.get('uSaturation').value = tmp.sat * lerp(0.9, 1.04, purity) * (effect.satScale ?? 1);
   u.get('uVibrance').value = lerp(0.1, 0.35, purity);
   u.get('uGamma').value.set(1, 1, 1);
   // the film print (none under a photo filter: those were made on the natural grade)

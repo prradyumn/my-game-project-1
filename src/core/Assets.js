@@ -196,7 +196,7 @@ export const ASSET_MANIFEST = {
     // (the ghats keep their own worn Chunar stone: Poly Haven's sandstone_blocks_08, also here,
     // read too clean and cold side by side; the plaster's flaking is kept at a third of its
     // contrast so a haveli is old, not blotchy)
-    plaster: { map: `${A}/textures/pbr/white_rough_plaster_diff_1k.jpg`, normal: `${A}/textures/pbr/white_rough_plaster_nor_gl_1k.jpg`, arm: `${A}/textures/pbr/white_rough_plaster_arm_1k.jpg`, repeat: 1.5, contrast: 0.35, level: 0.86 },
+    plaster: { map: `${A}/textures/pbr/white_rough_plaster_diff_1k.jpg`, normal: `${A}/textures/pbr/white_rough_plaster_nor_gl_1k.jpg`, arm: `${A}/textures/pbr/white_rough_plaster_arm_1k.jpg`, repeat: 1.5, contrast: 0.6, level: 0.84 }, // (more of its flaking kept: the plaster had no tooth and read as plastic)
     wood: { map: `${A}/textures/pbr/weathered_brown_planks_diff_1k.jpg`, normal: `${A}/textures/pbr/weathered_brown_planks_nor_gl_1k.jpg`, arm: `${A}/textures/pbr/weathered_brown_planks_arm_1k.jpg`, repeat: 1 },
   },
   textures: {

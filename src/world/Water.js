@@ -460,6 +460,7 @@ export class Water {
       // alpha 1 and covers what is under it with its own bent, absorbed copy)
       m.needsUpdate = true;
     }
+    if (this.near) this.setUnder(!!this.under);
     this.reflectionScale = q.reflection;
     this.uniforms.uUseReflection.value = q.reflection > 0 ? 1 : 0;
     if (this.reflectionRT) {
@@ -567,8 +568,12 @@ export class Water {
   // From below, the surface is a ceiling: it writes depth so mist, ripples, smoke and rain
   // above it can't paint over it.
   setUnder(under) {
-    this.near.material.depthWrite = under;
-    this.far.material.depthWrite = under;
+    this.under = under;
+    // (refracting, it is drawn opaque: its surface goes into the depth too, so the effects that
+    // read depth, contact shadows, haze, AO, see the water and not the bed under it)
+    const dw = under || !!this.refract;
+    this.near.material.depthWrite = dw;
+    this.far.material.depthWrite = dw;
   }
 
   setEddy(x, z) {
@@ -769,10 +774,12 @@ export class Water {
     const prevTarget = r.getRenderTarget();
     const prevShadow = r.shadowMap.autoUpdate;
     r.shadowMap.autoUpdate = false;
+    this.onReflect?.(true);
     r.setRenderTarget(this.reflectionRT);
     r.clear();
     r.render(this.scene, vc);
     r.setRenderTarget(prevTarget);
+    this.onReflect?.(false);
     r.shadowMap.autoUpdate = prevShadow;
     this.near.visible = true;
     this.far.visible = true;

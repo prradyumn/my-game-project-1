@@ -4,6 +4,7 @@ import { N8AOPostPass } from 'n8ao';
 import { QUALITY_PRESETS } from '../config.js';
 import { clamp } from '../utils/math.js';
 import { ColorGradeEffect } from './Grading.js';
+import { ContactShadowEffect } from './ContactShadows.js';
 import { PainterlyEffect } from './Painterly.js';
 import { HazeEffect } from './Haze.js';
 import { HeatShimmerEffect } from './HeatShimmer.js';
@@ -106,6 +107,9 @@ export class RenderSystem {
       this.setDof(this.dofLevel ?? 0, this.dofTarget);
     } else this.dof = this.dofPass = null;
     const effects = [];
+    // contact shadows first: on the scene's own light, before haze, bloom and the tone map
+    this.contact = typeof location !== 'undefined' && /[?&]nocontact/.test(location.search) ? null : new ContactShadowEffect(camera);
+    if (this.contact) effects.push(this.contact);
     // sun shafts through the havelis, umbrellas and mist at sunrise / sunset (not on Low); in a
     // pass of their own so they cost nothing (no light pass, no blur) when the sun is high or set
     if (this.qualityName !== 'low') {
@@ -125,9 +129,15 @@ export class RenderSystem {
       this.bloom = new BloomEffect({ intensity: 0.9, luminanceThreshold: 3.2, luminanceSmoothing: 0.8, mipmapBlur: true, radius: 0.6, levels: 6, resolutionScale: 0.5 });
       effects.push(this.bloom);
     }
-    this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
+    // Khronos PBR Neutral: colour kept true up to the highlights, which then roll off to white,
+    // instead of ACES's cream-and-grey clip of the sky and its saturation spike in the mids (the
+    // "plastic" look). ?tm=aces / ?tm=agx to compare.
+    const tm = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('tm') : null;
+    this.toneMapping = new ToneMappingEffect({ mode: tm === 'aces' ? ToneMappingMode.ACES_FILMIC : tm === 'agx' ? ToneMappingMode.AGX : ToneMappingMode.NEUTRAL });
+    this.tmName = tm || 'neutral';
     effects.push(this.toneMapping);
     this.grade = new ColorGradeEffect();
+    this.grade.satScale = this.tmName === 'neutral' ? 0.9 : 1;
     effects.push(this.grade);
     effects.push(new VignetteEffect({ offset: 0.32, darkness: 0.42 }));
     if (q.smaa) effects.push(new SMAAEffect({ preset: this.qualityName === 'medium' ? SMAAPreset.MEDIUM : SMAAPreset.HIGH }));
@@ -290,7 +300,9 @@ export class RenderSystem {
   }
 
   render(exposure) {
-    this.renderer.toneMappingExposure = exposure;
+    // (ACES lifts the mids by ~1/0.6 on its own; Neutral and AgX don't: the same scene at the
+    // same exposure would come out a stop darker)
+    this.renderer.toneMappingExposure = exposure * (this.tmName === 'aces' ? 1 : 1.42);
     this.renderer.shadowMap.needsUpdate = true;
     this.renderer.info.reset();
     this.composer.render();

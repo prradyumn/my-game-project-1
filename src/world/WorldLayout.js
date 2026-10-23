@@ -173,9 +173,10 @@ export function waterDepthAt(x, z) {
 // ---------------------------------------------------------------------------------------------
 // City layout
 
+// (faded: sun, monsoon and years of lime-wash over the paint; the bright originals read as plastic)
 const HAVELI_COLORS = [
-  '#ece3cf', '#ece3cf', '#f1e9d8', '#e0b25c', '#d9a647', '#e3b866', '#d88c6c', '#c9714f',
-  '#9fbccc', '#a9c9b0', '#e7c3a0', '#d4c4a8', '#e9d6b0', '#c8b8d8', '#e5a37f', '#f0d9a8',
+  '#e3dccc', '#e3dccc', '#e7e0d2', '#d6b983', '#d1b175', '#d8bd89', '#d2a38c', '#c79279',
+  '#b3c1c6', '#b9c9b6', '#dec7ae', '#d2c7b2', '#e0d3b8', '#ccc1ce', '#dbb299', '#e4d4b3',
 ];
 
 const ROWS = [

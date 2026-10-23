@@ -196,7 +196,7 @@ export class GroundPigeons {
       geo.setAttribute('aWing', new THREE.BufferAttribute(new Float32Array(n), 1));
       return geo;
     };
-    const grey = [0.42, 0.44, 0.5];
+    const grey = [0.37, 0.36, 0.37]; // (slate, warm: the bluish grey went cyan under the sky's light)
     parts.push(color(new THREE.SphereGeometry(0.075, 8, 6).scale(0.85, 0.8, 1.35).translate(0, 0.1, 0), grey));
     parts.push(color(new THREE.SphereGeometry(0.045, 8, 6).translate(0, 0.17, 0.09), [0.36, 0.4, 0.45]));
     parts.push(color(new THREE.ConeGeometry(0.012, 0.03, 5).rotateX(Math.PI / 2).translate(0, 0.165, 0.14), [0.55, 0.4, 0.35]));

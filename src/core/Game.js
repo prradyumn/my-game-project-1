@@ -11,6 +11,7 @@ import { CharacterAnimator } from '../gameplay/CharacterAnimator.js';
 import { MooredBoats, PlayerBoat, prepareBoatGeometry, proceduralBoatGeometry } from '../gameplay/Boats.js';
 import { Player } from '../gameplay/Player.js';
 import { Afterimages } from '../world/Afterimages.js';
+import { VolumetricClouds } from '../world/Clouds.js';
 import { GrassField, WildBank, addGrassGround } from '../world/Grass.js';
 import { ShivaStatue } from '../world/ShivaStatue.js';
 import { SacredTrees } from '../world/Trees.js';
@@ -211,6 +212,8 @@ export class Game {
     scene.matrixWorldAutoUpdate = false;
     this.scene = scene;
     this.afterimages = new Afterimages(scene);
+    // volumetric clouds (the sky's own flat ones only in the river's mirror)
+    this.clouds = new VolumetricClouds(renderer, scene, { quality: this.rs.qualityName });
     const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 3000);
     this.camera = camera;
     camera.layers.enable(1); // sky-only extras (stars) that the water mirror skips
@@ -342,6 +345,16 @@ export class Game {
     const lodGeo = (lodG && prepareBoatGeometry(lodG.scene)) || boatGeo;
     if (lodGeo !== boatGeo) makeWaterAware(lodGeo.material, { wetness: false, puddles: false });
     this.moored = new MooredBoats(lodGeo, this.world.layout.boats.moored);
+    // the volumetric clouds own the sky; the sky's flat noise clouds only in the river's mirror
+    // (and the dome kept out of it: it is drawn for the main view's pixels)
+    if (this.clouds?.on) {
+      const su = this.sky.sky.material.uniforms;
+      su.cloudCoverage.value = 0;
+      this.water.onReflect = (on) => {
+        su.cloudCoverage.value = on ? 0.45 : 0;
+        this.clouds.dome.visible = !on;
+      };
+    }
     this.shiva = new ShivaStatue({ scene, physics, textures, gltf: await pShiva, nandi: await pNandi });
     this.trees = new SacredTrees({ scene, physics, gltf: await pPeepal, quality: this.rs.qualityName });
     // level streaming: the full models in as Prady comes within reach, out once he is well away
@@ -1354,6 +1367,7 @@ export class Game {
       this.scene.updateMatrixWorld();
       this.water.renderReflection(this.camera);
       this.water.simulate(dt, this.player?.position || this.camera.position);
+      this.clouds?.render(this.camera, this.rs.renderSize(this._cloudSize || (this._cloudSize = new THREE.Vector2())), this.sky, dt);
       this.rs.render(this.sky.exposure * this.weather.exposureScale());
       if (this.state === 'play' || this.state === 'intro') this.rs.adapt(dt, (performance.now() - t0) / 1000);
       this.rs.prewarm(this.scene, this.camera, dt); // (after adapt: its compile is not this frame's cost)
@@ -1403,6 +1417,8 @@ export class Game {
 
     // Time of day + world uniforms
     this.sky.update(simDt, this.camera.position);
+    // contact shadows follow the sun (none once it is down, less under cloud)
+    this.rs.contact?.setSun(this.sky.sunDir, 0.6 * Math.min(1, Math.max(0, (this.sky.sunDir.y - 0.02) / 0.12)) * (1 - 0.7 * (this.sky.overcast ?? 0)));
     WORLD_UNIFORMS.uTime.value += simDt;
     {
       // the wind: a gust now and then, swelling and dying over a few seconds (cloth, flags)

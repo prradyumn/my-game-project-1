@@ -155,6 +155,9 @@ export class SkySystem {
     cam.far = 400;
     s.shadow.bias = -0.0004;
     s.shadow.normalBias = 0.04;
+    // (a soft edge: the sun is half a degree wide and the shadow map's texels are a hand across;
+    // the sharp contact itself is the contact shadows' work)
+    s.shadow.radius = size >= 2048 ? 2.6 : 2;
     if (s.shadow.map) {
       s.shadow.map.dispose();
       s.shadow.map = null;
@@ -226,7 +229,7 @@ export class SkySystem {
     // (in full day less of the sky fills the sun's shadows: at 0.45 they came out a third as
     // bright as sunlit stone and the whole picture read hazy and flat. Not much less: in the
     // afternoon the ghats stand in the city's shade, lit by this sky alone)
-    this.hemi.intensity = lerp(0.42, 0.39, day);
+    this.hemi.intensity = lerp(0.42, 0.3, day);
 
     sampleKeys(FOG_KEYS, elev, this.fogColor);
     this.scene.fog.color.copy(this.fogColor).multiplyScalar(0.85);
@@ -276,7 +279,9 @@ export class SkySystem {
     this.moon.material.opacity = smoothstep(0.2, 0.7, night);
     this.moon.visible = this.moon.material.opacity > 0.01 && !this.underwater;
 
-    this.scene.environmentIntensity = lerp(0.1, 0.34, day);
+    // the sky's own light (the environment map: blue from above, warm from the sunward horizon)
+    // carries more of the fill, the flat hemisphere less: shading that knows where the sky is
+    this.scene.environmentIntensity = lerp(0.14, 0.62, day);
     this._metalK = lerp(0.1, 0.4, day) * 3.3; // (the metals keep the sky's full reflection)
 
     // Refresh the environment map when the sun has moved enough to matter.
